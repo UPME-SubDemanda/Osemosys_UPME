@@ -4,6 +4,9 @@ Replica las celdas 27-28 del notebook OPT_YA_20260220:
   - Generación de archivo LP con symbolic_solver_labels (opcional)
   - SolverFactory("glpk").solve(instance) o appsi_highs
   - Diagnósticos de infactibilidad (constraint violations, variable bounds)
+
+Uso: recibe la instancia concreta de instance_builder.build_instance();
+     devuelve dict con solver_name, solver_status, objective_value.
 """
 
 from __future__ import annotations
@@ -16,10 +19,12 @@ from pyomo.core import Constraint, Var, value
 
 logger = logging.getLogger(__name__)
 
+# Alias usado en solve_model -> nombre del factory Pyomo (appsi_highs, glpk).
 SOLVER_FACTORIES: dict[str, str] = {"highs": "appsi_highs", "glpk": "glpk"}
 
 
 def get_solver_availability() -> dict[str, bool]:
+    """Comprueba para cada solver si está disponible (instalado y usable)."""
     availability: dict[str, bool] = {}
     for solver_alias, solver_factory in SOLVER_FACTORIES.items():
         solver = pyo.SolverFactory(solver_factory)
@@ -36,6 +41,7 @@ def write_lp_file(
     """Genera archivo LP con etiquetas simbólicas para debugging.
 
     Replica la celda 27 del notebook OPT_YA_20260220.
+    symbolic_solver_labels=True hace que los nombres de restricciones/variables sean legibles.
     """
     lp_path = Path(lp_path)
     lp_path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,6 +60,9 @@ def _run_infeasibility_diagnostics(instance: pyo.ConcreteModel) -> None:
 
     Replica la lógica de diagnósticos de infactibilidad de la celda 28
     del notebook OPT_YA_20260220.
+    - Recorre restricciones activas: si body < lower o body > upper (con tol 1e-6), registra violación.
+    - Recorre variables: si lb > ub, registra conflicto de bounds.
+    - Escribe en log las peores 10 y recomendaciones de debugging.
     """
     tol = 1e-6
 
@@ -144,21 +153,17 @@ def solve_model(
     """Resuelve el modelo usando Pyomo SolverFactory.
 
     Replica las celdas 27-28 del notebook OPT_YA_20260220.
-
-    Parameters
-    ----------
-    instance : ConcreteModel
-        Instancia concreta del modelo.
-    solver_name : str
-        Nombre del solver ("glpk" o "highs").
-    lp_path : str | Path | None
-        Si se proporciona, genera archivo LP antes de resolver.
+    - Si lp_path no es None, escribe el .lp antes de resolver.
+    - Prueba primero el solver solicitado; si no está disponible, prueba el otro (highs/glpk).
+    - Si el status es infactible, ejecuta _run_infeasibility_diagnostics.
+    - Retorna dict con solver_name, solver_status, objective_value.
     """
     if lp_path is not None:
         write_lp_file(instance, lp_path)
 
     solver_availability = get_solver_availability()
 
+    # Orden de intento: el solicitado primero, luego el resto.
     fallback_order = (
         [solver_name, *[n for n in SOLVER_FACTORIES if n != solver_name]]
         if solver_name in SOLVER_FACTORIES
@@ -194,6 +199,7 @@ def solve_model(
             "objective_value": obj,
         }
 
+    # Ningún solver estaba disponible.
     avail_text = ", ".join(
         f"{n}={'ok' if e else 'missing'}" for n, e in solver_availability.items()
     )

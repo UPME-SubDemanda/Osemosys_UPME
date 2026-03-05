@@ -3,6 +3,11 @@
 Replica la celda 26 del notebook: extracción de variables,
 cálculo de variables intermedias, y construcción del dict
 de resultados compatible con el pipeline.
+
+Entrada: instancia resuelta + solver_result (de solver.solve_model) + lookups (region_id_by_name, etc.).
+Salida: dict con objective_value, coverage_ratio, dispatch, new_capacity, unmet_demand,
+        annual_emissions, sol (RateOfActivity, NewCapacity, UnmetDemand, AnnualEmissions),
+        intermediate_variables, model_timings.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_extract(var_component) -> dict:
-    """extract_values() con None → 0.0."""
+    """Extrae valores de un componente Pyomo (Param/Var); sustituye None por 0.0."""
     raw = var_component.extract_values()
     return {k: (v if v is not None else 0.0) for k, v in raw.items()}
 
@@ -26,6 +31,7 @@ def _variable_to_dataframe(variable, index_names: list[str] | None = None) -> pd
     """Convierte variable Pyomo indexada o dict a DataFrame.
 
     Replica la función variable_to_dataframe del notebook.
+    Si variable es dict, las claves son tuplas (índices) y el valor el número.
     """
     rows = []
 
@@ -69,7 +75,10 @@ def _extract_dispatch(
     region_id_by_name: dict[str, int],
     technology_id_by_name: dict[str, int],
 ) -> list[dict]:
-    """Extrae dispatch (actividad anual por tecnología)."""
+    """Extrae dispatch: actividad anual por (región, tecnología, año).
+    Usa RateOfActivity × YearSplit para actividad por timeslice; suma por año.
+    Asigna coste variable medio y el fuel 'principal' (OutputActivityRatio > 0) por (r,t,y).
+    """
     roa_raw = _safe_extract(instance.RateOfActivity)
 
     ys_param = getattr(instance, "YearSplit", None)
@@ -129,6 +138,7 @@ def _extract_new_capacity(
     region_id_by_name: dict[str, int],
     technology_id_by_name: dict[str, int],
 ) -> list[dict]:
+    """Lista de dicts con region_id, technology_id, year, new_capacity, technology_name."""
     nc_raw = _safe_extract(instance.NewCapacity)
     return [
         {
@@ -157,7 +167,10 @@ def _compute_unmet_demand(
     instance: pyo.ConcreteModel,
     region_id_by_name: dict[str, int],
 ) -> list[dict]:
-    """Demanda insatisfecha = max(0, Demand - Production) por (r, fuel, y)."""
+    """Demanda insatisfecha = max(0, Demand - Production) por (r, fuel, y).
+    Producción por fuel viene de RateOfActivity × OutputActivityRatio × YearSplit;
+    demanda de Demand (param). Se agrega por (r, y) para el listado final.
+    """
     roa_raw = _safe_extract(instance.RateOfActivity)
 
     ys_param = getattr(instance, "YearSplit", None)
@@ -201,6 +214,7 @@ def _extract_annual_emissions(
     years: list,
     emissions: list,
 ) -> list[dict]:
+    """Extrae AnnualEmissions por (región, año); si no hay emisiones, devuelve 0.0 por (r,y)."""
     if not emissions:
         return [
             {"region_id": region_id_by_name.get(r, -1), "year": y, "annual_emissions": 0.0}
@@ -231,7 +245,11 @@ def _compute_intermediate_variables(
     emissions: list,
     has_storage: bool,
 ) -> dict[str, list]:
-    """Calcula ProductionByTechnology, TotalCapacityAnnual, UseByTechnology, etc."""
+    """Calcula variables intermedias para reportes: TotalCapacityAnnual, AccumulatedNewCapacity,
+    ProductionByTechnology, UseByTechnology, RateOfProduction/Use, emisiones por tecnología,
+    costos descontados, salvage; si has_storage, variables de almacenamiento.
+    Cada entrada es lista de {"index": [...], "value": float}.
+    """
     out: dict[str, list] = {}
 
     nc_raw = _safe_extract(instance.NewCapacity)
@@ -365,6 +383,8 @@ def process_results(
     """Construye el dict de resultados compatible con el pipeline.
 
     Retorna la misma estructura que el run_model() anterior.
+    Pasos: extrae dispatch, new_capacity, unmet_demand, annual_emissions; calcula coverage_ratio
+    y total_demand; construye sol (listas con index + value); calcula intermediate_variables y timings.
     """
     from time import perf_counter
     timings: dict[str, float] = {}

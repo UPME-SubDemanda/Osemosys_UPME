@@ -6,6 +6,9 @@ Replica las celdas 4-13 y 17-19 del notebook:
   - Completa matrices (ActivityRatio, Emission, Cost)
   - Procesa emisiones a la entrada
   - Parametriza UDC
+
+Flujo: run_data_processing() → export_scenario_to_csv() → completar matrices
+       → process_and_save_emission_ratios() → ensure_udc_csvs() → apply_udc_config().
 """
 
 from __future__ import annotations
@@ -15,11 +18,14 @@ import logging
 import os
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pandas as pd
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+# Tablas del esquema osemosys y modelos de catálogo (región, tecnología, combustible, etc.)
+from app.db.dialect import osemosys_table
 from app.models import (
     Dailytimebracket,
     Daytype,
@@ -36,6 +42,8 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
+# Mapeo: nombre del parámetro OSeMOSYS → lista de dimensiones (columnas) del CSV.
+# Define el índice de cada parámetro para leer correctamente la fila de la BD.
 PARAM_INDEX: dict[str, list[str]] = {
     "YearSplit":                      ["TIMESLICE", "YEAR"],
     "DiscountRate":                   ["REGION"],
@@ -105,44 +113,66 @@ PARAM_INDEX: dict[str, list[str]] = {
     "DiscountRateIdv":                ["REGION", "TECHNOLOGY"],
 }
 
+# Posición de cada dimensión en la fila devuelta por _resolved_query() (columna 0 = param_name, 1+ = dimensiones).
 _DIM_COL: dict[str, int] = {
     "REGION": 0, "TECHNOLOGY": 1, "FUEL": 2, "EMISSION": 3,
     "TIMESLICE": 4, "MODE_OF_OPERATION": 5, "SEASON": 6, "DAYTYPE": 7,
     "DAILYTIMEBRACKET": 8, "STORAGE": 9, "UDC": 10, "YEAR": 11,
 }
 
-_RESOLVED_QUERY = text("""
-    SELECT
-        p.param_name,
-        r.name       AS region,
-        t.name       AS technology,
-        f.name       AS fuel,
-        e.name       AS emission,
-        ts.code      AS timeslice,
-        mo.code      AS mode_of_operation,
-        s.code       AS season,
-        dt.code      AS daytype,
-        dtb.code     AS dailytimebracket,
-        st.code      AS storage,
-        u.code       AS udc,
-        p.year,
-        p.value
-    FROM osemosys.osemosys_param_value p
-    LEFT JOIN osemosys.region r              ON p.id_region = r.id
-    LEFT JOIN osemosys.technology t          ON p.id_technology = t.id
-    LEFT JOIN osemosys.fuel f                ON p.id_fuel = f.id
-    LEFT JOIN osemosys.emission e            ON p.id_emission = e.id
-    LEFT JOIN osemosys.timeslice ts          ON p.id_timeslice = ts.id
-    LEFT JOIN osemosys.mode_of_operation mo  ON p.id_mode_of_operation = mo.id
-    LEFT JOIN osemosys.season s              ON p.id_season = s.id
-    LEFT JOIN osemosys.daytype dt            ON p.id_daytype = dt.id
-    LEFT JOIN osemosys.dailytimebracket dtb  ON p.id_dailytimebracket = dtb.id
-    LEFT JOIN osemosys.storage_set st        ON p.id_storage_set = st.id
-    LEFT JOIN osemosys.udc_set u             ON p.id_udc_set = u.id
-    WHERE p.id_scenario = :scenario_id
-    ORDER BY p.param_name, p.id
-""")
 
+def _resolved_query():
+    """Construye la consulta SQL que une osemosys_param_value con todas las tablas de catálogo.
+    Devuelve param_name, region, technology, fuel, emission, timeslice, mode_of_operation,
+    season, daytype, dailytimebracket, storage, udc, year, value para id_scenario dado.
+    """
+    p = osemosys_table("osemosys_param_value")
+    region = osemosys_table("region")
+    technology = osemosys_table("technology")
+    fuel = osemosys_table("fuel")
+    emission = osemosys_table("emission")
+    timeslice = osemosys_table("timeslice")
+    mode_of_operation = osemosys_table("mode_of_operation")
+    season = osemosys_table("season")
+    daytype = osemosys_table("daytype")
+    dailytimebracket = osemosys_table("dailytimebracket")
+    storage_set = osemosys_table("storage_set")
+    udc_set = osemosys_table("udc_set")
+    return text(f"""
+        SELECT
+            p.param_name,
+            r.name       AS region,
+            t.name       AS technology,
+            f.name       AS fuel,
+            e.name       AS emission,
+            ts.code      AS timeslice,
+            mo.code      AS mode_of_operation,
+            s.code       AS season,
+            dt.code      AS daytype,
+            dtb.code     AS dailytimebracket,
+            st.code      AS storage,
+            u.code       AS udc,
+            p.year,
+            p.value
+        FROM {p} p
+        LEFT JOIN {region} r             ON p.id_region = r.id
+        LEFT JOIN {technology} t         ON p.id_technology = t.id
+        LEFT JOIN {fuel} f               ON p.id_fuel = f.id
+        LEFT JOIN {emission} e           ON p.id_emission = e.id
+        LEFT JOIN {timeslice} ts         ON p.id_timeslice = ts.id
+        LEFT JOIN {mode_of_operation} mo ON p.id_mode_of_operation = mo.id
+        LEFT JOIN {season} s             ON p.id_season = s.id
+        LEFT JOIN {daytype} dt           ON p.id_daytype = dt.id
+        LEFT JOIN {dailytimebracket} dtb ON p.id_dailytimebracket = dtb.id
+        LEFT JOIN {storage_set} st       ON p.id_storage_set = st.id
+        LEFT JOIN {udc_set} u            ON p.id_udc_set = u.id
+        WHERE p.id_scenario = :scenario_id
+        ORDER BY p.param_name, p.id
+    """)
+
+
+# Para cada set OSeMOSYS: (nombre_set, modelo SQLAlchemy, atributo para el valor).
+# Se usa en _load_catalog_lookups para mapear id <-> nombre/código.
 _CATALOG_MAP: list[tuple[str, type, str]] = [
     ("REGION",            Region,            "name"),
     ("TECHNOLOGY",        Technology,        "name"),
@@ -160,7 +190,10 @@ _CATALOG_MAP: list[tuple[str, type, str]] = [
 
 @dataclass
 class ProcessingResult:
-    """Metadatos del procesamiento de datos."""
+    """Metadatos del procesamiento de datos.
+    Contiene flags (has_storage, has_udc), sets derivados, conteo de parámetros
+    y diccionarios id_by_name / name_by_id para región, tecnología, combustible, emisión y almacenamiento.
+    """
     has_storage: bool = False
     has_udc: bool = False
     sets: dict[str, list] = field(default_factory=dict)
@@ -177,6 +210,7 @@ class ProcessingResult:
 
 
 def _load_catalog_lookups(db: Session) -> dict[str, dict]:
+    """Carga desde la BD los mapeos id↔nombre/código para cada set (REGION, TECHNOLOGY, etc.)."""
     lookups: dict[str, dict] = {}
     for set_name, model_cls, attr in _CATALOG_MAP:
         rows = db.execute(select(model_cls)).scalars().all()
@@ -196,7 +230,13 @@ def export_scenario_to_csv(
     scenario_id: int,
     csv_dir: str,
 ) -> ProcessingResult:
-    """Lee datos de BD y genera CSVs para sets y parámetros."""
+    """Lee datos de BD y genera CSVs para sets y parámetros.
+    1) Ejecuta _resolved_query y agrupa por param_name en param_rows.
+    2) Construye sets desde parámetros (YearSplit→TIMESLICE/YEAR, OutputActivityRatio→REGION/TECH/FUEL/MODE, etc.).
+    3) Agrega timeslices a uno solo si hay varios; excluye años con YearSplit=0.
+    4) Filtra filas que no pertenecen a los sets; rellena YearSplit; reconcilia bounds lower/upper.
+    5) Escribe CSVs de sets y de cada parámetro.
+    """
 
     os.makedirs(csv_dir, exist_ok=True)
     lookups = _load_catalog_lookups(db)
@@ -206,8 +246,9 @@ def export_scenario_to_csv(
     param_rows: dict[str, list[dict]] = defaultdict(list)
     total_rows = 0
 
-    result_proxy = db.execute(_RESOLVED_QUERY, {"scenario_id": scenario_id})
+    result_proxy = db.execute(_resolved_query(), {"scenario_id": scenario_id})
 
+    # Recorrer filas de la BD: row[0]=param_name, row[13]=value, resto=dimensiones según _DIM_COL.
     for row in result_proxy.yield_per(50_000):
         pname = row[0]
         spec = PARAM_INDEX.get(pname)
@@ -519,7 +560,11 @@ def export_scenario_to_csv(
 # ========================================================================
 
 def completar_Matrix_Act_Ratio(path_csv: str, variable: str) -> None:
-
+    """Completa la matriz de InputActivityRatio o OutputActivityRatio.
+    Genera todas las combinaciones REGION×TECHNOLOGY×FUEL×MODE_OF_OPERATION×YEAR,
+    hace merge left con los datos existentes y elimina filas sin VALUE (dropna).
+    Así DataPortal no rellena con 0 sino que usa el default del modelo para índices faltantes.
+    """
     df = pd.read_csv(path_csv + variable)
 
     regions = df["REGION"].unique()
@@ -540,7 +585,7 @@ def completar_Matrix_Act_Ratio(path_csv: str, variable: str) -> None:
 
 
 def completar_Matrix_Emission(path_csv: str, variable: str) -> None:
-
+    """Completa la matriz de EmissionActivityRatio (REGION×TECHNOLOGY×EMISSION×MODE×YEAR)."""
     df = pd.read_csv(path_csv + variable)
 
     regions = df["REGION"].unique()
@@ -561,7 +606,7 @@ def completar_Matrix_Emission(path_csv: str, variable: str) -> None:
 
 
 def completar_Matrix_Storage(path_csv: str, variable: str) -> None:
-
+    """Completa TechnologyToStorage o TechnologyFromStorage (REGION×TECHNOLOGY×STORAGE×MODE)."""
     df = pd.read_csv(path_csv + variable)
 
     regions = df["REGION"].unique()
@@ -606,6 +651,9 @@ def completar_Matrix_Cost(path_csv: str, variable: str) -> None:
 
 def process_and_save_emission_ratios(emission_activity_path, input_activity_path, output_path, path_csv):
     """
+    Procesa emisiones a la entrada (celda 13 del notebook): combina EmissionActivityRatio
+    con InputActivityRatio (VALUE = VALUE_emission * VALUE_input por cada fuel),
+    agrupa por REGION/TECHNOLOGY/EMISSION/MODE/YEAR y actualiza EmissionActivityRatio.csv.
     Processes emission activity ratios by merging with input activity ratios,
     calculates updated values, and saves the result to a CSV.
 
@@ -652,7 +700,9 @@ def process_and_save_emission_ratios(emission_activity_path, input_activity_path
 # ========================================================================
 
 def eliminar_valores_fuera_de_indices(csv_dir: str) -> None:
-    """Filtra filas de cada parámetro CSV cuyos índices no estén en los sets."""
+    """Filtra filas de cada parámetro CSV cuyos índices no estén en los sets (celda 8 del notebook).
+    Para cada columna de dimensión que tenga un CSV de set, deja solo filas con valor en ese set.
+    """
     param_files = [
         f for f in os.listdir(csv_dir)
         if f.endswith(".csv") and f.replace(".csv", "") in PARAM_INDEX
@@ -941,6 +991,172 @@ def apply_udc_config(db: Session, scenario_id: int, csv_dir: str) -> None:
 
 
 # ========================================================================
+#  Pipeline desde Excel (sin BD)
+# ========================================================================
+
+def _build_processing_result_from_csv_dir(csv_dir: str) -> ProcessingResult:
+    """Construye ProcessingResult leyendo los CSVs de sets (para flujo Excel sin BD).
+
+    Los IDs se asignan por orden 1-based (posición en el CSV) para compatibilidad
+    con process_results.
+    """
+    path = os.path.join
+    sets: dict[str, list] = {}
+    set_files = [
+        "REGION", "TECHNOLOGY", "FUEL", "EMISSION", "YEAR",
+        "TIMESLICE", "MODE_OF_OPERATION",
+        "STORAGE", "SEASON", "DAYTYPE", "DAILYTIMEBRACKET", "UDC",
+    ]
+    for name in set_files:
+        fpath = path(csv_dir, f"{name}.csv")
+        if os.path.exists(fpath):
+            df = pd.read_csv(fpath)
+            if not df.empty and "VALUE" in df.columns:
+                values = df["VALUE"].astype(str).str.strip().tolist()
+                sets[name] = values
+
+    has_storage = all(
+        os.path.exists(path(csv_dir, f"{s}.csv"))
+        for s in ["STORAGE", "SEASON", "DAYTYPE", "DAILYTIMEBRACKET"]
+    )
+    udc_path = path(csv_dir, "UDC.csv")
+    has_udc = os.path.exists(udc_path) and os.path.getsize(udc_path) > 0
+
+    def _lookups_from_list(items: list) -> tuple[dict[str, int], dict[int, str]]:
+        id_by_name = {str(v): i + 1 for i, v in enumerate(items)}
+        name_by_id = {i + 1: str(v) for i, v in enumerate(items)}
+        return id_by_name, name_by_id
+
+    region_id_by_name, region_name_by_id = _lookups_from_list(sets.get("REGION", []))
+    technology_id_by_name, technology_name_by_id = _lookups_from_list(sets.get("TECHNOLOGY", []))
+    fuel_id_by_name, fuel_name_by_id = _lookups_from_list(sets.get("FUEL", []))
+    emission_id_by_name, emission_name_by_id = _lookups_from_list(sets.get("EMISSION", []))
+    storage_name_by_id = dict(enumerate(sets.get("STORAGE", []), start=1)) if sets.get("STORAGE") else {}
+
+    param_count = sum(
+        1 for f in os.listdir(csv_dir)
+        if f.endswith(".csv") and f.replace(".csv", "") in PARAM_INDEX
+    )
+
+    return ProcessingResult(
+        has_storage=has_storage,
+        has_udc=bool(has_udc),
+        sets=sets,
+        param_count=param_count,
+        region_id_by_name=region_id_by_name,
+        technology_id_by_name=technology_id_by_name,
+        fuel_id_by_name=fuel_id_by_name,
+        emission_id_by_name=emission_id_by_name,
+        region_name_by_id=region_name_by_id,
+        technology_name_by_id=technology_name_by_id,
+        fuel_name_by_id=fuel_name_by_id,
+        emission_name_by_id=emission_name_by_id,
+        storage_name_by_id=storage_name_by_id,
+    )
+
+
+def run_data_processing_from_excel(
+    excel_path: str | Path,
+    csv_dir: str,
+    *,
+    sheet_name: str = "Parameters",
+    div: int = 1,
+) -> ProcessingResult:
+    """Pipeline completo: Excel SAND → CSVs temporales procesados (sin BD).
+
+    Genera CSVs con la misma lógica que el notebook (vía compare_notebook_vs_app),
+    luego aplica filtrado por sets, completado de matrices, emisiones y UDC por defecto.
+    Devuelve ProcessingResult para usar con create_abstract_model, build_instance,
+    solve_model y process_results (mismo flujo que run_osemosys_from_db).
+    """
+    from app.simulation.core.excel_to_csv import generate_csvs_from_excel
+
+    excel_path = Path(excel_path)
+    if not excel_path.is_file():
+        raise FileNotFoundError(f"No existe el archivo Excel: {excel_path}")
+
+    logger.info("Generando CSVs desde Excel %s hacia %s", excel_path, csv_dir)
+    generate_csvs_from_excel(excel_path, csv_dir, sheet_name=sheet_name, div=div)
+
+    # 2. Eliminar valores fuera de índices (celda 8)
+    eliminar_valores_fuera_de_indices(csv_dir)
+
+    # 3. Completar matrices (celdas 9-12)
+    path_csv = csv_dir + os.sep
+    completar_Matrix_Act_Ratio(path_csv, "InputActivityRatio.csv")
+    completar_Matrix_Act_Ratio(path_csv, "OutputActivityRatio.csv")
+
+    if os.path.exists(os.path.join(csv_dir, "EMISSION.csv")):
+        completar_Matrix_Emission(path_csv, "EmissionActivityRatio.csv")
+
+    storage_csvs = ["STORAGE", "SEASON", "DAYTYPE", "DAILYTIMEBRACKET"]
+    has_storage = all(os.path.exists(os.path.join(csv_dir, f"{s}.csv")) for s in storage_csvs)
+    if has_storage:
+        completar_Matrix_Storage(path_csv, "TechnologyFromStorage.csv")
+        completar_Matrix_Storage(path_csv, "TechnologyToStorage.csv")
+
+    completar_Matrix_Cost(path_csv, "VariableCost.csv")
+
+    # 4. Emisiones a la entrada (celda 13 del notebook)
+    if os.path.exists(os.path.join(csv_dir, "EMISSION.csv")):
+        process_and_save_emission_ratios(
+            "EmissionActivityRatio.csv",
+            "InputActivityRatio.csv",
+            "EmissionActivityRatio.csv",
+            path_csv,
+        )
+
+    # 5. UDC (celdas 17-19) y 6. UDC por defecto (sin BD)
+    ensure_udc_csvs(csv_dir)
+    try:
+        actualizar_UDCMultiplier(
+            "TotalCapacity",
+            carpeta=csv_dir,
+            tech_multiplier_dict=_UDC_RESERVE_MARGIN_DICT,
+        )
+    except FileNotFoundError:
+        logger.debug("UDCMultiplierTotalCapacity.csv no encontrado, omitiendo")
+    try:
+        actualizar_UDCTag(0, carpeta=csv_dir)
+    except (FileNotFoundError, ValueError):
+        logger.debug("No se pudo actualizar UDCTag por defecto")
+
+    # 7. Reordenar columnas de ActivityRatio para DataPortal
+    for ratio_file in ["InputActivityRatio.csv", "OutputActivityRatio.csv"]:
+        ratio_path = os.path.join(csv_dir, ratio_file)
+        if os.path.exists(ratio_path):
+            df = pd.read_csv(ratio_path)
+            expected_cols = ["REGION", "TECHNOLOGY", "FUEL", "MODE_OF_OPERATION", "YEAR", "VALUE"]
+            if all(c in df.columns for c in expected_cols):
+                df[expected_cols].to_csv(ratio_path, index=False)
+
+    result = _build_processing_result_from_csv_dir(csv_dir)
+    logger.info("Procesamiento desde Excel completado: %d sets, has_storage=%s, has_udc=%s",
+                len(result.sets), result.has_storage, result.has_udc)
+    return result
+
+
+def get_processing_result_from_csv_dir(csv_dir: str) -> ProcessingResult:
+    """Construye ProcessingResult leyendo los CSVs de sets en un directorio existente.
+
+    Útil cuando ya tienes CSVs temporales listos (p. ej. generados por el script
+    compare_notebook_vs_app o por run_data_processing_from_excel) y quieres
+    ejecutar solo build_instance → solve → process_results.
+
+    Parameters
+    ----------
+    csv_dir : str
+        Ruta al directorio que contiene los CSVs (REGION.csv, TECHNOLOGY.csv, etc.).
+
+    Returns
+    -------
+    ProcessingResult
+        Sets, has_storage, has_udc y lookups (region_id_by_name, etc.) para el pipeline.
+    """
+    return _build_processing_result_from_csv_dir(csv_dir)
+
+
+# ========================================================================
 #  Pipeline completo
 # ========================================================================
 
@@ -953,10 +1169,14 @@ def run_data_processing(
     """Pipeline completo: BD → CSVs temporales procesados.
 
     Replica el flujo completo del notebook (celdas 4-19).
+    Pasos: 1) export_scenario_to_csv  2) eliminar_valores_fuera_de_indices
+    3) completar matrices (ActivityRatio, Emission, Storage, Cost)
+    4) process_and_save_emission_ratios  5) ensure_udc_csvs  6) apply_udc_config
+    7) reordenar columnas de Input/OutputActivityRatio para DataPortal.
     """
     logger.info("Exportando datos del escenario %d a CSVs en %s", scenario_id, csv_dir)
 
-    # 1. BD → CSVs base
+    # 1. BD → CSVs base (sets + parámetros)
     result = export_scenario_to_csv(db, scenario_id=scenario_id, csv_dir=csv_dir)
     logger.info("Exportados %d registros de parámetros", result.param_count)
 

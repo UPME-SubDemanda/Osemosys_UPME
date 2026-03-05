@@ -756,9 +756,18 @@ def apply_emission_ratios_at_input(db: Session, scenario_id: int) -> int:
             OsemosysParamValue.id_mode_of_operation == id_mode,
             OsemosysParamValue.year == id_year,
         )
-        found = db.execute(stmt).scalar_one_or_none()
-        if found is not None and abs(found.value - new_val) > 1e-12:
-            found.value = new_val
+        # En datasets reales pueden existir filas duplicadas para esta clave
+        # (por carga histórica o granularidades no colapsadas). En vez de fallar
+        # con scalar_one_or_none(), actualizamos todas las coincidencias.
+        found_rows = db.execute(stmt).scalars().all()
+        if not found_rows:
+            continue
+        changed_any = False
+        for found in found_rows:
+            if abs(float(found.value) - new_val) > 1e-12:
+                found.value = new_val
+                changed_any = True
+        if changed_any:
             updated += 1
     return updated
 

@@ -5,6 +5,7 @@ carga CSVs generados por data_processing usando DataPortal de Pyomo y crea
 la instancia concreta.
 
 Los parámetros comentados usan sus valores default del modelo (model_definition.py).
+Orden de uso: data_processing.run_data_processing() → build_instance() → solver.solve_model().
 """
 
 from __future__ import annotations
@@ -27,11 +28,15 @@ def build_instance(
     """Carga CSVs via DataPortal y crea instancia concreta.
 
     Replica la celda 23 del notebook OPT_YA_20260220.
+    - model: AbstractModel devuelto por model_definition.create_abstract_model().
+    - csv_dir: directorio con los CSVs (sets + parámetros) generados por data_processing.
+    - has_storage / has_udc: deben coincidir con los usados al crear el abstract model.
     """
     data = DataPortal()
     p = csv_dir
 
     def _load_set(filename: str, set_name: str) -> None:
+        """Carga un set desde CSV si el archivo existe y no está vacío (salta header)."""
         fpath = os.path.join(p, filename)
         if os.path.exists(fpath):
             with open(fpath, encoding="utf-8") as f:
@@ -43,6 +48,7 @@ def build_instance(
             data.load(filename=fpath, set=set_name)
 
     def _load_param(filename: str, param_name: str, index: list[str] | str) -> None:
+        """Carga un parámetro desde CSV; index es la lista de conjuntos que indexan el parámetro."""
         fpath = os.path.join(p, filename)
         if os.path.exists(fpath):
             with open(fpath, encoding="utf-8") as f:
@@ -54,7 +60,7 @@ def build_instance(
             data.load(filename=fpath, param=param_name, index=index)
 
     # ==========================
-    # CARGA DE SETS
+    # CARGA DE SETS (orden compatible con el modelo abstracto)
     # ==========================
 
     _load_set("EMISSION.csv", "EMISSION")
@@ -265,8 +271,10 @@ def build_instance(
         _load_param("UDCTag.csv", "UDCTag", ["REGION", "UDC"])
 
     # ==========================
-    # CREAR INSTANCIA
+    # CREAR INSTANCIA CONCRETA
     # ==========================
+    # create_instance rellena sets y parámetros con los datos del DataPortal;
+    # los no cargados usan default del AbstractModel.
 
     logger.info("Creando instancia del modelo...")
     instance = model.create_instance(data, report_timing=True)

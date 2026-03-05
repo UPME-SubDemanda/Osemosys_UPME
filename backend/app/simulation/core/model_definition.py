@@ -1,12 +1,19 @@
 """Definición completa del AbstractModel OSeMOSYS.
 
-Replica fielmente la celda 3 del notebook osemosys_notebook_UPME_OPT.ipynb:
+Replica fielmente la celda 3 del notebook osemosys_notebook_UPME_OPT_01.ipynb:
 sets, parámetros, variables, función objetivo y TODAS las restricciones
 en un solo archivo.
 
 OSeMOSYS: Open Source energy MOdeling SYStem
 Copyright [2010-2015] [OSeMOSYS Forum steering committee see: www.osemosys.org]
 Licensed under the Apache License, Version 2.0
+
+Estructura del archivo:
+  - Sets: YEAR, TECHNOLOGY, TIMESLICE, FUEL, EMISSION, MODE_OF_OPERATION, REGION; opcionales STORAGE, SEASON, DAYTYPE, DAILYTIMEBRACKET, UDC.
+  - Parameters: demanda, rendimientos (CapacityFactor, ActivityRatios), costes, límites de capacidad/actividad, emisiones, UDC, almacenamiento.
+  - Variables: NewCapacity, RateOfActivity, costes descontados, emisiones, reserva, RE, almacenamiento.
+  - Objective: minimizar suma de TotalDiscountedCost por región y año.
+  - Constraints: capacidad, balance energético, costes, límites, emisiones, reserve margin, UDC, almacenamiento.
 """
 
 from __future__ import annotations
@@ -45,7 +52,7 @@ def create_abstract_model(
     model = AbstractModel()
 
     # ====================================================================
-    #    Sets
+    #    Sets (conjuntos que indexan parámetros y variables)
     # ====================================================================
 
     model.YEAR = Set(ordered=True)
@@ -68,7 +75,7 @@ def create_abstract_model(
     model.UDC = Set()
 
     # ====================================================================
-    #    Parameters — Global
+    #    Parameters — Global (YearSplit, descuento, vida operativa, factores de recuperación)
     # ====================================================================
 
     model.YearSplit = Param(model.TIMESLICE, model.YEAR)
@@ -573,6 +580,8 @@ def create_abstract_model(
         rule=TotalNewCapacity_2_rule,
     )
 
+    # ConstraintCapacity: en cada (r,l,t,y) la suma de RateOfActivity por modo <=
+    # (capacidad nueva acumulada + residual) * CapacityFactor * CapacityToActivityUnit.
     def ConstraintCapacity_rule(m, r, l, t, y):
         return (
             sum(m.RateOfActivity[r, l, t, mo, y] for mo in m.MODE_OF_OPERATION)
@@ -625,7 +634,7 @@ def create_abstract_model(
     )
 
     # ####################################################################
-    #    Constraints — Energy Balance A
+    #    Constraints — Energy Balance A (por timeslice: oferta >= demanda + inputs)
     # ####################################################################
 
     def EnergyBalanceEachTS5_rule(m, r, l, f, y):
@@ -995,7 +1004,7 @@ def create_abstract_model(
     )
 
     # ####################################################################
-    #    Constraints — Emissions Accounting
+    #    Constraints — Emissions Accounting (emisión por tecnología/modo, límites anuales y periodo)
     # ####################################################################
 
     def AnnualEmissionProductionByMode_rule(m, r, t, e, mo, y):
@@ -1094,7 +1103,7 @@ def create_abstract_model(
     )
 
     # ####################################################################
-    #    Constraints — Reserve Margin
+    #    Constraints — Reserve Margin (capacidad en reserva >= demanda * factor por timeslice)
     # ####################################################################
 
     def ReserveMargin_TechnologiesIncluded_rule(m, r, y):
@@ -1200,7 +1209,7 @@ def create_abstract_model(
     )
 
     # ####################################################################
-    #    Constraints — UDC (User-Defined Constraints)
+    #    Constraints — UDC (User-Defined Constraints: combinación lineal de capacidad/actividad vs constante)
     # ####################################################################
 
     if has_udc:

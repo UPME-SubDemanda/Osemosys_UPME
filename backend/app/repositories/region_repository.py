@@ -1,0 +1,71 @@
+"""Repositorio para catálogo `Region`."""
+
+from __future__ import annotations
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.models import Region
+
+
+class RegionRepository:
+    """Acceso a datos para regiones."""
+
+    @staticmethod
+    def get_paginated(
+        db: Session,
+        *,
+        busqueda: str | None,
+        is_active: bool,
+        row_offset: int,
+        limit: int,
+    ) -> tuple[list[Region], int]:
+        """Consulta paginada de regiones."""
+        cond = Region.is_active.is_(is_active)
+        if busqueda:
+            cond = cond & Region.name.ilike(f"%{busqueda}%")
+
+        total = int(db.scalar(select(func.count()).select_from(Region).where(cond)) or 0)
+        items = (
+            db.execute(
+                select(Region).where(cond).order_by(Region.name.asc()).offset(row_offset).limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        return list(items), total
+
+    @staticmethod
+    def get_by_id(db: Session, region_id: int) -> Region | None:
+        """Obtiene región por id."""
+        return db.get(Region, region_id)
+
+    @staticmethod
+    def create(db: Session, *, name: str) -> Region:
+        """Inserta una nueva región."""
+        obj = Region(name=name)
+        db.add(obj)
+        return obj
+
+    @staticmethod
+    def deactivate(obj: Region) -> None:
+        """Marca la región como inactiva."""
+        obj.is_active = False
+
+
+# ============================================================================
+# Arquitectura y Consideraciones Técnicas
+# ============================================================================
+#
+# Responsabilidad del módulo:
+# - Operaciones de persistencia del catálogo de regiones.
+#
+# Posibles mejoras:
+# - Añadir consultas por códigos normalizados además de nombre.
+#
+# Riesgos en producción:
+# - Búsquedas `ilike` extensas sin índices funcionales pueden ser costosas.
+#
+# Escalabilidad:
+# - I/O-bound.
+

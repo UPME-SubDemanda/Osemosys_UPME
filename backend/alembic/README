@@ -1,0 +1,4 @@
+Alembic migration scripts live here.
+
+Environment note: run migrations with `backend/.env` configured (no `backend/.env.example`).
+

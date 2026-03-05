@@ -8,6 +8,7 @@ from .daytype import Daytype
 from .emission import Emission
 from .fuel import Fuel
 from .mode_of_operation import ModeOfOperation
+from .osemosys_output_param_value import OsemosysOutputParamValue
 from .osemosys_param_value import OsemosysParamValue
 from .parameter import Parameter
 from .parameter_storage import ParameterStorage
@@ -17,6 +18,9 @@ from .region import Region
 from .scenario import Scenario
 from .scenario_permission import ScenarioPermission
 from .season import Season
+from .simulation_benchmark import SimulationBenchmark
+from .simulation_job import SimulationJob
+from .simulation_job_event import SimulationJobEvent
 from .solver import Solver
 from .storage_set import StorageSet
 from .timeslice import Timeslice
@@ -44,10 +48,14 @@ __all__ = [
     "ParameterValue",
     "ParameterValueAudit",
     "ParameterStorage",
+    "OsemosysOutputParamValue",
     "ScenarioPermission",
     "ChangeRequest",
     "ChangeRequestValue",
     "CatalogChangeLog",
+    "SimulationJob",
+    "SimulationJobEvent",
+    "SimulationBenchmark",
     "DocumentType",
     "User",
 ]

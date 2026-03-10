@@ -1007,15 +1007,10 @@ def _build_processing_result_from_csv_dir(csv_dir: str) -> ProcessingResult:
         "TIMESLICE", "MODE_OF_OPERATION",
         "STORAGE", "SEASON", "DAYTYPE", "DAILYTIMEBRACKET", "UDC",
     ]
-    def _parse_set_value(set_name: str, raw_value):
-        """Normaliza tipos de set al leer CSVs (YEAR como int; resto como str)."""
+    def _parse_set_value(raw_value):
+        """Normaliza sets no numéricos leídos desde CSV."""
         if pd.isna(raw_value):
             return None
-        if set_name == "YEAR":
-            text = str(raw_value).strip()
-            if not text:
-                return None
-            return int(float(text))
         return str(raw_value).strip()
 
     for name in set_files:
@@ -1023,12 +1018,15 @@ def _build_processing_result_from_csv_dir(csv_dir: str) -> ProcessingResult:
         if os.path.exists(fpath):
             df = pd.read_csv(fpath)
             if not df.empty and "VALUE" in df.columns:
-                values = []
-                for raw_value in df["VALUE"].tolist():
-                    parsed = _parse_set_value(name, raw_value)
-                    if parsed in (None, ""):
-                        continue
-                    values.append(parsed)
+                if name == "YEAR":
+                    values = pd.to_numeric(df["VALUE"], errors="coerce").dropna().astype(int).tolist()
+                else:
+                    values = []
+                    for raw_value in df["VALUE"].tolist():
+                        parsed = _parse_set_value(raw_value)
+                        if parsed in (None, ""):
+                            continue
+                        values.append(parsed)
                 sets[name] = values
 
     has_storage = all(

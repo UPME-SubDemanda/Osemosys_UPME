@@ -461,6 +461,49 @@ Health:
 Invoke-RestMethod http://localhost:8000/api/v1/health
 ```
 
+### Ejecutar modelo local desde `../CSV` (sin BD/UPME)
+
+Este flujo no requiere conexión al servidor UPME ni escenarios en base de datos.
+Toma directamente los CSV en la carpeta `../CSV`, construye la instancia Pyomo y ejecuta el solver.
+
+1. Activar entorno virtual e instalar dependencias (desde la raíz del repo):
+
+```powershell
+cd backend
+..\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+2. Ejecutar la simulación con HiGHS y guardar el resultado JSON:
+
+```powershell
+@'
+import json
+from pathlib import Path
+from app.simulation.osemosys_core import run_osemosys_from_csv_dir
+
+csv_dir = Path("../CSV").resolve()
+result = run_osemosys_from_csv_dir(csv_dir, solver_name="highs")
+
+out = Path("tmp/prueba_final_from_csv_result.json")
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+
+print("solver_status:", result.get("solver_status"))
+print("objective_value:", result.get("objective_value"))
+print("coverage_ratio:", result.get("coverage_ratio"))
+print("saved:", out.resolve())
+'@ | python -
+```
+
+3. Verificar salida:
+- Archivo: `backend/tmp/prueba_final_from_csv_result.json`
+- Esperado: `solver_status: optimal`
+
+Notas:
+- Este flujo usa el pipeline `CSV -> DataPortal -> Pyomo -> HiGHS`.
+- Los sets y parámetros en `../CSV` deben ser consistentes entre sí (por ejemplo, `YEAR.csv` vs `DaySplit.csv`, `TIMESLICE.csv` vs `Conversionl*.csv`).
+
 Usuario seed:
 - `seed / seed123`
 

@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     simulation_mode: str = Field(default="async", alias="SIMULATION_MODE")
     sim_max_concurrency: int = Field(default=3, alias="SIM_MAX_CONCURRENCY")
     sim_user_active_limit: int = Field(default=1, alias="SIM_USER_ACTIVE_LIMIT")
+    docker_socket_path: str = Field(default="/var/run/docker.sock", alias="DOCKER_SOCKET_PATH")
+    docker_metrics_services: str = Field(
+        default="api,simulation-worker,db,redis,frontend",
+        alias="DOCKER_METRICS_SERVICES",
+    )
 
     # Auth
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")
@@ -63,6 +68,12 @@ class Settings(BaseSettings):
     def is_sync_simulation_mode(self) -> bool:
         """Indica si la simulación debe ejecutarse en modo síncrono local."""
         return (self.simulation_mode or "").strip().lower() == "sync"
+
+    def docker_metrics_services_list(self) -> list[str]:
+        """Servicios Docker considerados al sumar uso de RAM."""
+        if not self.docker_metrics_services:
+            return []
+        return [service.strip() for service in self.docker_metrics_services.split(",") if service.strip()]
 
 
 @lru_cache

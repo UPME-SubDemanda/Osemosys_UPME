@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Módulo de gráficas equivalente al notebook UPME (osemosys_notebook_UPME_OPT.ipynb).
+Módulo de gráficas equivalente al notebook UPME (osemosys_notebook_UPME_OPT_01.ipynb).
 
 Réplica completa de las 19 funciones de graficación + helpers + variables intermedias.
 Para usar: llamar setup(instance_obj, sol_obj) antes de invocar las funciones graf_*.

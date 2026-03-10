@@ -21,6 +21,42 @@ import pyomo.environ as pyo
 logger = logging.getLogger(__name__)
 
 
+def _coerce_year(value) -> int | None:
+    """Convierte valores de año (str/int/float) a int de forma robusta."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_number(value, default: float = 0.0) -> float:
+    """Convierte un valor a float; usa default si no es convertible."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return float(int(value))
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return default
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return default
+
+
 def _safe_extract(var_component) -> dict:
     """Extrae valores de un componente Pyomo (Param/Var); sustituye None por 0.0."""
     raw = var_component.extract_values()
@@ -123,7 +159,7 @@ def _extract_dispatch(
         avg_cost = cost_by_rty[(r, t, y)] / total_act if total_act > 0 else 0.0
         results.append({
             "region_id": region_id_by_name.get(r, -1),
-            "year": y,
+            "year": _coerce_year(y),
             "technology_name": t,
             "technology_id": technology_id_by_name.get(t, -1),
             "fuel_name": best_fuel.get((r, t, y)),
@@ -144,7 +180,7 @@ def _extract_new_capacity(
         {
             "region_id": region_id_by_name.get(k[0], -1),
             "technology_id": technology_id_by_name.get(k[1], -1),
-            "year": k[2],
+            "year": _coerce_year(k[2]),
             "new_capacity": v,
             "technology_name": k[1],
         }
@@ -202,7 +238,11 @@ def _compute_unmet_demand(
         unmet_by_ry[(r, y)] += gap
 
     return [
-        {"region_id": region_id_by_name.get(r, -1), "year": y, "unmet_demand": v}
+        {
+            "region_id": region_id_by_name.get(r, -1),
+            "year": _coerce_year(y),
+            "unmet_demand": v,
+        }
         for (r, y), v in sorted(unmet_by_ry.items())
     ]
 
@@ -217,7 +257,11 @@ def _extract_annual_emissions(
     """Extrae AnnualEmissions por (región, año); si no hay emisiones, devuelve 0.0 por (r,y)."""
     if not emissions:
         return [
-            {"region_id": region_id_by_name.get(r, -1), "year": y, "annual_emissions": 0.0}
+            {
+                "region_id": region_id_by_name.get(r, -1),
+                "year": _coerce_year(y),
+                "annual_emissions": 0.0,
+            }
             for r in regions for y in years
         ]
 
@@ -227,8 +271,11 @@ def _extract_annual_emissions(
         totals[(r, y)] += v
 
     return [
-        {"region_id": region_id_by_name.get(r, -1), "year": y,
-         "annual_emissions": totals.get((r, y), 0.0)}
+        {
+            "region_id": region_id_by_name.get(r, -1),
+            "year": _coerce_year(y),
+            "annual_emissions": totals.get((r, y), 0.0),
+        }
         for r in regions for y in years
     ]
 
@@ -260,20 +307,30 @@ def _compute_intermediate_variables(
     rc_param = getattr(instance, "ResidualCapacity", None)
     rc_data = _safe_extract(rc_param) if rc_param and hasattr(rc_param, "extract_values") else {}
 
+    year_pairs = []
+    for y in years:
+        y_num = _coerce_year(y)
+        if y_num is None:
+            continue
+        year_pairs.append((y, int(y_num)))
+
     # TotalCapacityAnnual + AccumulatedNewCapacity
     tca_entries = []
     anc_entries = []
     for r in regions:
         for t in technologies:
-            ol = ol_data.get((r, t), 1)
-            for y in years:
+            ol = int(_coerce_number(ol_data.get((r, t), 1), default=1.0))
+            if ol <= 0:
+                ol = 1
+            for y, y_num in year_pairs:
                 acc = sum(
                     nc_raw.get((r, t, yy), 0.0)
-                    for yy in years if 0 <= y - yy < ol
+                    for yy, yy_num in year_pairs
+                    if 0 <= (int(y_num) - int(yy_num)) < ol
                 )
                 res = rc_data.get((r, t, y), 0.0)
-                tca_entries.append({"index": [r, t, y], "value": acc + res})
-                anc_entries.append({"index": [r, t, y], "value": acc})
+                tca_entries.append({"index": [r, t, y_num], "value": acc + res})
+                anc_entries.append({"index": [r, t, y_num], "value": acc})
     out["TotalCapacityAnnual"] = tca_entries
     out["AccumulatedNewCapacity"] = anc_entries
 
@@ -304,11 +361,11 @@ def _compute_intermediate_variables(
             use_by_rtfy[(r, t, f, y)] += roa * iar_val * ys
 
     out["ProductionByTechnology"] = [
-        {"index": [r, t, f, "", y], "value": v}
+        {"index": [r, t, f, "", _coerce_year(y)], "value": v}
         for (r, t, f, y), v in prod_by_rtfy.items() if v > 1e-10
     ]
     out["UseByTechnology"] = [
-        {"index": [r, t, f, "", y], "value": v}
+        {"index": [r, t, f, "", _coerce_year(y)], "value": v}
         for (r, t, f, y), v in use_by_rtfy.items() if v > 1e-10
     ]
     out["RateOfProductionByTechnology"] = out["ProductionByTechnology"]
@@ -390,13 +447,29 @@ def process_results(
     timings: dict[str, float] = {}
 
     t = perf_counter()
+    normalized_years = []
+    for y in years:
+        y_num = _coerce_year(y)
+        if y_num is not None:
+            normalized_years.append(y_num)
+
     dispatch = _extract_dispatch(instance, region_id_by_name, technology_id_by_name)
     new_capacity = _extract_new_capacity(instance, region_id_by_name, technology_id_by_name)
     unmet = _compute_unmet_demand(instance, region_id_by_name)
     annual_emissions = _extract_annual_emissions(
-        instance, region_id_by_name, regions, years, emissions,
+        instance, region_id_by_name, regions, normalized_years, emissions,
     )
     timings["extract_results_seconds"] = perf_counter() - t
+
+    # Añadir region_name a cada fila para exportación a CSV (resultados/)
+    for row in dispatch:
+        row["region_name"] = region_name_by_id.get(row["region_id"], "")
+    for row in new_capacity:
+        row["region_name"] = region_name_by_id.get(row["region_id"], "")
+    for row in unmet:
+        row["region_name"] = region_name_by_id.get(row["region_id"], "")
+    for row in annual_emissions:
+        row["region_name"] = region_name_by_id.get(row["region_id"], "")
 
     t = perf_counter()
     total_dispatch = sum(row["dispatch"] for row in dispatch)
@@ -450,7 +523,7 @@ def process_results(
         })
 
     intermediate_variables = _compute_intermediate_variables(
-        instance, regions, technologies, years, emissions, has_storage,
+        instance, regions, technologies, normalized_years, emissions, has_storage,
     )
     timings["intermediate_vars_seconds"] = perf_counter() - t
 

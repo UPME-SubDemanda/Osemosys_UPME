@@ -15,6 +15,7 @@ from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.models import User
 from app.repositories.change_request_repository import ChangeRequestRepository
 from app.repositories.scenario_repository import ScenarioRepository
+from app.services.scenario_service import ScenarioService
 
 
 class ChangeRequestService:
@@ -128,6 +129,12 @@ class ChangeRequestService:
 
         if apply_direct:
             osemosys_value.value = new_value
+            scenario = ScenarioRepository.get_by_id(db, osemosys_value.id_scenario)
+            if scenario is not None:
+                ScenarioService._track_changed_params(
+                    scenario,
+                    param_names=[osemosys_value.param_name],
+                )
 
         try:
             db.commit()
@@ -168,6 +175,12 @@ class ChangeRequestService:
 
         change_request.status = "APPROVED"
         osemosys_value.value = change_value.new_value
+        scenario = ScenarioRepository.get_by_id(db, osemosys_value.id_scenario)
+        if scenario is not None:
+            ScenarioService._track_changed_params(
+                scenario,
+                param_names=[osemosys_value.param_name],
+            )
         db.commit()
         db.refresh(change_request)
         return ChangeRequestService._to_public(change_request, change_value)

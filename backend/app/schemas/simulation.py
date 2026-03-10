@@ -23,7 +23,9 @@ class SimulationJobPublic(BaseModel):
 
     id: int
     scenario_id: int
+    scenario_name: str | None = None
     user_id: str
+    username: str | None = None
     solver_name: SimulationSolver
     status: SimulationStatus
     progress: float
@@ -34,6 +36,16 @@ class SimulationJobPublic(BaseModel):
     queued_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
+
+
+class SimulationOverviewPublic(BaseModel):
+    """Resumen operacional del tablero global de simulaciones."""
+
+    queued_count: int
+    running_count: int
+    active_count: int
+    total_count: int
+    services_memory_total_bytes: int = 0
 
 
 class SimulationLogPublic(BaseModel):

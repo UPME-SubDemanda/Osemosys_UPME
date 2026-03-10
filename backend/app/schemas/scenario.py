@@ -12,6 +12,7 @@ from app.schemas.official_import import OfficialImportResult
 
 
 EditPolicy = Literal["OWNER_ONLY", "OPEN", "RESTRICTED"]
+ScenarioPermissionScope = Literal["mine", "readable", "editable", "readonly"]
 
 
 class ScenarioCreate(BaseModel):
@@ -31,6 +32,29 @@ class ScenarioClone(BaseModel):
     edit_policy: EditPolicy = "OWNER_ONLY"
 
 
+class ScenarioUpdate(BaseModel):
+    """Payload de actualización de metadatos de escenario."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_any_field(self):
+        if self.name is None and self.description is None:
+            raise ValueError("Debes enviar al menos `name` o `description`.")
+        return self
+
+
+class ScenarioAccessPublic(BaseModel):
+    """Permisos efectivos del usuario autenticado sobre el escenario."""
+
+    can_view: bool
+    is_owner: bool
+    can_edit_direct: bool
+    can_propose: bool
+    can_manage_values: bool
+
+
 class ScenarioPublic(BaseModel):
     """Representación pública de escenario."""
 
@@ -40,9 +64,13 @@ class ScenarioPublic(BaseModel):
     name: str
     description: str | None
     owner: str
+    base_scenario_id: int | None = None
+    base_scenario_name: str | None = None
+    changed_param_names: list[str] = Field(default_factory=list)
     edit_policy: str
     is_template: bool
     created_at: datetime
+    effective_access: ScenarioAccessPublic | None = None
 
 
 class ScenarioPermissionCreate(BaseModel):
@@ -210,4 +238,3 @@ class OsemosysValuesPage(BaseModel):
 #
 # Escalabilidad:
 # - Validación ligera.
-

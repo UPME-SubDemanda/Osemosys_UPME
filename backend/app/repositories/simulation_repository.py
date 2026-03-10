@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from app.models import Scenario, SimulationJob, SimulationJobEvent
+from app.models import Scenario, SimulationJob, SimulationJobEvent, User
 
 
 ACTIVE_STATUSES = ("QUEUED", "RUNNING")
@@ -52,6 +52,28 @@ class SimulationRepository:
         return db.execute(stmt).scalar_one_or_none()
 
     @staticmethod
+    def get_job_visible(
+        db: Session,
+        *,
+        job_id: int,
+    ) -> tuple[SimulationJob, str | None, str | None] | None:
+        """Obtiene job visible globalmente con username y nombre de escenario."""
+        stmt = (
+            select(
+                SimulationJob,
+                User.username.label("username"),
+                Scenario.name.label("scenario_name"),
+            )
+            .join(User, User.id == SimulationJob.user_id)
+            .join(Scenario, Scenario.id == SimulationJob.scenario_id)
+            .where(SimulationJob.id == job_id)
+        )
+        row = db.execute(stmt).one_or_none()
+        if row is None:
+            return None
+        return row[0], row.username, row.scenario_name
+
+    @staticmethod
     def get_job_by_id(db: Session, *, job_id: int) -> SimulationJob | None:
         """Obtiene job por id sin control de ownership."""
         return db.get(SimulationJob, job_id)
@@ -80,6 +102,82 @@ class SimulationRepository:
         )
         items = db.execute(stmt).scalars().all()
         return list(items), total
+
+    @staticmethod
+    def list_jobs(
+        db: Session,
+        *,
+        scope: str,
+        user_id: uuid.UUID,
+        status: str | None,
+        username: str | None,
+        scenario_id: int | None,
+        solver_name: str | None,
+        row_offset: int,
+        limit: int,
+    ) -> tuple[list[tuple[SimulationJob, str | None, str | None]], int]:
+        """Lista jobs visibles con metadatos de usuario y escenario."""
+        stmt = (
+            select(
+                SimulationJob,
+                User.username.label("username"),
+                Scenario.name.label("scenario_name"),
+            )
+            .join(User, User.id == SimulationJob.user_id)
+            .join(Scenario, Scenario.id == SimulationJob.scenario_id)
+        )
+
+        filters = []
+        if scope == "mine":
+            filters.append(SimulationJob.user_id == user_id)
+        if status:
+            filters.append(SimulationJob.status == status)
+        if username:
+            filters.append(User.username.ilike(f"%{username}%"))
+        if scenario_id is not None:
+            filters.append(SimulationJob.scenario_id == scenario_id)
+        if solver_name:
+            filters.append(SimulationJob.solver_name == solver_name)
+
+        if filters:
+            stmt = stmt.where(and_(*filters))
+
+        count_stmt = (
+            select(func.count())
+            .select_from(SimulationJob)
+            .join(User, User.id == SimulationJob.user_id)
+            .join(Scenario, Scenario.id == SimulationJob.scenario_id)
+        )
+        if filters:
+            count_stmt = count_stmt.where(and_(*filters))
+        total = int(db.scalar(count_stmt) or 0)
+
+        items = (
+            db.execute(
+                stmt.order_by(SimulationJob.queued_at.desc(), SimulationJob.id.desc())
+                .offset(row_offset)
+                .limit(limit)
+            )
+            .all()
+        )
+        return [(row[0], row.username, row.scenario_name) for row in items], total
+
+    @staticmethod
+    def count_overview(db: Session) -> dict[str, int]:
+        """Conteos agregados para el tablero global."""
+        queued_count = int(
+            db.scalar(select(func.count()).select_from(SimulationJob).where(SimulationJob.status == "QUEUED")) or 0
+        )
+        running_count = int(
+            db.scalar(select(func.count()).select_from(SimulationJob).where(SimulationJob.status == "RUNNING")) or 0
+        )
+        total_count = int(db.scalar(select(func.count()).select_from(SimulationJob)) or 0)
+        return {
+            "queued_count": queued_count,
+            "running_count": running_count,
+            "active_count": queued_count + running_count,
+            "total_count": total_count,
+        }
 
     @staticmethod
     def queue_position(db: Session, *, job_id: int) -> int:

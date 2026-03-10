@@ -1,7 +1,7 @@
 # Paridad OSEMOSYS: Notebook vs Backend
 
 Este documento describe la paridad funcional entre el notebook de referencia
-`osemosys_notebook_UPME_OPT.ipynb` y la implementación actual de la app
+`osemosys_notebook_UPME_OPT_01.ipynb` y la implementación actual de la app
 (flujo DB-first).
 
 ## Mapeo sección a sección

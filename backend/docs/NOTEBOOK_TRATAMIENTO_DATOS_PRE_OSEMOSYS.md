@@ -1,6 +1,6 @@
 # Tratamiento de datos en el notebook UPME antes del modelado OSeMOSYS
 
-Este documento resume cómo el notebook `osemosys_notebook_UPME_OPT.ipynb` carga, transforma y prepara los datos **antes** de crear la instancia del modelo OSeMOSYS y resolverlo.
+Este documento resume cómo el notebook `osemosys_notebook_UPME_OPT_01.ipynb` carga, transforma y prepara los datos **antes** de crear la instancia del modelo OSeMOSYS y resolverlo.
 
 ---
 

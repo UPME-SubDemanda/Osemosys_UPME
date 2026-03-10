@@ -42,6 +42,114 @@ class ScenarioService:
     """Reglas de negocio para gestión de escenarios OSEMOSYS."""
 
     @staticmethod
+    def _get_permission(db: Session, *, scenario_id: int, current_user: User) -> ScenarioPermission | None:
+        permission = ScenarioRepository.get_permission_for_user(
+            db, scenario_id=scenario_id, user_id=current_user.id
+        )
+        if permission is None:
+            permission = ScenarioRepository.get_permission_by_identifier(
+                db, scenario_id=scenario_id, user_identifier=f"user:{current_user.username}"
+            )
+        return permission
+
+    @staticmethod
+    def _can_view_scenario(scenario: Scenario, *, current_user: User) -> bool:
+        if scenario.owner == current_user.username:
+            return True
+        return scenario.edit_policy in {"OPEN", "RESTRICTED"}
+
+    @staticmethod
+    def _effective_access(
+        db: Session,
+        *,
+        scenario: Scenario,
+        current_user: User,
+    ) -> dict[str, bool]:
+        if scenario.owner == current_user.username:
+            return {
+                "can_view": True,
+                "is_owner": True,
+                "can_edit_direct": True,
+                "can_propose": True,
+                "can_manage_values": True,
+            }
+
+        permission = ScenarioService._get_permission(
+            db, scenario_id=int(scenario.id), current_user=current_user
+        )
+
+        if scenario.edit_policy == "OPEN":
+            return {
+                "can_view": True,
+                "is_owner": False,
+                "can_edit_direct": False,
+                "can_propose": True,
+                "can_manage_values": True,
+            }
+
+        if scenario.edit_policy == "RESTRICTED":
+            return {
+                "can_view": True,
+                "is_owner": False,
+                "can_edit_direct": bool(permission and permission.can_edit_direct),
+                "can_propose": bool(permission and permission.can_propose),
+                "can_manage_values": bool(
+                    permission and (permission.can_manage_values or permission.can_edit_direct)
+                ),
+            }
+
+        return {
+            "can_view": False,
+            "is_owner": False,
+            "can_edit_direct": False,
+            "can_propose": False,
+            "can_manage_values": False,
+        }
+
+    @staticmethod
+    def _to_public(
+        db: Session,
+        *,
+        scenario: Scenario,
+        current_user: User,
+        base_scenario_name: str | None,
+    ) -> dict:
+        return {
+            "id": int(scenario.id),
+            "name": scenario.name,
+            "description": scenario.description,
+            "owner": scenario.owner,
+            "base_scenario_id": int(scenario.base_scenario_id) if scenario.base_scenario_id is not None else None,
+            "base_scenario_name": base_scenario_name,
+            "changed_param_names": list(scenario.changed_param_names or []),
+            "edit_policy": scenario.edit_policy,
+            "is_template": bool(scenario.is_template),
+            "created_at": scenario.created_at,
+            "effective_access": ScenarioService._effective_access(
+                db, scenario=scenario, current_user=current_user
+            ),
+        }
+
+    @staticmethod
+    def _track_changed_params(
+        scenario: Scenario,
+        *,
+        param_names: list[str] | tuple[str, ...] | set[str],
+    ) -> None:
+        """Registra nombres de parámetros modificados para escenarios derivados."""
+        if scenario.base_scenario_id is None:
+            return
+        existing = list(scenario.changed_param_names or [])
+        seen = {name for name in existing if isinstance(name, str)}
+        for raw_name in param_names:
+            clean_name = str(raw_name or "").strip()
+            if not clean_name or clean_name in seen:
+                continue
+            existing.append(clean_name)
+            seen.add(clean_name)
+        scenario.changed_param_names = existing
+
+    @staticmethod
     def _clone_data_batched(
         db: Session,
         *,
@@ -151,6 +259,9 @@ class ScenarioService:
         *,
         current_user: User,
         busqueda: str | None,
+        owner: str | None,
+        edit_policy: str | None,
+        permission_scope: str | None,
         cantidad: int | None,
         offset: int | None,
     ) -> dict:
@@ -159,13 +270,41 @@ class ScenarioService:
         items, total = ScenarioRepository.get_paginated_accessible(
             db,
             current_username=current_user.username,
-            current_user_id=current_user.id,
             busqueda=busqueda,
+            owner=owner,
+            edit_policy=edit_policy,
+            permission_scope=permission_scope,
             row_offset=row_offset,
             limit=page_size,
         )
         meta = build_meta(page, page_size, total, busqueda)
-        return {"data": items, "meta": meta}
+        return {
+            "data": [
+                ScenarioService._to_public(
+                    db,
+                    scenario=scenario,
+                    current_user=current_user,
+                    base_scenario_name=base_scenario_name,
+                )
+                for scenario, base_scenario_name in items
+            ],
+            "meta": meta,
+        }
+
+    @staticmethod
+    def get_public(db: Session, *, scenario_id: int, current_user: User) -> dict:
+        """Retorna un escenario visible al usuario autenticado."""
+        scenario, base_scenario_name = ScenarioRepository.get_by_id_with_base_name(db, scenario_id)
+        if scenario is None:
+            raise NotFoundError("Escenario no encontrado.")
+        if not ScenarioService._can_view_scenario(scenario, current_user=current_user):
+            raise ForbiddenError("No tienes acceso a este escenario.")
+        return ScenarioService._to_public(
+            db,
+            scenario=scenario,
+            current_user=current_user,
+            base_scenario_name=base_scenario_name,
+        )
 
     @staticmethod
     def create(
@@ -245,7 +384,7 @@ class ScenarioService:
         name: str,
         description: str | None,
         edit_policy: str,
-    ) -> Scenario:
+    ) -> dict:
         """Clona un escenario existente con todos sus OsemosysParamValue.
 
         El usuario debe tener acceso al escenario origen. El nuevo escenario
@@ -260,6 +399,8 @@ class ScenarioService:
             name=name,
             description=description,
             owner=current_user.username,
+            base_scenario_id=source.id,
+            changed_param_names=[],
             edit_policy=edit_policy,
             is_template=False,
             udc_config=source.udc_config,
@@ -292,7 +433,12 @@ class ScenarioService:
         )
 
         db.refresh(new_scenario)
-        return new_scenario
+        return ScenarioService._to_public(
+            db,
+            scenario=new_scenario,
+            current_user=current_user,
+            base_scenario_name=source.name,
+        )
 
     @staticmethod
     def _require_admin(db: Session, *, scenario_id: int, current_user: User):
@@ -311,20 +457,13 @@ class ScenarioService:
 
     @staticmethod
     def _require_access(db: Session, *, scenario_id: int, current_user: User):
-        """Valida acceso básico al escenario (owner o permiso explícito)."""
+        """Valida acceso básico al escenario según reglas de visibilidad."""
         scenario = ScenarioRepository.get_by_id(db, scenario_id)
         if not scenario:
             raise NotFoundError("Escenario no encontrado.")
-        if scenario.owner == current_user.username:
+        if ScenarioService._can_view_scenario(scenario, current_user=current_user):
             return scenario
-        perm = ScenarioRepository.get_permission_for_user(db, scenario_id=scenario_id, user_id=current_user.id)
-        if not perm:
-            perm = ScenarioRepository.get_permission_by_identifier(
-                db, scenario_id=scenario_id, user_identifier=f"user:{current_user.username}"
-            )
-        if not perm:
-            raise ForbiddenError("No tienes acceso a este escenario.")
-        return scenario
+        raise ForbiddenError("No tienes acceso a este escenario.")
 
     @staticmethod
     def _require_manage_values(db: Session, *, scenario_id: int, current_user: User):
@@ -332,13 +471,9 @@ class ScenarioService:
         scenario = ScenarioService._require_access(db, scenario_id=scenario_id, current_user=current_user)
         if scenario.owner == current_user.username:
             return scenario
-        permission = ScenarioRepository.get_permission_for_user(
-            db, scenario_id=scenario_id, user_id=current_user.id
+        permission = ScenarioService._get_permission(
+            db, scenario_id=scenario_id, current_user=current_user
         )
-        if permission is None:
-            permission = ScenarioRepository.get_permission_by_identifier(
-                db, scenario_id=scenario_id, user_identifier=f"user:{current_user.username}"
-            )
         if scenario.edit_policy == "OPEN":
             return scenario
         if permission and (permission.can_manage_values or permission.can_edit_direct):
@@ -413,6 +548,51 @@ class ScenarioService:
         db.refresh(perm)
         return perm
 
+    @staticmethod
+    def update_metadata(
+        db: Session,
+        *,
+        scenario_id: int,
+        current_user: User,
+        payload: dict,
+    ) -> dict:
+        """Actualiza nombre y/o descripción del escenario."""
+        scenario = ScenarioService._require_admin(db, scenario_id=scenario_id, current_user=current_user)
+        new_name = payload.get("name")
+        new_description = payload.get("description")
+        touched = False
+
+        if new_name is not None:
+            clean_name = str(new_name).strip()
+            if not clean_name:
+                raise ConflictError("El nombre del escenario es obligatorio.")
+            if clean_name != scenario.name:
+                scenario.name = clean_name
+                touched = True
+
+        if new_description is not None:
+            clean_description = str(new_description).strip() or None
+            if clean_description != scenario.description:
+                scenario.description = clean_description
+                touched = True
+
+        if touched:
+            try:
+                db.commit()
+            except IntegrityError as e:
+                db.rollback()
+                raise ConflictError("No se pudo actualizar el escenario (posible duplicado o conflicto).") from e
+            db.refresh(scenario)
+
+        _, base_scenario_name = ScenarioRepository.get_by_id_with_base_name(db, scenario_id)
+        return ScenarioService._to_public(
+            db,
+            scenario=scenario,
+            current_user=current_user,
+            base_scenario_name=base_scenario_name,
+        )
+
+    @staticmethod
     @staticmethod
     def list_osemosys_summary(db: Session, *, scenario_id: int, current_user: User) -> list[dict]:
         """Retorna resumen agregado por parámetro/año de `osemosys_param_value`."""
@@ -693,7 +873,9 @@ class ScenarioService:
         payload: dict,
     ) -> dict:
         """Crea una fila OSeMOSYS en un escenario."""
-        ScenarioService._require_manage_values(db, scenario_id=scenario_id, current_user=current_user)
+        scenario = ScenarioService._require_manage_values(
+            db, scenario_id=scenario_id, current_user=current_user
+        )
         id_region = ScenarioService._resolve_catalog_name(
             db, model=Region, name=payload.get("region_name"), label="Región"
         )
@@ -725,20 +907,24 @@ class ScenarioService:
             value=float(payload.get("value")),
         )
         db.add(obj)
+        ScenarioService._track_changed_params(
+            scenario, param_names=[str(payload.get("param_name") or "").strip()]
+        )
         try:
             db.commit()
         except IntegrityError as e:
             db.rollback()
             raise ConflictError("No se pudo crear el valor OSeMOSYS (posible duplicado de dimensiones).") from e
         db.refresh(obj)
-        return ScenarioService.list_osemosys_values(
+        result = ScenarioService.list_osemosys_values(
             db,
             scenario_id=scenario_id,
             current_user=current_user,
             param_name=obj.param_name,
             year=obj.year,
             limit=1,
-        )[0]
+        )
+        return result["items"][0]
 
     @staticmethod
     def update_osemosys_value(
@@ -750,10 +936,13 @@ class ScenarioService:
         payload: dict,
     ) -> dict:
         """Actualiza una fila OSeMOSYS de escenario."""
-        ScenarioService._require_manage_values(db, scenario_id=scenario_id, current_user=current_user)
+        scenario = ScenarioService._require_manage_values(
+            db, scenario_id=scenario_id, current_user=current_user
+        )
         obj = db.get(OsemosysParamValue, value_id)
         if obj is None or int(obj.id_scenario) != scenario_id:
             raise NotFoundError("Valor OSeMOSYS no encontrado en el escenario.")
+        previous_param_name = obj.param_name
         obj.param_name = str(payload.get("param_name") or "").strip()
         obj.id_region = ScenarioService._resolve_catalog_name(
             db, model=Region, name=payload.get("region_name"), label="Región"
@@ -777,20 +966,25 @@ class ScenarioService:
             obj.id_udc_set = None
         obj.year = payload.get("year")
         obj.value = float(payload.get("value"))
+        ScenarioService._track_changed_params(
+            scenario,
+            param_names=[previous_param_name, obj.param_name],
+        )
         try:
             db.commit()
         except IntegrityError as e:
             db.rollback()
             raise ConflictError("No se pudo actualizar el valor OSeMOSYS (posible duplicado de dimensiones).") from e
         db.refresh(obj)
-        return ScenarioService.list_osemosys_values(
+        result = ScenarioService.list_osemosys_values(
             db,
             scenario_id=scenario_id,
             current_user=current_user,
             param_name=obj.param_name,
             year=obj.year,
             limit=1,
-        )[0]
+        )
+        return result["items"][0]
 
     @staticmethod
     def deactivate_osemosys_value(
@@ -801,10 +995,13 @@ class ScenarioService:
         current_user: User,
     ) -> None:
         """Desactiva un valor OSeMOSYS eliminándolo del escenario."""
-        ScenarioService._require_manage_values(db, scenario_id=scenario_id, current_user=current_user)
+        scenario = ScenarioService._require_manage_values(
+            db, scenario_id=scenario_id, current_user=current_user
+        )
         obj = db.get(OsemosysParamValue, value_id)
         if obj is None or int(obj.id_scenario) != scenario_id:
             raise NotFoundError("Valor OSeMOSYS no encontrado en el escenario.")
+        ScenarioService._track_changed_params(scenario, param_names=[obj.param_name])
         db.delete(obj)
         db.commit()
 
@@ -826,4 +1023,3 @@ class ScenarioService:
 #
 # Escalabilidad:
 # - Principal costo en I/O de BD y tamaño del dataset clonado.
-

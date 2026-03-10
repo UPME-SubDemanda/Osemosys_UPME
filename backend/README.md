@@ -1,6 +1,7 @@
 # OSEMOSYS Backend Técnico (FastAPI + Pyomo + Celery)
 
 Guía E2E complementaria: [README_E2E.md](../README_E2E.md).
+Guía backend local sin Docker: [docs/LOCAL_BACKEND_SIN_DOCKER.md](../docs/LOCAL_BACKEND_SIN_DOCKER.md).
 Arquitectura C4 y mapa de módulos: `docs/ARCHITECTURE.md`.
 
 ---
@@ -252,7 +253,7 @@ Supuestos implícitos relevantes:
 
 #### Prueba final (notebook vs app)
 
-Para comparar resultados con el notebook UPME (`osemosys_notebook_UPME_OPT.ipynb`) usando el escenario **"Escenario prueba final"**:
+Para comparar resultados con el notebook UPME (`osemosys_notebook_UPME_OPT_01.ipynb`) usando el escenario **"Escenario prueba final"**:
 
 1. **Comprobar que todo da igual (dos corridas idénticas):**
    ```bash
@@ -441,12 +442,12 @@ curl http://localhost:8010/api/v1/health
 
 ## Operación rápida (sin Docker, SQLite local)
 
-Desde `backend/`:
+Desde la raíz del repo:
 
-```bash
-cp .env.local.example .env.local
-python scripts/init_local_db.py
-uvicorn app.main:app --reload
+```powershell
+.\scripts\setup-local.ps1
+.\scripts\init-local-db.ps1
+.\scripts\run-local-api.ps1
 ```
 
 Variables y archivos clave para este modo:
@@ -456,8 +457,8 @@ Variables y archivos clave para este modo:
 
 Health:
 
-```bash
-curl http://localhost:8000/api/v1/health
+```powershell
+Invoke-RestMethod http://localhost:8000/api/v1/health
 ```
 
 Usuario seed:

@@ -1,6 +1,6 @@
 """Modelo ORM de escenarios de análisis OSEMOSYS."""
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, Integer, String, Text, func
+from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -18,6 +18,7 @@ class Scenario(Base):
             "edit_policy IN ('OWNER_ONLY','OPEN','RESTRICTED')",
             name="scenario_edit_policy",
         ),
+        Index("ix_scenario_base_scenario_id", "base_scenario_id"),
         {"schema": "osemosys"},
     )
 
@@ -25,6 +26,12 @@ class Scenario(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     owner: Mapped[str] = mapped_column(String(255), nullable=False)
+    base_scenario_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("osemosys.scenario.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    changed_param_names: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=None)
     edit_policy: Mapped[str] = mapped_column(String(20), nullable=False, default="OWNER_ONLY")
     is_template: Mapped[bool] = mapped_column(nullable=False, default=False)
     created_at: Mapped[object] = mapped_column(

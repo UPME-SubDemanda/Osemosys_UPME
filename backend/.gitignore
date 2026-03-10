@@ -33,6 +33,7 @@ Desktop.ini
 # Temporales y resultados de prueba
 tmp/
 temp/
+resultados/
 
 # Solver output
 *.lp

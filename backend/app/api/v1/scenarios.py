@@ -7,7 +7,9 @@ import desde Excel (create_scenario_from_excel), resumen por año.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from io import BytesIO
 
 from app.api.deps import get_current_user
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
@@ -29,8 +31,10 @@ from app.schemas.scenario import (
     ScenarioPermissionCreate,
     ScenarioPermissionPublic,
     ScenarioPublic,
+    ScenarioUpdate,
 )
 from app.services.official_import_service import OfficialImportService
+from app.services.scenario_export_service import export_scenario_to_excel
 from app.services.scenario_service import ScenarioService
 
 router = APIRouter(prefix="/scenarios")
@@ -38,6 +42,9 @@ router = APIRouter(prefix="/scenarios")
 @router.get("", response_model=PaginatedResponse[ScenarioPublic])
 def list_scenarios(
     busqueda: str | None = None,
+    owner: str | None = None,
+    edit_policy: str | None = None,
+    permission_scope: str | None = None,
     cantidad: int | None = 25,
     offset: int | None = 1,
     db: Session = Depends(get_db),
@@ -50,7 +57,14 @@ def list_scenarios(
         - 401: autenticación inválida.
     """
     return ScenarioService.list(
-        db, current_user=current_user, busqueda=busqueda, cantidad=cantidad, offset=offset
+        db,
+        current_user=current_user,
+        busqueda=busqueda,
+        owner=owner,
+        edit_policy=edit_policy,
+        permission_scope=permission_scope,
+        cantidad=cantidad,
+        offset=offset,
     )
 
 
@@ -132,12 +146,89 @@ def create_scenario_from_excel(
             "name": scenario.name,
             "description": scenario.description,
             "owner": scenario.owner,
+            "base_scenario_id": scenario.base_scenario_id,
+            "base_scenario_name": None,
             "edit_policy": scenario.edit_policy,
             "is_template": scenario.is_template,
             "created_at": str(scenario.created_at) if hasattr(scenario, "created_at") and scenario.created_at else None,
+            "effective_access": {
+                "can_view": True,
+                "is_owner": True,
+                "can_edit_direct": True,
+                "can_propose": True,
+                "can_manage_values": True,
+            },
         },
         "import_result": import_dict,
     }
+
+
+@router.get("/{scenario_id}", response_model=ScenarioPublic)
+def get_scenario(
+    scenario_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Obtiene un escenario individual si el usuario tiene visibilidad."""
+    try:
+        return ScenarioService.get_public(db, scenario_id=scenario_id, current_user=current_user)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+
+@router.get("/{scenario_id}/export-excel")
+def export_scenario_excel(
+    scenario_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Descarga el escenario en formato Excel SAND (hoja Parameters)."""
+    try:
+        scenario_dict = ScenarioService.get_public(
+            db, scenario_id=scenario_id, current_user=current_user
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+    scenario_name = scenario_dict.get("name", "scenario")
+    safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in scenario_name).strip() or "scenario"
+    filename = f"{safe_name}_Parameters.xlsx"
+
+    content = export_scenario_to_excel(
+        db, scenario_id=scenario_id, scenario_name=scenario_name
+    )
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.patch("/{scenario_id}", response_model=ScenarioPublic)
+def update_scenario(
+    scenario_id: int,
+    payload: ScenarioUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Actualiza metadatos de escenario y registra auditoría."""
+    try:
+        return ScenarioService.update_metadata(
+            db,
+            scenario_id=scenario_id,
+            current_user=current_user,
+            payload=payload.model_dump(exclude_unset=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 @router.delete("/{scenario_id}", status_code=204)
@@ -224,6 +315,13 @@ def update_scenario_from_excel(
         raise HTTPException(status_code=422, detail="El archivo está vacío.")
 
     try:
+        preview = OfficialImportService.preview_scenario_from_excel(
+            db,
+            scenario_id=scenario_id,
+            filename=filename,
+            content=content,
+            selected_sheet_name=sheet_name,
+        )
         result = OfficialImportService.update_scenario_from_excel(
             db,
             scenario_id=scenario_id,
@@ -231,6 +329,10 @@ def update_scenario_from_excel(
             content=content,
             selected_sheet_name=sheet_name,
         )
+        changed_param_names = sorted({row["param_name"] for row in preview["changes"]})
+        ScenarioService._track_changed_params(scenario, param_names=changed_param_names)
+        if changed_param_names:
+            db.commit()
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -314,6 +416,20 @@ def apply_excel_changes(
         scenario_id=scenario_id,
         changes=[{"row_id": c.row_id, "new_value": c.new_value} for c in payload.changes],
     )
+    changed_param_names = sorted(
+        {
+            row.param_name
+            for row in db.query(OsemosysParamValue)
+            .filter(
+                OsemosysParamValue.id_scenario == scenario_id,
+                OsemosysParamValue.id.in_([c.row_id for c in payload.changes]),
+            )
+            .all()
+        }
+    )
+    ScenarioService._track_changed_params(scenario, param_names=changed_param_names)
+    if changed_param_names:
+        db.commit()
 
     return {
         "updated": result["updated"],
@@ -588,4 +704,3 @@ def update_udc_config(
 #
 # Escalabilidad:
 # - Coste principal en consultas de permisos y paginación de escenarios.
-

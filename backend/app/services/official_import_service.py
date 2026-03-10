@@ -44,6 +44,8 @@ from app.models import (
     UdcSet,
 )
 from app.services.sand_notebook_preprocess import run_notebook_preprocess
+
+
 def _normalize_key(value: str) -> str:
     """Normaliza un string para comparación: quita acentos, minúsculas, solo alfanuméricos y '_'."""
     normalized = unicodedata.normalize("NFKD", value)
@@ -1282,17 +1284,20 @@ def _preview_sand_matrix_sheet(
         match = existing_index.get(key)
         if match is not None:
             row_id, old_value = match
-            changes.append({
-                "row_id": row_id,
-                "param_name": param_name,
-                "region_name": rev_region.get(ids.get("id_region")) if ids.get("id_region") else None,
-                "technology_name": rev_tech.get(ids.get("id_technology")) if ids.get("id_technology") else None,
-                "fuel_name": rev_fuel.get(ids.get("id_fuel")) if ids.get("id_fuel") else None,
-                "emission_name": rev_emission.get(ids.get("id_emission")) if ids.get("id_emission") else None,
-                "year": year,
-                "old_value": old_value,
-                "new_value": float(value),
-            })
+            new_val = float(value)
+            # Solo incluir en el preview filas donde el valor realmente cambió (evita saturar UI con miles de filas iguales)
+            if abs(old_value - new_val) > 1e-12:
+                changes.append({
+                    "row_id": row_id,
+                    "param_name": param_name,
+                    "region_name": rev_region.get(ids.get("id_region")) if ids.get("id_region") else None,
+                    "technology_name": rev_tech.get(ids.get("id_technology")) if ids.get("id_technology") else None,
+                    "fuel_name": rev_fuel.get(ids.get("id_fuel")) if ids.get("id_fuel") else None,
+                    "emission_name": rev_emission.get(ids.get("id_emission")) if ids.get("id_emission") else None,
+                    "year": year,
+                    "old_value": old_value,
+                    "new_value": new_val,
+                })
         else:
             not_found_count += 1
             dims = f"param={param_name}, year={year}"
@@ -1366,7 +1371,6 @@ def _preview_sand_matrix_sheet(
             else:
                 for yr, val in parsed.year_values.items():
                     _try_preview(parsed.param_name, parsed.ids, val, yr)
-
     for gk, group_rows in _agg_buffer.items():
         _flush_agg_group_preview(gk, group_rows)
 

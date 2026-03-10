@@ -18,6 +18,7 @@ from app.schemas.pagination import PaginatedResponse
 from app.schemas.simulation import (
     SimulationJobPublic,
     SimulationLogPublic,
+    SimulationOverviewPublic,
     SimulationResultPublic,
     SimulationSubmit,
 )
@@ -64,7 +65,11 @@ def submit_simulation(
 
 @router.get("", response_model=PaginatedResponse[SimulationJobPublic])
 def list_simulations(
+    scope: str = "mine",
     status_filter: str | None = None,
+    username: str | None = None,
+    scenario_id: int | None = None,
+    solver_name: str | None = None,
     cantidad: int | None = 25,
     offset: int | None = 1,
     db: Session = Depends(get_db),
@@ -81,10 +86,23 @@ def list_simulations(
     return SimulationService.list_jobs(
         db,
         current_user=current_user,
+        scope=scope,
         status=status_filter,
+        username=username,
+        scenario_id=scenario_id,
+        solver_name=solver_name,
         cantidad=cantidad,
         offset=offset,
     )
+
+
+@router.get("/overview", response_model=SimulationOverviewPublic)
+def get_simulation_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Resumen global del tablero operativo de simulaciones."""
+    return SimulationService.overview(db, current_user=current_user)
 
 
 @router.get("/{job_id}", response_model=SimulationJobPublic)

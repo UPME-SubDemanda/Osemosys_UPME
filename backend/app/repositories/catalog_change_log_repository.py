@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import CatalogChangeLog
@@ -34,6 +35,30 @@ class CatalogChangeLogRepository:
         )
         db.add(obj)
         return obj
+
+    @staticmethod
+    def list_by_entity(
+        db: Session,
+        *,
+        entity_type: str,
+        entity_id: int,
+        row_offset: int,
+        limit: int,
+    ) -> tuple[list[CatalogChangeLog], int]:
+        """Lista la bitácora de una entidad concreta en orden más reciente."""
+        where = (
+            (CatalogChangeLog.entity_type == entity_type)
+            & (CatalogChangeLog.entity_id == entity_id)
+        )
+        total = int(db.scalar(select(func.count()).select_from(CatalogChangeLog).where(where)) or 0)
+        stmt = (
+            select(CatalogChangeLog)
+            .where(where)
+            .order_by(CatalogChangeLog.created_at.desc(), CatalogChangeLog.id.desc())
+            .offset(row_offset)
+            .limit(limit)
+        )
+        return list(db.execute(stmt).scalars().all()), total
 
 
 # ============================================================================

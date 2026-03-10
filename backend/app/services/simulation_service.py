@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.models import OsemosysOutputParamValue, User
 from app.repositories.simulation_repository import SimulationRepository
+from app.services.docker_metrics_service import DockerMetricsService
 from app.services.pagination import build_meta, normalize_pagination
 from app.simulation.tasks import run_simulation_job
 
@@ -20,11 +21,19 @@ class SimulationService:
     """Capa de negocio para gestion de simulaciones."""
 
     @staticmethod
-    def _to_public(job, queue_position: int | None = None) -> dict:
+    def _to_public(
+        job,
+        *,
+        queue_position: int | None = None,
+        username: str | None = None,
+        scenario_name: str | None = None,
+    ) -> dict:
         return {
             "id": job.id,
             "scenario_id": job.scenario_id,
+            "scenario_name": scenario_name,
             "user_id": str(job.user_id),
+            "username": username,
             "solver_name": job.solver_name,
             "status": job.status,
             "progress": float(job.progress),
@@ -42,21 +51,14 @@ class SimulationService:
         db: Session, *, current_user: User, scenario_id: int, solver_name: str = "highs"
     ) -> dict:
         """Encola una nueva simulacion para un escenario autorizado."""
-        scenario = SimulationRepository.get_scenario(db, scenario_id=scenario_id)
-        if not scenario:
-            raise NotFoundError("Escenario no encontrado.")
+        from app.services.scenario_service import ScenarioService
 
-        has_access = scenario.owner == current_user.username
-        if not has_access:
-            from app.repositories.scenario_repository import ScenarioRepository
-
-            permission = ScenarioRepository.get_permission_for_user(
-                db, scenario_id=scenario_id, user_id=current_user.id
+        try:
+            scenario = ScenarioService._require_access(
+                db, scenario_id=scenario_id, current_user=current_user
             )
-            has_access = permission is not None
-
-        if not has_access:
-            raise ForbiddenError("No tienes acceso al escenario indicado.")
+        except ForbiddenError as exc:
+            raise ForbiddenError("No tienes acceso al escenario indicado.") from exc
 
         active_jobs = SimulationRepository.count_user_active_jobs(db, user_id=current_user.id)
         settings = get_settings()
@@ -104,7 +106,12 @@ class SimulationService:
             )
             db.commit()
             db.refresh(job)
-            return SimulationService._to_public(job, queue_position=None)
+            return SimulationService._to_public(
+                job,
+                queue_position=None,
+                username=current_user.username,
+                scenario_name=scenario.name,
+            )
 
         try:
             task = run_simulation_job.delay(job.id)
@@ -137,37 +144,65 @@ class SimulationService:
         db.commit()
         db.refresh(job)
         return SimulationService._to_public(
-            job, queue_position=SimulationRepository.queue_position(db, job_id=job.id)
+            job,
+            queue_position=SimulationRepository.queue_position(db, job_id=job.id),
+            username=current_user.username,
+            scenario_name=scenario.name,
         )
 
     @staticmethod
     def get_by_id(db: Session, *, current_user: User, job_id: int) -> dict:
-        job = SimulationRepository.get_job_for_user(db, job_id=job_id, user_id=current_user.id)
-        if not job:
+        visible = SimulationRepository.get_job_visible(db, job_id=job_id)
+        if not visible:
             raise NotFoundError("Simulacion no encontrada.")
+        job, username, scenario_name = visible
         queue_position = (
             SimulationRepository.queue_position(db, job_id=job.id) if job.status == "QUEUED" else None
         )
-        return SimulationService._to_public(job, queue_position=queue_position)
+        return SimulationService._to_public(
+            job,
+            queue_position=queue_position,
+            username=username,
+            scenario_name=scenario_name,
+        )
 
     @staticmethod
     def list_jobs(
         db: Session,
         *,
         current_user: User,
+        scope: str,
         status: str | None,
+        username: str | None,
+        scenario_id: int | None,
+        solver_name: str | None,
         cantidad: int | None,
         offset: int | None,
     ) -> dict:
         page, page_size, row_offset = normalize_pagination(offset, cantidad)
-        items, total = SimulationRepository.list_jobs_for_user(
+        normalized_scope = "mine" if scope not in {"mine", "global"} else scope
+        items, total = SimulationRepository.list_jobs(
             db,
+            scope=normalized_scope,
             user_id=current_user.id,
             status=status,
+            username=username,
+            scenario_id=scenario_id,
+            solver_name=solver_name,
             row_offset=row_offset,
             limit=page_size,
         )
-        data = [SimulationService._to_public(item) for item in items]
+        data = [
+            SimulationService._to_public(
+                job,
+                queue_position=SimulationRepository.queue_position(db, job_id=job.id)
+                if job.status == "QUEUED"
+                else None,
+                username=job_username,
+                scenario_name=job_scenario_name,
+            )
+            for job, job_username, job_scenario_name in items
+        ]
         meta = build_meta(page, page_size, total, status)
         return {"data": data, "meta": meta}
 
@@ -204,9 +239,10 @@ class SimulationService:
         cantidad: int | None,
         offset: int | None,
     ) -> dict:
-        job = SimulationRepository.get_job_for_user(db, job_id=job_id, user_id=current_user.id)
-        if not job:
+        visible = SimulationRepository.get_job_visible(db, job_id=job_id)
+        if not visible:
             raise NotFoundError("Simulacion no encontrada.")
+        job, _, _ = visible
         page, page_size, row_offset = normalize_pagination(offset, cantidad)
         events, total = SimulationRepository.list_events(
             db, job_id=job.id, row_offset=row_offset, limit=page_size
@@ -228,9 +264,10 @@ class SimulationService:
     @staticmethod
     def get_result(db: Session, *, current_user: User, job_id: int) -> dict:
         """Reconstruye el payload RunResult a partir de BD."""
-        job = SimulationRepository.get_job_for_user(db, job_id=job_id, user_id=current_user.id)
-        if not job:
+        visible = SimulationRepository.get_job_visible(db, job_id=job_id)
+        if not visible:
             raise NotFoundError("Simulacion no encontrada.")
+        job, _, _ = visible
         if job.status != "SUCCEEDED":
             raise ConflictError("La simulacion aun no ha finalizado correctamente.")
 
@@ -345,4 +382,13 @@ class SimulationService:
             "osemosys_inputs_summary": job.inputs_summary_json or [],
             "stage_times": job.stage_times_json or {},
             "model_timings": job.model_timings_json or {},
+        }
+
+    @staticmethod
+    def overview(db: Session, *, current_user: User) -> dict:
+        """Resumen operacional global del tablero de simulaciones."""
+        services_memory = DockerMetricsService.list_service_memory()
+        return {
+            **SimulationRepository.count_overview(db),
+            "services_memory_total_bytes": sum(item["memory_usage_bytes"] for item in services_memory),
         }

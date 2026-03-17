@@ -208,7 +208,7 @@ CONFIGS = {
     # GAS
     # ═══════════════════════════════════════════════════════════════════
     'gas_consumo': {
-        'titulo':           'Consumo de Gas Natural por Tecnología',
+        'titulo':           'Gas Natural - UseByTechnology',
         'figura':           'Figura 23',
         'filename':         'Fig23_Consumo_Gas',
         'print':            'CONSUMO DE GAS NATURAL',
@@ -220,7 +220,7 @@ CONFIGS = {
     },
 
     'gas_produccion': {
-        'titulo':           'Oferta/Producción de Gas Natural por Tecnología',
+        'titulo':           'Gas Natural - ProductionByTechnology',
         'figura':           'Figura 22',
         'filename':         'Fig22_Produccion_Gas',
         'print':            'PRODUCCIÓN DE GAS NATURAL',
@@ -235,7 +235,7 @@ CONFIGS = {
     # REFINERÍAS
     # ═══════════════════════════════════════════════════════════════════
     'ref_total': {
-        'titulo':           'Refinerías - Total',
+        'titulo':           'Refinerías - ProductionByTechnology',
         'figura':           'Figura 24',
         'filename':         'Fig24_Ref_Total',
         'print':            'REFINERÍAS',
@@ -247,7 +247,7 @@ CONFIGS = {
     },
 
     'ref_import': {
-        'titulo':           'Refinerías + Importaciones por Tecnología',
+        'titulo':           'Refinerías - Importaciones - ProductionByTechnology',
         'figura':           'Figura 25',
         'filename':         'Fig25_Ref_Import',
         'print':            'REFINERÍAS + IMPORTACIONES',
@@ -262,7 +262,7 @@ CONFIGS = {
     # RESIDENCIAL
     # ═══════════════════════════════════════════════════════════════════
     'res_total': {
-        'titulo':           'Sector Residencial — Consumo Total por Tecnología',
+        'titulo':           'Sector Residencial - Consumo Total - UseByTechnology',
         'figura':           'Figura 30',
         'filename':         'Fig30_Residencial_Total',
         'print':            'SECTOR RESIDENCIAL (TOTAL)',
@@ -274,7 +274,7 @@ CONFIGS = {
     },
 
     'res_uso': {
-        'titulo':           'Sector Residencial — Por Uso',
+        'titulo':           'Sector Residencial - ProductionByTechnology',
         'figura':           'Figura 31',
         'filename':         'Fig31_Residencial_Uso',
         'print':            'SECTOR RESIDENCIAL (POR USO)',
@@ -290,7 +290,7 @@ CONFIGS = {
     # INDUSTRIAL
     # ═══════════════════════════════════════════════════════════════════
     'ind_total': {
-        'titulo':           'Sector Industrial — Consumo Total por Tecnología',
+        'titulo':           'Sector Industrial - Consumo Total - UseByTechnology',
         'figura':           'Figura 40',
         'filename':         'Fig40_Industrial_Total',
         'print':            'SECTOR INDUSTRIAL (TOTAL)',
@@ -302,7 +302,7 @@ CONFIGS = {
     },
 
     'ind_uso': {
-        'titulo':           'Sector Industrial — Por Uso',
+        'titulo':           'Sector Industrial - ProductionByTechnology',
         'figura':           'Figura 41',
         'filename':         'Fig41_Industrial_Uso',
         'print':            'SECTOR INDUSTRIAL (POR USO)',
@@ -318,7 +318,7 @@ CONFIGS = {
     # TRANSPORTE
     # ═══════════════════════════════════════════════════════════════════
     'tra_total': {
-        'titulo':           'Sector Transporte — Consumo Total por Tecnología',
+        'titulo':           'Sector Transporte - Consumo Total - UseByTechnology',
         'figura':           'Figura 50',
         'filename':         'Fig50_Transporte_Total',
         'print':            'SECTOR TRANSPORTE (TOTAL)',
@@ -330,7 +330,7 @@ CONFIGS = {
     },
 
     'tra_uso': {
-        'titulo':           'Sector Transporte — Por Uso',
+        'titulo':           'Sector Transporte - ProductionByTechnology',
         'figura':           'Figura 51',
         'filename':         'Fig51_Transporte_Uso',
         'print':            'SECTOR TRANSPORTE (POR USO)',
@@ -346,7 +346,7 @@ CONFIGS = {
     # TERCIARIO
     # ═══════════════════════════════════════════════════════════════════
     'ter_total': {
-        'titulo':           'Sector Terciario — Consumo Total por Tecnología',
+        'titulo':           'Sector Terciario - Consumo Total - UseByTechnology',
         'figura':           'Figura 60',
         'filename':         'Fig60_Terciario_Total',
         'print':            'SECTOR TERCIARIO (TOTAL)',
@@ -358,7 +358,7 @@ CONFIGS = {
     },
 
     'ter_uso': {
-        'titulo':           'Sector Terciario — Por Uso',
+        'titulo':           'Sector Terciario - ProductionByTechnology',
         'figura':           'Figura 61',
         'filename':         'Fig61_Terciario_Uso',
         'print':            'SECTOR TERCIARIO (POR USO)',
@@ -374,7 +374,7 @@ CONFIGS = {
     # OTROS SECTORES
     # ═══════════════════════════════════════════════════════════════════
     'otros_total': {
-        'titulo':           'Otros Sectores — Consumo Total por Tecnología',
+        'titulo':           'Otros Sectores - Consumo Total - UseByTechnology',
         'figura':           'Figura 70',
         'filename':         'Fig70_Otros_Total',
         'print':            'OTROS SECTORES',
@@ -389,7 +389,7 @@ CONFIGS = {
     # CAPACIDAD — CONFIGS UNIFICADOS (1 por sector)
     # ═══════════════════════════════════════════════════════════════════
     'cap_electricidad': {
-        'titulo_base':      'Matriz Eléctrica',
+        'titulo_base':      'Matriz Eléctrica (Capacidad) - TotalCapacityAnnual',
         'figura_base':      'CAP-ELEC',
         'filename_base':    'Cap_Electricidad',
         'print_base':       'CAPACIDAD - MATRIZ ELÉCTRICA',
@@ -402,7 +402,7 @@ CONFIGS = {
     },
 
     'cap_industrial': {
-        'titulo_base':      'Sector Industrial',
+        'titulo_base':      'Sector Industrial (Capacidad) - TotalCapacityAnnual',
         'figura_base':      'CAP-IND',
         'filename_base':    'Cap_Industrial',
         'print_base':       'CAPACIDAD - SECTOR INDUSTRIAL',
@@ -414,8 +414,21 @@ CONFIGS = {
         'variable_default': 'TotalCapacityAnnual',
     },
 
+    'cap_transporte': {
+        'titulo_base':      'Sector Transporte (Capacidad) - TotalCapacityAnnual',
+        'figura_base':      'CAP-TRA',
+        'filename_base':    'Cap_Transporte',
+        'print_base':       'CAPACIDAD - SECTOR TRANSPORTE',
+        'filtro':           _filtro_transporte,
+        'msg_sin_datos':    'Sin tecnologías de transporte (DEMTRA)',
+        'agrupar_por':      'TECNOLOGIA',
+        'color_fn':         generar_colores_tecnologias,
+        'es_capacidad':     True,
+        'variable_default': 'TotalCapacityAnnual',
+    },
+
     'cap_terciario': {
-        'titulo_base':      'Sector Terciario',
+        'titulo_base':      'Sector Terciario (Capacidad) - TotalCapacityAnnual',
         'figura_base':      'CAP-TER',
         'filename_base':    'Cap_Terciario',
         'print_base':       'CAPACIDAD - SECTOR TERCIARIO',
@@ -428,7 +441,7 @@ CONFIGS = {
     },
 
     'cap_otros': {
-        'titulo_base':      'Otros Sectores',
+        'titulo_base':      'Otros Sectores (Capacidad) - TotalCapacityAnnual',
         'figura_base':      'CAP-OTROS',
         'filename_base':    'Cap_Otros',
         'print_base':       'CAPACIDAD - OTROS SECTORES',
@@ -445,7 +458,7 @@ CONFIGS = {
     # ═══════════════════════════════════════════════════════════════════
 
     'prd_electricidad': {
-        'titulo_base':      'Producción Eléctrica',
+        'titulo_base':      'Producción de Electricidad - ProductionByTechnology (%)',
         'figura_base':      'PRD-ELEC',
         'filename_base':    'Prd_Electricidad',
         'print_base':       'PRODUCCIÓN ELÉCTRICA',
@@ -458,7 +471,7 @@ CONFIGS = {
     },
 
     'elec_produccion': {
-        'titulo':           'Producción de Electricidad por Tecnología',
+        'titulo':           'Producción de Electricidad - ProductionByTechnology',
         'figura':           'Figura 21',
         'filename':         'Fig21_Produccion_Electricidad',
         'print':            'PRODUCCIÓN DE ELECTRICIDAD',
@@ -470,7 +483,7 @@ CONFIGS = {
     },
 
     'con_total': {
-        'titulo':           'Sector Construcción — Consumo Total por Tecnología',
+        'titulo':           'Sector Construcción - Consumo Total - UseByTechnology',
         'figura':           'Figura 11',
         'filename':         'Fig11_Construccion_Total',
         'print':            'SECTOR CONSTRUCCIÓN',
@@ -482,7 +495,7 @@ CONFIGS = {
     },
 
     'agf_total': {
-        'titulo':           'Sector Agroforestal — Consumo Total por Tecnología',
+        'titulo':           'Sector Agroforestal - Consumo Total - UseByTechnology',
         'figura':           'Figura 22',
         'filename':         'Fig22_Agroforestal_Total',
         'print':            'SECTOR AGROFORESTAL',
@@ -494,7 +507,7 @@ CONFIGS = {
     },
 
     'min_total': {
-        'titulo':           'Sector Minería — Consumo Total por Tecnología',
+        'titulo':           'Sector Minería - Consumo Total - UseByTechnology',
         'figura':           'Figura 24',
         'filename':         'Fig24_Mineria_Total',
         'print':            'SECTOR MINERÍA',
@@ -506,7 +519,7 @@ CONFIGS = {
     },
 
     'coq_total': {
-        'titulo':           'Sector Coquerías — Consumo Total por Tecnología',
+        'titulo':           'Sector Coquerías - Consumo Total - UseByTechnology',
         'figura':           'Figura 10',
         'filename':         'Fig10_Coquerias_Total',
         'print':            'SECTOR COQUERÍAS',
@@ -518,7 +531,7 @@ CONFIGS = {
     },
 
     'solidos_import': {
-        'titulo':           'Producción e Importación de Sólidos (Carbón)',
+        'titulo':           'Sólidos - Importación - ProductionByTechnology',
         'figura':           'Figura 23',
         'filename':         'Fig23_Produccion_Solidos',
         'print':            'PRODUCCIÓN E IMPORTACIÓN DE SÓLIDOS',
@@ -530,7 +543,7 @@ CONFIGS = {
     },
 
     'solidos_flujos': {
-        'titulo':           'Importaciones y Exportaciones de Sólidos',
+        'titulo':           'Sólidos - Importación/Exportación - ProductionByTechnology',
         'figura':           'Figura 26',
         'filename':         'Fig26_Import_Export_Solidos',
         'print':            'FLUJOS DE SÓLIDOS',
@@ -542,7 +555,7 @@ CONFIGS = {
     },
 
     'solidos_extraccion': {
-        'titulo':           'Extracción de Sólidos (Carbón)',
+        'titulo':           'Sólidos - Extracción - ProductionByTechnology',
         'figura':           'Figura 25',
         'filename':         'Fig25_Extraccion_Solidos',
         'print':            'EXTRACCIÓN DE SÓLIDOS',
@@ -554,7 +567,7 @@ CONFIGS = {
     },
 
     'extraccion_min': {
-        'titulo':           'Extracción por Tecnología y Combustible',
+        'titulo':           'Minería - Extracción - ProductionByTechnology',
         'figura':           'Figura 44',
         'filename':         'Fig44_Extraccion_MIN',
         'print':            'EXTRACCIÓN',
@@ -579,7 +592,7 @@ CONFIGS = {
     },
 
     'saf_produccion': {
-        'titulo':           'Producción SAF por Tecnología',
+        'titulo':           'SAF - Producción - ProductionByTechnology',
         'figura':           'Figura 47',
         'filename':         'Fig47_Produccion_SAF',
         'print':            'PRODUCCIÓN SAF',
@@ -591,7 +604,7 @@ CONFIGS = {
     },
 
     'cap_h2': {
-        'titulo':           'Producción de Hidrógeno por Tecnología',
+        'titulo':           'Hidrógeno - ProductionByTechnology',
         'figura':           'Figura 32',
         'filename':         'Fig32_Produccion_H2',
         'print':            'PRODUCCIÓN DE HIDRÓGENO',
@@ -603,7 +616,7 @@ CONFIGS = {
     },
 
     'h2_consumo': {
-        'titulo':           'Consumo de Hidrógeno por Tecnología',
+        'titulo':           'Hidrógeno - Consumo - UseByTechnology',
         'figura':           'Figura 33',
         'filename':         'Fig33_Consumo_H2',
         'print':            'CONSUMO DE HIDRÓGENO',
@@ -615,7 +628,7 @@ CONFIGS = {
     },
 
     'ups_refinacion': {
-        'titulo':           'Upstream — Refinación (UPSSAF/UPSALK/UPSPEM)',
+        'titulo':           'Upstream Refinación - ProductionByTechnology',
         'figura':           'Figura 48',
         'filename':         'Fig48_Upstream_Refinacion',
         'print':            'UPSTREAM REFINACIÓN',
@@ -627,7 +640,7 @@ CONFIGS = {
     },
 
     'min_hidrocarburos': {
-        'titulo':           'Minería — Petróleo y Gas',
+        'titulo':           'Minería Hidrocarburos - ProductionByTechnology',
         'figura':           'Figura 49',
         'filename':         'Fig49_Mineria_Hidrocarburos',
         'print':            'MINERÍA PETRÓLEO Y GAS',
@@ -639,7 +652,7 @@ CONFIGS = {
     },
 
     'min_carbon': {
-        'titulo':           'Minería — Carbón',
+        'titulo':           'Minería Carbón - ProductionByTechnology',
         'figura':           'Figura 53',
         'filename':         'Fig53_Mineria_Carbon',
         'print':            'MINERÍA CARBÓN',
@@ -651,7 +664,7 @@ CONFIGS = {
     },
 
     'emisiones_total': {
-        'titulo':           'Emisiones Totales Anuales',
+        'titulo':           'Emisiones - Total Anual - AnnualEmissions',
         'figura':           'EMI-TOT',
         'filename':         'Emisiones_Total',
         'print':            'EMISIONES TOTALES',
@@ -664,7 +677,7 @@ CONFIGS = {
     },
 
     'emisiones_sectorial': {
-        'titulo':           'Emisiones por Sector',
+        'titulo':           'Emisiones - Por Sector - AnnualTechnologyEmission',
         'figura':           'EMI-SEC',
         'filename':         'Emisiones_Sectorial',
         'print':            'EMISIONES SECTORIALES',

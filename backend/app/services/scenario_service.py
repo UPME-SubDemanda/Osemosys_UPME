@@ -556,10 +556,11 @@ class ScenarioService:
         current_user: User,
         payload: dict,
     ) -> dict:
-        """Actualiza nombre y/o descripción del escenario."""
+        """Actualiza nombre, descripción y/o política del escenario."""
         scenario = ScenarioService._require_admin(db, scenario_id=scenario_id, current_user=current_user)
         new_name = payload.get("name")
         new_description = payload.get("description")
+        new_edit_policy = payload.get("edit_policy")
         touched = False
 
         if new_name is not None:
@@ -575,6 +576,10 @@ class ScenarioService:
             if clean_description != scenario.description:
                 scenario.description = clean_description
                 touched = True
+
+        if new_edit_policy is not None and new_edit_policy != scenario.edit_policy:
+            scenario.edit_policy = str(new_edit_policy)
+            touched = True
 
         if touched:
             try:

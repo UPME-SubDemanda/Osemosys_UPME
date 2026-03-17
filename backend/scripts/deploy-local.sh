@@ -157,6 +157,20 @@ wait_http_ok() {
   return 1
 }
 
+wait_celery_ping() {
+  local retries="$1"
+  local sleep_seconds="$2"
+
+  for _ in $(seq 1 "${retries}"); do
+    if docker compose exec -T simulation-worker sh -lc \
+      'celery -A app.simulation.celery_app:celery_app inspect ping --timeout=5 >/dev/null 2>&1'; then
+      return 0
+    fi
+    sleep "${sleep_seconds}"
+  done
+  return 1
+}
+
 ensure_writable_backup_dir() {
   local desired_dir="$1"
   local fallback_dir="${REPO_ROOT}/backups"
@@ -368,8 +382,7 @@ if ! wait_http_ok "http://127.0.0.1:${API_PORT}/api/v1/health/ready" 30 2; then
 fi
 
 log "Smoke test de conectividad Celery"
-if ! docker compose exec -T simulation-worker sh -lc \
-  'celery -A app.simulation.celery_app:celery_app inspect ping -d "simulation-worker@$(hostname)" >/dev/null 2>&1'; then
+if ! wait_celery_ping 30 2; then
   echo "Smoke test falló: celery inspect ping no respondió." >&2
   exit 1
 fi

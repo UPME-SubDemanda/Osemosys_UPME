@@ -18,6 +18,8 @@
 - `vars.API_BIND_HOST`
 - `vars.API_PORT`
 - `vars.API_WORKERS`
+- `vars.BACKEND_API_ALIAS`
+- `vars.BACKEND_BRIDGE_NETWORK`
 - `vars.COMPOSE_PROJECT_NAME`
 - `vars.POSTGRES_BIND_HOST`
 - `vars.POSTGRES_PORT`
@@ -44,7 +46,8 @@
 - Cambia `API_BIND_HOST=0.0.0.0` solo si realmente quieres exponer el API a LAN/VPN.
 - Define `POSTGRES_BIND_HOST=127.0.0.1` y `REDIS_BIND_HOST=127.0.0.1` para dejar Postgres y Redis solo locales.
 - Usa `COMPOSE_PROJECT_NAME=osemosys-backend` o un valor específico de staging para evitar colisiones con el monorepo actual.
-- Abre únicamente el puerto del API si necesitas acceso remoto; este despliegue ya no depende de un frontend reverse proxy.
+- Si el frontend vive en otro stack Docker, conéctalo a `BACKEND_BRIDGE_NETWORK` y usa `BACKEND_API_ALIAS:8000` como upstream interno.
+- Abre únicamente el puerto del API si necesitas acceso remoto; si el frontend usa la red compartida, el backend puede seguir cerrado hacia afuera.
 - El despliegue falla si `SECRET_KEY` está ausente o sigue con el valor de ejemplo `change-me`.
 
 ## Despliegue local/manual

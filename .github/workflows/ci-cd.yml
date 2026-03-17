@@ -66,6 +66,8 @@ jobs:
       - name: Run Deploy Script
         env:
           COMPOSE_PROJECT_NAME: ${{ vars.COMPOSE_PROJECT_NAME }}
+          BACKEND_BRIDGE_NETWORK: ${{ vars.BACKEND_BRIDGE_NETWORK }}
+          BACKEND_API_ALIAS: ${{ vars.BACKEND_API_ALIAS }}
           APP_USERS: ${{ vars.APP_USERS }}
           APP_ADMIN_USERS: ${{ vars.APP_ADMIN_USERS }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
@@ -87,6 +89,8 @@ jobs:
         run: |
           chmod +x backend/scripts/deploy-local.sh
           COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-osemosys-backend}" \
+          BACKEND_BRIDGE_NETWORK="${BACKEND_BRIDGE_NETWORK:-osemosys_api_bridge}" \
+          BACKEND_API_ALIAS="${BACKEND_API_ALIAS:-osemosys-backend-api}" \
           APP_USERS="${APP_USERS:-lcardona,jchavez,dbedoya}" \
           APP_ADMIN_USERS="${APP_ADMIN_USERS:-${APP_USERS:-lcardona,jchavez,dbedoya}}" \
           APP_PASSWORD="${APP_PASSWORD}" \

@@ -14,6 +14,8 @@ set -euo pipefail
 #   API_BIND_HOST=127.0.0.1
 #   API_PORT=18010
 #   API_WORKERS=3
+#   BACKEND_BRIDGE_NETWORK=osemosys_api_bridge
+#   BACKEND_API_ALIAS=osemosys-backend-api
 #   REDIS_BIND_HOST=127.0.0.1
 #   REDIS_PORT=6380
 #   POSTGRES_BIND_HOST=127.0.0.1

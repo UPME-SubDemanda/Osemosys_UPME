@@ -22,6 +22,7 @@ from app.api.v1 import (
     solvers,
     technologies,
     users,
+    visualizations,
 )
 
 router = APIRouter()
@@ -41,6 +42,7 @@ router.include_router(official_import.router, tags=["official_import"])
 router.include_router(scenarios.router, tags=["scenarios"])
 router.include_router(parameter_values.router, tags=["parameter_values"])
 router.include_router(change_requests.router, tags=["change_requests"])
+router.include_router(visualizations.router, tags=["visualizations"])
 router.include_router(simulations.router, tags=["simulations"])
 
 

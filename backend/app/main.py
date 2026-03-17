@@ -9,6 +9,7 @@ Responsabilidades:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 import logging
 
 from app.api.v1.api import router as api_router
@@ -41,6 +42,8 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     app.include_router(api_router, prefix=settings.api_v1_str)
 

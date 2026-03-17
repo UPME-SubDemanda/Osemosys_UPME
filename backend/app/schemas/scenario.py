@@ -37,11 +37,12 @@ class ScenarioUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
+    edit_policy: EditPolicy | None = None
 
     @model_validator(mode="after")
     def _validate_any_field(self):
-        if self.name is None and self.description is None:
-            raise ValueError("Debes enviar al menos `name` o `description`.")
+        if self.name is None and self.description is None and self.edit_policy is None:
+            raise ValueError("Debes enviar al menos `name`, `description` o `edit_policy`.")
         return self
 
 

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from io import BytesIO
 
+import pytest
 from openpyxl import Workbook
 
 import app.services.scenario_service as scenario_service_module
+from app.core.exceptions import ForbiddenError
 from app.models import OsemosysParamValue
 from app.services.official_import_service import OfficialImportService
 from app.services.scenario_service import ScenarioService
@@ -78,10 +80,15 @@ def test_scenario_visibility_metadata_and_changed_params(db_session, monkeypatch
         db_session,
         scenario_id=restricted.id,
         current_user=viewer,
-        payload={"name": "Restringido editado", "description": "Nueva descripción"},
+        payload={
+            "name": "Restringido editado",
+            "description": "Nueva descripción",
+            "edit_policy": "OPEN",
+        },
     )
     assert updated["name"] == "Restringido editado"
     assert updated["description"] == "Nueva descripción"
+    assert updated["edit_policy"] == "OPEN"
 
     parent = create_scenario(
         db_session, name="Padre", owner=owner.username, edit_policy="RESTRICTED"
@@ -239,3 +246,135 @@ def test_excel_preview_apply_and_update_change_values(db_session) -> None:
     assert updated["not_found"] == 0
     db_session.refresh(seeded_row)
     assert seeded_row.value == 14.0
+
+
+def test_open_scenario_allows_authenticated_non_owner_to_manage_values(db_session) -> None:
+    owner = create_user(db_session, username="open-owner")
+    outsider = create_user(db_session, username="open-outsider")
+    scenario = create_scenario(
+        db_session, name="Escenario abierto", owner=owner.username, edit_policy="OPEN"
+    )
+    region = create_region(db_session, name="Occidente")
+    seeded_row = create_osemosys_value(
+        db_session,
+        scenario_id=scenario.id,
+        param_name="CapitalCost",
+        id_region=region.id,
+        year=2025,
+        value=10.0,
+    )
+
+    scenario_public = ScenarioService.get_public(
+        db_session,
+        scenario_id=scenario.id,
+        current_user=outsider,
+    )
+    assert scenario_public["effective_access"]["can_manage_values"] is True
+    assert scenario_public["effective_access"]["can_edit_direct"] is False
+
+    created_row = ScenarioService.create_osemosys_value(
+        db_session,
+        scenario_id=scenario.id,
+        current_user=outsider,
+        payload={
+            "param_name": "Demand",
+            "region_name": region.name,
+            "year": 2025,
+            "value": 4.0,
+        },
+    )
+    assert created_row["param_name"] == "Demand"
+
+    updated_row = ScenarioService.update_osemosys_value(
+        db_session,
+        scenario_id=scenario.id,
+        value_id=seeded_row.id,
+        current_user=outsider,
+        payload={
+            "param_name": "CapitalCost",
+            "region_name": region.name,
+            "year": 2025,
+            "value": 12.0,
+        },
+    )
+    assert updated_row["value"] == 12.0
+
+    ScenarioService.deactivate_osemosys_value(
+        db_session,
+        scenario_id=scenario.id,
+        value_id=created_row["id"],
+        current_user=outsider,
+    )
+    assert db_session.get(OsemosysParamValue, created_row["id"]) is None
+
+    with pytest.raises(ForbiddenError):
+        ScenarioService.update_metadata(
+            db_session,
+            scenario_id=scenario.id,
+            current_user=outsider,
+            payload={"description": "No debería poder editar metadatos"},
+        )
+
+
+def test_open_scenario_excel_updates_do_not_require_explicit_permission(db_session) -> None:
+    owner = create_user(db_session, username="open-excel-owner")
+    outsider = create_user(db_session, username="open-excel-outsider")
+    scenario = create_scenario(
+        db_session, name="Escenario abierto excel", owner=owner.username, edit_policy="OPEN"
+    )
+    region = create_region(db_session, name="Caribe")
+    seeded_row = create_osemosys_value(
+        db_session,
+        scenario_id=scenario.id,
+        param_name="CapitalCost",
+        id_region=region.id,
+        year=2025,
+        value=11.0,
+    )
+
+    workbook_v1 = _build_small_excel(
+        region_name=region.name,
+        param_name="CapitalCost",
+        year=2025,
+        value=13.5,
+    )
+    preview = OfficialImportService.preview_scenario_from_excel(
+        db_session,
+        scenario_id=scenario.id,
+        filename="open-small.xlsx",
+        content=workbook_v1,
+        selected_sheet_name="Parameters",
+    )
+    assert preview["changes"][0]["row_id"] == seeded_row.id
+
+    ScenarioService._require_manage_values(
+        db_session,
+        scenario_id=scenario.id,
+        current_user=outsider,
+    )
+
+    applied = OfficialImportService.apply_excel_changes(
+        db_session,
+        scenario_id=scenario.id,
+        changes=preview["changes"],
+    )
+    assert applied == {"updated": 1, "skipped": 0}
+    db_session.refresh(seeded_row)
+    assert seeded_row.value == 13.5
+
+    workbook_v2 = _build_small_excel(
+        region_name=region.name,
+        param_name="CapitalCost",
+        year=2025,
+        value=15.0,
+    )
+    updated = OfficialImportService.update_scenario_from_excel(
+        db_session,
+        scenario_id=scenario.id,
+        filename="open-small.xlsx",
+        content=workbook_v2,
+        selected_sheet_name="Parameters",
+    )
+    assert updated["updated"] == 1
+    db_session.refresh(seeded_row)
+    assert seeded_row.value == 15.0

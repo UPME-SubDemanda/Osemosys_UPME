@@ -1,0 +1,394 @@
+"""Service de negocio para jobs de simulacion."""
+
+from __future__ import annotations
+
+from collections import defaultdict
+
+from sqlalchemy.orm import Session
+
+from app.core.config import get_settings
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
+from app.models import OsemosysOutputParamValue, User
+from app.repositories.simulation_repository import SimulationRepository
+from app.services.docker_metrics_service import DockerMetricsService
+from app.services.pagination import build_meta, normalize_pagination
+from app.simulation.tasks import run_simulation_job
+
+_MAIN_VARIABLES = {"Dispatch", "NewCapacity", "UnmetDemand", "AnnualEmissions"}
+
+
+class SimulationService:
+    """Capa de negocio para gestion de simulaciones."""
+
+    @staticmethod
+    def _to_public(
+        job,
+        *,
+        queue_position: int | None = None,
+        username: str | None = None,
+        scenario_name: str | None = None,
+    ) -> dict:
+        return {
+            "id": job.id,
+            "scenario_id": job.scenario_id,
+            "scenario_name": scenario_name,
+            "user_id": str(job.user_id),
+            "username": username,
+            "solver_name": job.solver_name,
+            "status": job.status,
+            "progress": float(job.progress),
+            "cancel_requested": bool(job.cancel_requested),
+            "queue_position": queue_position,
+            "result_ref": job.result_ref,
+            "error_message": job.error_message,
+            "queued_at": job.queued_at,
+            "started_at": job.started_at,
+            "finished_at": job.finished_at,
+        }
+
+    @staticmethod
+    def submit(
+        db: Session, *, current_user: User, scenario_id: int, solver_name: str = "highs"
+    ) -> dict:
+        """Encola una nueva simulacion para un escenario autorizado."""
+        from app.services.scenario_service import ScenarioService
+
+        try:
+            scenario = ScenarioService._require_access(
+                db, scenario_id=scenario_id, current_user=current_user
+            )
+        except ForbiddenError as exc:
+            raise ForbiddenError("No tienes acceso al escenario indicado.") from exc
+
+        active_jobs = SimulationRepository.count_user_active_jobs(db, user_id=current_user.id)
+        settings = get_settings()
+        sync_mode = (
+            settings.is_sync_simulation_mode()
+            if hasattr(settings, "is_sync_simulation_mode")
+            else str(getattr(settings, "simulation_mode", "async")).strip().lower() == "sync"
+        )
+        if active_jobs >= settings.sim_user_active_limit:
+            raise ConflictError(
+                f"Ya alcanzaste el maximo de simulaciones activas ({settings.sim_user_active_limit})."
+            )
+
+        if solver_name not in {"highs", "glpk"}:
+            raise ConflictError("Solver invalido. Usa 'highs' o 'glpk'.")
+
+        job = SimulationRepository.create_job(
+            db, user_id=current_user.id, scenario_id=scenario_id, solver_name=solver_name
+        )
+        # Necesario para obtener `job.id` antes de insertar eventos asociados.
+        if hasattr(db, "flush"):
+            db.flush()
+        SimulationRepository.add_event(
+            db,
+            job_id=job.id,
+            event_type="INFO",
+            stage="queue",
+            message="Job creado y listo para encolar.",
+            progress=0.0,
+        )
+        db.commit()
+        db.refresh(job)
+
+        if sync_mode:
+            task = run_simulation_job.apply(args=[job.id], throw=False)
+            db.refresh(job)
+            job.celery_task_id = task.id
+            SimulationRepository.add_event(
+                db,
+                job_id=job.id,
+                event_type="INFO",
+                stage="queue",
+                message="Simulacion ejecutada en modo sincrono local.",
+                progress=float(job.progress),
+            )
+            db.commit()
+            db.refresh(job)
+            return SimulationService._to_public(
+                job,
+                queue_position=None,
+                username=current_user.username,
+                scenario_name=scenario.name,
+            )
+
+        try:
+            task = run_simulation_job.delay(job.id)
+        except Exception as exc:  # pragma: no cover - depende de broker externo
+            db.rollback()
+            failed_job = SimulationRepository.get_job_by_id(db, job_id=job.id)
+            if failed_job and failed_job.status == "QUEUED":
+                failed_job.status = "FAILED"
+                failed_job.error_message = f"QUEUE_ENQUEUE_ERROR: {exc}"
+                SimulationRepository.add_event(
+                    db,
+                    job_id=failed_job.id,
+                    event_type="ERROR",
+                    stage="queue",
+                    message=f"No se pudo encolar la simulacion: {exc}",
+                    progress=failed_job.progress,
+                )
+                db.commit()
+            raise ConflictError("No se pudo encolar la simulacion. Intenta nuevamente.") from exc
+
+        job.celery_task_id = task.id
+        SimulationRepository.add_event(
+            db,
+            job_id=job.id,
+            event_type="INFO",
+            stage="queue",
+            message="Simulacion encolada.",
+            progress=0.0,
+        )
+        db.commit()
+        db.refresh(job)
+        return SimulationService._to_public(
+            job,
+            queue_position=SimulationRepository.queue_position(db, job_id=job.id),
+            username=current_user.username,
+            scenario_name=scenario.name,
+        )
+
+    @staticmethod
+    def get_by_id(db: Session, *, current_user: User, job_id: int) -> dict:
+        visible = SimulationRepository.get_job_visible(db, job_id=job_id)
+        if not visible:
+            raise NotFoundError("Simulacion no encontrada.")
+        job, username, scenario_name = visible
+        queue_position = (
+            SimulationRepository.queue_position(db, job_id=job.id) if job.status == "QUEUED" else None
+        )
+        return SimulationService._to_public(
+            job,
+            queue_position=queue_position,
+            username=username,
+            scenario_name=scenario_name,
+        )
+
+    @staticmethod
+    def list_jobs(
+        db: Session,
+        *,
+        current_user: User,
+        scope: str,
+        status: str | None,
+        username: str | None,
+        scenario_id: int | None,
+        solver_name: str | None,
+        cantidad: int | None,
+        offset: int | None,
+    ) -> dict:
+        page, page_size, row_offset = normalize_pagination(offset, cantidad)
+        normalized_scope = "mine" if scope not in {"mine", "global"} else scope
+        items, total = SimulationRepository.list_jobs(
+            db,
+            scope=normalized_scope,
+            user_id=current_user.id,
+            status=status,
+            username=username,
+            scenario_id=scenario_id,
+            solver_name=solver_name,
+            row_offset=row_offset,
+            limit=page_size,
+        )
+        data = [
+            SimulationService._to_public(
+                job,
+                queue_position=SimulationRepository.queue_position(db, job_id=job.id)
+                if job.status == "QUEUED"
+                else None,
+                username=job_username,
+                scenario_name=job_scenario_name,
+            )
+            for job, job_username, job_scenario_name in items
+        ]
+        meta = build_meta(page, page_size, total, status)
+        return {"data": data, "meta": meta}
+
+    @staticmethod
+    def cancel(db: Session, *, current_user: User, job_id: int) -> dict:
+        job = SimulationRepository.get_job_for_user(db, job_id=job_id, user_id=current_user.id)
+        if not job:
+            raise NotFoundError("Simulacion no encontrada.")
+        if job.status not in ("QUEUED", "RUNNING"):
+            raise ConflictError("Solo se pueden cancelar simulaciones en cola o ejecucion.")
+
+        job.cancel_requested = True
+        if job.status == "QUEUED":
+            job.status = "CANCELLED"
+            job.progress = max(job.progress, 0.0)
+        SimulationRepository.add_event(
+            db,
+            job_id=job.id,
+            event_type="INFO",
+            stage="cancel",
+            message="Solicitud de cancelacion registrada.",
+            progress=job.progress,
+        )
+        db.commit()
+        db.refresh(job)
+        return SimulationService._to_public(job)
+
+    @staticmethod
+    def list_logs(
+        db: Session,
+        *,
+        current_user: User,
+        job_id: int,
+        cantidad: int | None,
+        offset: int | None,
+    ) -> dict:
+        visible = SimulationRepository.get_job_visible(db, job_id=job_id)
+        if not visible:
+            raise NotFoundError("Simulacion no encontrada.")
+        job, _, _ = visible
+        page, page_size, row_offset = normalize_pagination(offset, cantidad)
+        events, total = SimulationRepository.list_events(
+            db, job_id=job.id, row_offset=row_offset, limit=page_size
+        )
+        data = [
+            {
+                "id": event.id,
+                "event_type": event.event_type,
+                "stage": event.stage,
+                "message": event.message,
+                "progress": event.progress,
+                "created_at": event.created_at,
+            }
+            for event in events
+        ]
+        meta = build_meta(page, page_size, total, None)
+        return {"data": data, "meta": meta}
+
+    @staticmethod
+    def get_result(db: Session, *, current_user: User, job_id: int) -> dict:
+        """Reconstruye el payload RunResult a partir de BD."""
+        visible = SimulationRepository.get_job_visible(db, job_id=job_id)
+        if not visible:
+            raise NotFoundError("Simulacion no encontrada.")
+        job, _, _ = visible
+        if job.status != "SUCCEEDED":
+            raise ConflictError("La simulacion aun no ha finalizado correctamente.")
+
+        rows = (
+            db.query(OsemosysOutputParamValue)
+            .filter(OsemosysOutputParamValue.id_simulation_job == job.id)
+            .all()
+        )
+
+        if not rows and job.objective_value is None:
+            raise NotFoundError("No se encontraron resultados para esta simulacion.")
+
+        dispatch: list[dict] = []
+        new_capacity: list[dict] = []
+        unmet_demand: list[dict] = []
+        annual_emissions: list[dict] = []
+        intermediate_variables: dict[str, list[dict]] = defaultdict(list)
+
+        for r in rows:
+            vn = r.variable_name
+            if vn == "Dispatch":
+                dispatch.append({
+                    "region_id": r.id_region or -1,
+                    "year": r.year,
+                    "technology_name": r.technology_name,
+                    "technology_id": r.id_technology or -1,
+                    "fuel_name": r.fuel_name,
+                    "dispatch": r.value,
+                    "cost": r.value2 or 0.0,
+                })
+            elif vn == "NewCapacity":
+                new_capacity.append({
+                    "region_id": r.id_region or -1,
+                    "technology_id": r.id_technology or -1,
+                    "year": r.year,
+                    "new_capacity": r.value,
+                    "technology_name": r.technology_name,
+                })
+            elif vn == "UnmetDemand":
+                unmet_demand.append({
+                    "region_id": r.id_region or -1,
+                    "year": r.year,
+                    "unmet_demand": r.value,
+                })
+            elif vn == "AnnualEmissions":
+                annual_emissions.append({
+                    "region_id": r.id_region or -1,
+                    "year": r.year,
+                    "annual_emissions": r.value,
+                })
+            else:
+                intermediate_variables[vn].append({
+                    "index": r.index_json if r.index_json is not None else [],
+                    "value": r.value,
+                })
+
+        # Reconstruct sol from main series (frontend may use it)
+        sol: dict[str, list[dict]] = {
+            "RateOfActivity": [],
+            "NewCapacity": [],
+            "UnmetDemand": [],
+            "AnnualEmissions": [],
+        }
+        for d in dispatch:
+            sol["RateOfActivity"].append({
+                "index": [
+                    str(d.get("region_id", "")),
+                    d.get("technology_name", ""),
+                    d.get("fuel_name", ""),
+                    d["year"],
+                ],
+                "value": d["dispatch"],
+            })
+        for nc in new_capacity:
+            sol["NewCapacity"].append({
+                "index": [
+                    str(nc.get("region_id", "")),
+                    nc.get("technology_name", ""),
+                    nc["year"],
+                ],
+                "value": nc["new_capacity"],
+            })
+        for ud in unmet_demand:
+            sol["UnmetDemand"].append({
+                "index": [str(ud.get("region_id", "")), ud["year"]],
+                "value": ud["unmet_demand"],
+            })
+        for ae in annual_emissions:
+            sol["AnnualEmissions"].append({
+                "index": [str(ae.get("region_id", "")), ae["year"]],
+                "value": ae["annual_emissions"],
+            })
+
+        return {
+            "job_id": job.id,
+            "scenario_id": job.scenario_id,
+            "solver_name": job.solver_name,
+            "records_used": job.records_used or 0,
+            "osemosys_param_records": job.osemosys_param_records or 0,
+            "objective_value": job.objective_value or 0.0,
+            "solver_status": (job.model_timings_json or {}).get("solver_status", "unknown"),
+            "coverage_ratio": job.coverage_ratio or 0.0,
+            "total_demand": job.total_demand or 0.0,
+            "total_dispatch": job.total_dispatch or 0.0,
+            "total_unmet": job.total_unmet or 0.0,
+            "dispatch": dispatch,
+            "unmet_demand": unmet_demand,
+            "new_capacity": new_capacity,
+            "annual_emissions": annual_emissions,
+            "sol": sol,
+            "intermediate_variables": dict(intermediate_variables),
+            "osemosys_inputs_summary": job.inputs_summary_json or [],
+            "stage_times": job.stage_times_json or {},
+            "model_timings": job.model_timings_json or {},
+        }
+
+    @staticmethod
+    def overview(db: Session, *, current_user: User) -> dict:
+        """Resumen operacional global del tablero de simulaciones."""
+        services_memory = DockerMetricsService.list_service_memory()
+        return {
+            **SimulationRepository.count_overview(db),
+            "services_memory_total_bytes": sum(item["memory_usage_bytes"] for item in services_memory),
+        }

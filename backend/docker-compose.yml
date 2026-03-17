@@ -1,0 +1,142 @@
+name: osemosys-backend
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-osemosys}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-osemosys}
+      POSTGRES_DB: ${POSTGRES_DB:-osemosys}
+    ports:
+      - "${POSTGRES_BIND_HOST:-0.0.0.0}:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "${REDIS_BIND_HOST:-0.0.0.0}:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  api:
+    build:
+      context: .
+    restart: unless-stopped
+    command: >
+      sh -lc "exec python -m uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers ${API_WORKERS:-3}"
+    env_file:
+      - .env
+    environment:
+      # Toma credenciales de `.env` y fuerza host interno `db`.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-osemosys}:${POSTGRES_PASSWORD:-osemosys}@db:5432/${POSTGRES_DB:-osemosys}
+      DB_SCHEMA_OSEMOSYS: ${DB_SCHEMA_OSEMOSYS:-osemosys}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DOCKER_SOCKET_PATH: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
+      DOCKER_METRICS_SERVICES: ${DOCKER_METRICS_SERVICES:-api,simulation-worker,db,redis}
+      SIM_MAX_CONCURRENCY: ${SIM_MAX_CONCURRENCY:-2}
+      SIM_USER_ACTIVE_LIMIT: ${SIM_USER_ACTIVE_LIMIT:-4}
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-1}
+      OPENBLAS_NUM_THREADS: ${OPENBLAS_NUM_THREADS:-1}
+      MKL_NUM_THREADS: ${MKL_NUM_THREADS:-1}
+    ports:
+      - "${API_BIND_HOST:-0.0.0.0}:${API_PORT:-8010}:8000"
+    networks:
+      default:
+      backend_bridge:
+        aliases:
+          - ${BACKEND_API_ALIAS:-osemosys-backend-api}
+    volumes:
+      - simulation_artifacts:/app/tmp
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    logging: *default-logging
+
+  simulation-worker:
+    build:
+      context: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-osemosys}:${POSTGRES_PASSWORD:-osemosys}@db:5432/${POSTGRES_DB:-osemosys}
+      DB_SCHEMA_OSEMOSYS: ${DB_SCHEMA_OSEMOSYS:-osemosys}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SIM_MAX_CONCURRENCY: ${SIM_MAX_CONCURRENCY:-2}
+      SIM_USER_ACTIVE_LIMIT: ${SIM_USER_ACTIVE_LIMIT:-4}
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-1}
+      OPENBLAS_NUM_THREADS: ${OPENBLAS_NUM_THREADS:-1}
+      MKL_NUM_THREADS: ${MKL_NUM_THREADS:-1}
+    command: >
+      celery -A app.simulation.celery_app:celery_app worker
+      --loglevel=INFO
+      --concurrency=${SIM_MAX_CONCURRENCY:-2}
+      --hostname=simulation-worker@%h
+      --pool=prefork
+      --prefetch-multiplier=1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - simulation_artifacts:/app/tmp
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A app.simulation.celery_app:celery_app inspect ping -d simulation-worker@$$HOSTNAME >/dev/null 2>&1",
+        ]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  redis_data:
+  simulation_artifacts:
+
+networks:
+  backend_bridge:
+    external: true
+    name: ${BACKEND_BRIDGE_NETWORK:-osemosys_api_bridge}

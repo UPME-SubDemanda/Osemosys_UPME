@@ -1,0 +1,127 @@
+name: CI-CD
+
+on:
+  pull_request:
+  push:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: osemosys-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    name: Validate And Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare env files
+        run: cp .env.example .env
+
+      - name: Validate Docker Compose
+        run: docker compose config -q
+
+      - name: Ensure External Bridge Network
+        run: docker network inspect osemosys_api_bridge >/dev/null 2>&1 || docker network create osemosys_api_bridge
+
+      - name: Run Backend Tests
+        run: docker compose run --rm api python -m pytest -q
+
+      - name: Build Backend Images
+        run: docker compose build api simulation-worker
+
+  deploy:
+    name: Deploy On Server
+    needs: ci
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on:
+      - self-hosted
+      - linux
+    environment: production
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Required Secret
+        env:
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        run: |
+          if [ -z "${APP_PASSWORD}" ]; then
+            echo "::error::Missing GitHub secret APP_PASSWORD"
+            exit 1
+          fi
+          if [ -z "${SECRET_KEY}" ]; then
+            echo "::error::Missing GitHub secret SECRET_KEY"
+            exit 1
+          fi
+
+      - name: Run Deploy Script
+        env:
+          COMPOSE_PROJECT_NAME: ${{ vars.COMPOSE_PROJECT_NAME }}
+          BACKEND_BRIDGE_NETWORK: ${{ vars.BACKEND_BRIDGE_NETWORK }}
+          BACKEND_API_ALIAS: ${{ vars.BACKEND_API_ALIAS }}
+          APP_USERS: ${{ vars.APP_USERS }}
+          APP_ADMIN_USERS: ${{ vars.APP_ADMIN_USERS }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          API_BIND_HOST: ${{ vars.API_BIND_HOST }}
+          API_PORT: ${{ vars.API_PORT }}
+          API_WORKERS: ${{ vars.API_WORKERS }}
+          POSTGRES_BIND_HOST: ${{ vars.POSTGRES_BIND_HOST }}
+          POSTGRES_PORT: ${{ vars.POSTGRES_PORT }}
+          REDIS_BIND_HOST: ${{ vars.REDIS_BIND_HOST }}
+          REDIS_PORT: ${{ vars.REDIS_PORT }}
+          BACKUP_BEFORE_MIGRATIONS: ${{ vars.BACKUP_BEFORE_MIGRATIONS }}
+          BACKUP_DIR: ${{ vars.BACKUP_DIR }}
+          BACKUP_RETENTION_DAYS: ${{ vars.BACKUP_RETENTION_DAYS }}
+          RUN_SEED: ${{ vars.RUN_SEED }}
+          SIM_WORKER_REPLICAS: ${{ vars.SIM_WORKER_REPLICAS }}
+          SIM_MAX_CONCURRENCY: ${{ vars.SIM_MAX_CONCURRENCY }}
+          SIM_USER_ACTIVE_LIMIT: ${{ vars.SIM_USER_ACTIVE_LIMIT }}
+        run: |
+          chmod +x backend/scripts/deploy-local.sh
+          COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-osemosys-backend}" \
+          BACKEND_BRIDGE_NETWORK="${BACKEND_BRIDGE_NETWORK:-osemosys_api_bridge}" \
+          BACKEND_API_ALIAS="${BACKEND_API_ALIAS:-osemosys-backend-api}" \
+          APP_USERS="${APP_USERS:-lcardona,jchavez,dbedoya}" \
+          APP_ADMIN_USERS="${APP_ADMIN_USERS:-${APP_USERS:-lcardona,jchavez,dbedoya}}" \
+          APP_PASSWORD="${APP_PASSWORD}" \
+          SECRET_KEY="${SECRET_KEY}" \
+          API_BIND_HOST="${API_BIND_HOST:-127.0.0.1}" \
+          API_PORT="${API_PORT:-18010}" \
+          API_WORKERS="${API_WORKERS:-3}" \
+          POSTGRES_BIND_HOST="${POSTGRES_BIND_HOST:-127.0.0.1}" \
+          POSTGRES_PORT="${POSTGRES_PORT:-5433}" \
+          REDIS_BIND_HOST="${REDIS_BIND_HOST:-127.0.0.1}" \
+          REDIS_PORT="${REDIS_PORT:-6380}" \
+          BACKUP_BEFORE_MIGRATIONS="${BACKUP_BEFORE_MIGRATIONS:-1}" \
+          BACKUP_DIR="${BACKUP_DIR:-${RUNNER_TEMP:-/tmp}/osemosys-backups}" \
+          BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-7}" \
+          RUN_SEED="${RUN_SEED:-1}" \
+          SIM_WORKER_REPLICAS="${SIM_WORKER_REPLICAS:-2}" \
+          SIM_MAX_CONCURRENCY="${SIM_MAX_CONCURRENCY:-2}" \
+          SIM_USER_ACTIVE_LIMIT="${SIM_USER_ACTIVE_LIMIT:-4}" \
+          ./backend/scripts/deploy-local.sh
+
+      - name: Smoke Checks
+        env:
+          COMPOSE_PROJECT_NAME: ${{ vars.COMPOSE_PROJECT_NAME }}
+          API_PORT: ${{ vars.API_PORT }}
+        run: |
+          export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-osemosys-backend}"
+          API_PORT="${API_PORT:-18010}"
+          curl -fsS "http://127.0.0.1:${API_PORT}/api/v1/health"
+          curl -fsS "http://127.0.0.1:${API_PORT}/api/v1/health/ready"
+          docker compose -f backend/docker-compose.yml exec -T simulation-worker sh -lc \
+            'celery -A app.simulation.celery_app:celery_app inspect ping -d "simulation-worker@$(hostname)"'

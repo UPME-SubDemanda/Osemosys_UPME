@@ -176,6 +176,7 @@ class ScenarioOsemosysValueCreate(BaseModel):
     technology_name: str | None = None
     fuel_name: str | None = None
     emission_name: str | None = None
+    solver_name: str | None = None
     udc_name: str | None = Field(
         default=None,
         description="Nombre del UDC (code en catálogo `udc_set`) para dimensionar id_udc_set.",
@@ -192,6 +193,7 @@ class ScenarioOsemosysValueUpdate(BaseModel):
     technology_name: str | None = None
     fuel_name: str | None = None
     emission_name: str | None = None
+    solver_name: str | None = None
     udc_name: str | None = Field(
         default=None,
         description="Nombre del UDC (code en catálogo `udc_set`) para dimensionar id_udc_set.",

@@ -14,6 +14,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import BytesIO
+import logging
+import sys
+import time
 import unicodedata
 
 from openpyxl import load_workbook
@@ -44,6 +47,17 @@ from app.models import (
     UdcSet,
 )
 from app.services.sand_notebook_preprocess import run_notebook_preprocess
+
+
+logger = logging.getLogger("excel_performance")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+# Evita duplicar mensajes en stdout cuando el root logger tambien escribe en consola.
+logger.propagate = False
 
 
 def _normalize_key(value: str) -> str:
@@ -1203,6 +1217,9 @@ def _preview_sand_matrix_sheet(
     pero recopila diffs ``(row_id, old_value, new_value, nombres)``
     en vez de ejecutar UPDATEs.
     """
+    logger.info("🔎 [preview] Entrando a _preview_sand_matrix_sheet (scenario_id=%s).", scenario_id)
+    logger.info("⏳ [2/3] Descargando datos del escenario desde la BD...")
+    db_download_start_time = time.time()
     existing_rows = db.execute(
         select(
             OsemosysParamValue.id,
@@ -1222,7 +1239,14 @@ def _preview_sand_matrix_sheet(
             OsemosysParamValue.value,
         ).where(OsemosysParamValue.id_scenario == scenario_id)
     ).all()
+    logger.info(
+        "✅ [2/3] Datos descargados en %.2f segundos.",
+        time.time() - db_download_start_time,
+    )
+    logger.info("📦 [preview] Registros de escenario recibidos desde BD: %s.", len(existing_rows))
 
+    logger.info("⏳ [preview] Construyendo índice de búsqueda (existing_index)...")
+    existing_index_start_time = time.time()
     existing_index: dict[tuple, tuple[int, float]] = {}
     for row in existing_rows:
         key = (
@@ -1241,18 +1265,32 @@ def _preview_sand_matrix_sheet(
             row.year,
         )
         existing_index[key] = (row.id, float(row.value))
+    logger.info(
+        "✅ [preview] Índice existing_index listo en %.2f segundos (claves=%s).",
+        time.time() - existing_index_start_time,
+        len(existing_index),
+    )
 
+    logger.info("⏳ [preview] Preparando mapas inversos para nombres legibles...")
+    reverse_maps_start_time = time.time()
     rev_region = {v: k for k, v in region_map.items()}
     rev_tech = {v: k for k, v in tech_map.items()}
     rev_fuel = {v: k for k, v in fuel_map.items()}
     rev_emission = {v: k for k, v in emission_map.items()}
+    logger.info(
+        "✅ [preview] Mapas inversos listos en %.2f segundos.",
+        time.time() - reverse_maps_start_time,
+    )
 
     _AggKey = tuple
     _agg_buffer: dict[_AggKey, list[dict]] = {}
 
+    logger.info("⏳ [preview] Leyendo cabecera y detectando columnas de años...")
+    header_parse_start_time = time.time()
     rows_iter = sheet.iter_rows(values_only=True)
     header_row_check = next(rows_iter, None)
     if not header_row_check:
+        logger.info("⚠️ [preview] La hoja no tiene filas; preview vacío.")
         return {"changes": [], "not_found": 0}
 
     year_cols: list[tuple[int, int]] = []
@@ -1260,6 +1298,11 @@ def _preview_sand_matrix_sheet(
         parsed_yr = _to_int(raw_c)
         if parsed_yr is not None and 1900 <= parsed_yr <= 2200:
             year_cols.append((idx_c, parsed_yr))
+    logger.info(
+        "✅ [preview] Cabecera analizada en %.2f segundos (columnas de año detectadas=%s).",
+        time.time() - header_parse_start_time,
+        len(year_cols),
+    )
 
     not_found_count = 0
     changes: list[dict] = []
@@ -1336,6 +1379,11 @@ def _preview_sand_matrix_sheet(
             for yr, val in aggregated_years.items():
                 _try_preview(param_name, ids, val, yr)
 
+    logger.info("⏳ [3/3] Procesando filas y calculando diferencias...")
+    parse_start_time = time.time()
+    parsed_rows_count = 0
+    grouped_rows_count = 0
+    direct_rows_count = 0
     for parsed in _parse_sand_rows(
         db,
         sheet=sheet,
@@ -1353,7 +1401,18 @@ def _preview_sand_matrix_sheet(
         udc_map=udc_map,
         create_missing_catalogs=False,
     ):
+        parsed_rows_count += 1
+        if parsed_rows_count % 500 == 0:
+            logger.info(
+                "📈 [preview] Progreso parseo: %s filas leídas (directas=%s, agrupables=%s, cambios=%s, no_encontradas=%s).",
+                parsed_rows_count,
+                direct_rows_count,
+                grouped_rows_count,
+                len(changes),
+                not_found_count,
+            )
         if parsed.group_key is not None:
+            grouped_rows_count += 1
             row_entry = {
                 "param_name": parsed.param_name,
                 "timeslice_code": parsed.timeslice_code,
@@ -1365,14 +1424,40 @@ def _preview_sand_matrix_sheet(
                 _agg_buffer[parsed.group_key] = []
             _agg_buffer[parsed.group_key].append(row_entry)
         else:
+            direct_rows_count += 1
             stats.total_rows_read += 1
             if parsed.time_indep_val is not None:
                 _try_preview(parsed.param_name, parsed.ids, parsed.time_indep_val, None)
             else:
                 for yr, val in parsed.year_values.items():
                     _try_preview(parsed.param_name, parsed.ids, val, yr)
+    logger.info(
+        "✅ [3/3] Procesamiento de filas completado en %.2f segundos.",
+        time.time() - parse_start_time,
+    )
+    logger.info(
+        "📊 [preview] Resumen parseo: total=%s, directas=%s, agrupables=%s, grupos=%s.",
+        parsed_rows_count,
+        direct_rows_count,
+        grouped_rows_count,
+        len(_agg_buffer),
+    )
+
+    logger.info("⏳ [preview] Aplicando agregación por grupos de timeslice...")
+    group_aggregation_start_time = time.time()
     for gk, group_rows in _agg_buffer.items():
         _flush_agg_group_preview(gk, group_rows)
+    logger.info(
+        "✅ [preview] Agregación de grupos completada en %.2f segundos.",
+        time.time() - group_aggregation_start_time,
+    )
+
+    logger.info(
+        "🏁 [preview] Finalizó _preview_sand_matrix_sheet (changes=%s, not_found=%s, total_rows_read=%s).",
+        len(changes),
+        not_found_count,
+        stats.total_rows_read,
+    )
 
     return {"changes": changes, "not_found": not_found_count}
 
@@ -2491,13 +2576,34 @@ class OfficialImportService:
         Retorna la lista de diferencias (valor actual vs nuevo) para que
         el usuario confirme antes de aplicar.
         """
+        logger.info(
+            "🚀 [preview] Inicio preview_scenario_from_excel (scenario_id=%s, archivo=%s, bytes=%s).",
+            scenario_id,
+            filename,
+            len(content) if content is not None else 0,
+        )
+        logger.info("⏳ [1/3] Iniciando carga del Excel en memoria...")
+        excel_load_start_time = time.time()
         workbook = load_workbook(filename=BytesIO(content), data_only=True, read_only=True)
+        logger.info(
+            "✅ [1/3] Excel cargado en %.2f segundos.",
+            time.time() - excel_load_start_time,
+        )
         stats = ImportStats()
 
+        logger.info("⏳ [preview] Validando que la hoja solicitada exista en el workbook...")
+        sheet_validation_start_time = time.time()
         selected_names = {_normalize_key(n) for n in workbook.sheetnames}
         if _normalize_key(selected_sheet_name) not in selected_names:
             raise ValueError(f"La hoja seleccionada no existe en el archivo: {selected_sheet_name}")
+        logger.info(
+            "✅ [preview] Hoja validada en %.2f segundos (hojas_disponibles=%s).",
+            time.time() - sheet_validation_start_time,
+            len(workbook.sheetnames),
+        )
 
+        logger.info("⏳ [preview] Cargando catálogos de referencia desde BD (region/tech/fuel/etc.)...")
+        catalog_maps_start_time = time.time()
         region_map = _load_name_map(db, Region)
         tech_map = _load_name_map(db, Technology)
         fuel_map = _load_name_map(db, Fuel)
@@ -2509,7 +2615,24 @@ class OfficialImportService:
         dtb_map = _load_code_map(db, Dailytimebracket)
         storage_map = _load_code_map(db, StorageSet)
         udc_map = _load_code_map(db, UdcSet)
+        logger.info(
+            "✅ [preview] Catálogos cargados en %.2f segundos (region=%s, tech=%s, fuel=%s, emission=%s, timeslice=%s, mode=%s, season=%s, daytype=%s, dtb=%s, storage=%s, udc=%s).",
+            time.time() - catalog_maps_start_time,
+            len(region_map),
+            len(tech_map),
+            len(fuel_map),
+            len(emission_map),
+            len(timeslice_map),
+            len(mode_map),
+            len(season_map),
+            len(daytype_map),
+            len(dtb_map),
+            len(storage_map),
+            len(udc_map),
+        )
 
+        logger.info("⏳ [preview] Buscando hoja objetivo dentro del workbook...")
+        target_sheet_lookup_start_time = time.time()
         target_sheet = None
         for sn in workbook.sheetnames:
             if _normalize_key(sn) == _normalize_key(selected_sheet_name):
@@ -2518,7 +2641,14 @@ class OfficialImportService:
 
         if target_sheet is None:
             raise ValueError(f"No se encontró la hoja: {selected_sheet_name}")
+        logger.info(
+            "✅ [preview] Hoja objetivo seleccionada en %.2f segundos (sheet=%s).",
+            time.time() - target_sheet_lookup_start_time,
+            target_sheet.title,
+        )
 
+        logger.info("⏳ [preview] Ejecutando cálculo de diferencias del Excel contra el escenario...")
+        diff_calc_start_time = time.time()
         result = _preview_sand_matrix_sheet(
             db,
             sheet=target_sheet,
@@ -2536,7 +2666,18 @@ class OfficialImportService:
             dtb_map=dtb_map,
             udc_map=udc_map,
         )
+        logger.info(
+            "✅ [preview] Cálculo de diferencias completado en %.2f segundos (changes=%s, not_found=%s).",
+            time.time() - diff_calc_start_time,
+            len(result["changes"]),
+            result["not_found"],
+        )
 
+        logger.info(
+            "🏁 [preview] Fin preview_scenario_from_excel (total_rows_read=%s, warnings=%s).",
+            stats.total_rows_read,
+            len(stats.warnings or []),
+        )
         return {
             "changes": result["changes"],
             "not_found": result["not_found"],

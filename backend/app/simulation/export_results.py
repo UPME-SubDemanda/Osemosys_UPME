@@ -30,6 +30,14 @@ INTERMEDIATE_COLUMN_NAMES: dict[str, list[str]] = {
 }
 
 
+def _safe_index_list(entry: dict) -> list:
+    """Normaliza `entry['index']` a lista; evita len() sobre tipos escalares."""
+    value = entry.get("index")
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return []
+
+
 def export_solution_to_folder(
     result: dict,
     output_dir: str | Path,
@@ -135,7 +143,7 @@ def export_solution_to_folder(
         if not entries or not isinstance(entries, list):
             continue
         # Cada entrada: {"index": [r, t, f, ...], "value": v}
-        n_cols = max(len((e.get("index") or [])) for e in entries)
+        n_cols = max(len(_safe_index_list(e)) for e in entries)
         if n_cols == 0:
             n_cols = 1
         idx_names = INTERMEDIATE_COLUMN_NAMES.get(var_name)
@@ -146,7 +154,7 @@ def export_solution_to_folder(
         index_keys = fieldnames[:-1]  # todos menos VALUE
         rows = []
         for e in entries:
-            idx_vals = e.get("index") or []
+            idx_vals = _safe_index_list(e)
             row = {index_keys[i]: idx_vals[i] if i < len(idx_vals) else "" for i in range(n_cols)}
             row["VALUE"] = e.get("value", 0)
             rows.append(row)

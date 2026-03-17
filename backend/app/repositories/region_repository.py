@@ -16,19 +16,26 @@ class RegionRepository:
         db: Session,
         *,
         busqueda: str | None,
-        is_active: bool,
+        is_active: bool | None,
         row_offset: int,
         limit: int,
     ) -> tuple[list[Region], int]:
         """Consulta paginada de regiones."""
-        cond = Region.is_active.is_(is_active)
+        stmt = select(Region)
+        count_stmt = select(func.count()).select_from(Region)
+        if is_active is not None:
+            state_filter = Region.is_active.is_(is_active)
+            stmt = stmt.where(state_filter)
+            count_stmt = count_stmt.where(state_filter)
         if busqueda:
-            cond = cond & Region.name.ilike(f"%{busqueda}%")
+            search_filter = Region.name.ilike(f"%{busqueda}%")
+            stmt = stmt.where(search_filter)
+            count_stmt = count_stmt.where(search_filter)
 
-        total = int(db.scalar(select(func.count()).select_from(Region).where(cond)) or 0)
+        total = int(db.scalar(count_stmt) or 0)
         items = (
             db.execute(
-                select(Region).where(cond).order_by(Region.name.asc()).offset(row_offset).limit(limit)
+                stmt.order_by(Region.name.asc()).offset(row_offset).limit(limit)
             )
             .scalars()
             .all()

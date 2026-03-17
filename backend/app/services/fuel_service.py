@@ -43,7 +43,7 @@ class FuelService:
         db: Session,
         *,
         busqueda: str | None,
-        is_active: bool,
+        is_active: bool | None,
         cantidad: int | None,
         offset: int | None,
     ) -> dict:

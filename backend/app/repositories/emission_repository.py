@@ -16,19 +16,26 @@ class EmissionRepository:
         db: Session,
         *,
         busqueda: str | None,
-        is_active: bool,
+        is_active: bool | None,
         row_offset: int,
         limit: int,
     ) -> tuple[list[Emission], int]:
         """Lista emisiones paginadas para filtros de catálogo."""
-        cond = Emission.is_active.is_(is_active)
+        stmt = select(Emission)
+        count_stmt = select(func.count()).select_from(Emission)
+        if is_active is not None:
+            state_filter = Emission.is_active.is_(is_active)
+            stmt = stmt.where(state_filter)
+            count_stmt = count_stmt.where(state_filter)
         if busqueda:
-            cond = cond & Emission.name.ilike(f"%{busqueda}%")
+            search_filter = Emission.name.ilike(f"%{busqueda}%")
+            stmt = stmt.where(search_filter)
+            count_stmt = count_stmt.where(search_filter)
 
-        total = int(db.scalar(select(func.count()).select_from(Emission).where(cond)) or 0)
+        total = int(db.scalar(count_stmt) or 0)
         items = (
             db.execute(
-                select(Emission).where(cond).order_by(Emission.name.asc()).offset(row_offset).limit(limit)
+                stmt.order_by(Emission.name.asc()).offset(row_offset).limit(limit)
             )
             .scalars()
             .all()

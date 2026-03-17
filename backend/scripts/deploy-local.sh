@@ -182,6 +182,21 @@ ensure_writable_backup_dir() {
   echo "${fallback_dir}"
 }
 
+ensure_external_network() {
+  local network_name="$1"
+
+  if [[ -z "${network_name}" ]]; then
+    return 0
+  fi
+
+  if docker network inspect "${network_name}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  log "Creando red Docker externa '${network_name}'"
+  docker network create "${network_name}" >/dev/null
+}
+
 require_cmd docker
 require_cmd ss
 require_cmd sed
@@ -208,6 +223,7 @@ POSTGRES_PORT="${POSTGRES_PORT:-}"
 API_BIND_HOST="${API_BIND_HOST:-127.0.0.1}"
 POSTGRES_BIND_HOST="${POSTGRES_BIND_HOST:-127.0.0.1}"
 REDIS_BIND_HOST="${REDIS_BIND_HOST:-127.0.0.1}"
+BACKEND_BRIDGE_NETWORK="${BACKEND_BRIDGE_NETWORK:-osemosys_api_bridge}"
 APP_USERS="${APP_USERS:-lcardona,jchavez,dbedoya}"
 APP_PASSWORD="${APP_PASSWORD:-Cambio123!}"
 SECRET_KEY="${SECRET_KEY:-}"
@@ -229,6 +245,7 @@ if [[ -z "${POSTGRES_PORT}" ]]; then
 fi
 
 require_non_default_secret_key "${SECRET_KEY}"
+ensure_external_network "${BACKEND_BRIDGE_NETWORK}"
 
 upsert_env_key .env API_PORT "${API_PORT}"
 upsert_env_key .env API_WORKERS "${API_WORKERS}"

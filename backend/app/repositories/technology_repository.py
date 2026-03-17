@@ -16,20 +16,26 @@ class TechnologyRepository:
         db: Session,
         *,
         busqueda: str | None,
-        is_active: bool,
+        is_active: bool | None,
         row_offset: int,
         limit: int,
     ) -> tuple[list[Technology], int]:
         """Devuelve tecnologías paginadas y total."""
-        cond = Technology.is_active.is_(is_active)
+        stmt = select(Technology)
+        count_stmt = select(func.count()).select_from(Technology)
+        if is_active is not None:
+            state_filter = Technology.is_active.is_(is_active)
+            stmt = stmt.where(state_filter)
+            count_stmt = count_stmt.where(state_filter)
         if busqueda:
-            cond = cond & Technology.name.ilike(f"%{busqueda}%")
+            search_filter = Technology.name.ilike(f"%{busqueda}%")
+            stmt = stmt.where(search_filter)
+            count_stmt = count_stmt.where(search_filter)
 
-        total = int(db.scalar(select(func.count()).select_from(Technology).where(cond)) or 0)
+        total = int(db.scalar(count_stmt) or 0)
         items = (
             db.execute(
-                select(Technology)
-                .where(cond)
+                stmt
                 .order_by(Technology.name.asc())
                 .offset(row_offset)
                 .limit(limit)

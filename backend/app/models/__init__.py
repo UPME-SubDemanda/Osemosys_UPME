@@ -16,6 +16,8 @@ from .parameter_value_audit import ParameterValueAudit
 from .parameter_value import ParameterValue
 from .region import Region
 from .scenario import Scenario
+from .scenario_operation_job import ScenarioOperationJob
+from .scenario_operation_job_event import ScenarioOperationJobEvent
 from .scenario_permission import ScenarioPermission
 from .season import Season
 from .simulation_benchmark import SimulationBenchmark
@@ -31,6 +33,8 @@ from .core.user import User
 
 __all__ = [
     "Scenario",
+    "ScenarioOperationJob",
+    "ScenarioOperationJobEvent",
     "Parameter",
     "Region",
     "Technology",

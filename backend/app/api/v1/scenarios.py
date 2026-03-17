@@ -6,7 +6,7 @@ import desde Excel (create_scenario_from_excel), resumen por año.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from io import BytesIO
@@ -33,8 +33,14 @@ from app.schemas.scenario import (
     ScenarioPublic,
     ScenarioUpdate,
 )
+from app.schemas.scenario_operation import (
+    ScenarioCloneAsyncCreate,
+    ScenarioOperationJobPublic,
+    ScenarioOperationLogPublic,
+)
+from app.services.scenario_operation_service import ScenarioOperationService
 from app.services.official_import_service import OfficialImportService
-from app.services.scenario_export_service import export_scenario_to_excel
+from app.services.scenario_export_service import export_scenario_raw_to_excel, export_scenario_to_excel
 from app.services.scenario_service import ScenarioService
 
 router = APIRouter(prefix="/scenarios")
@@ -66,6 +72,59 @@ def list_scenarios(
         cantidad=cantidad,
         offset=offset,
     )
+
+
+@router.get("/operations", response_model=PaginatedResponse[ScenarioOperationJobPublic])
+def list_scenario_operations(
+    status_filter: str | None = None,
+    operation_type: str | None = None,
+    scenario_id: int | None = None,
+    cantidad: int | None = 25,
+    offset: int | None = 1,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    return ScenarioOperationService.list_jobs(
+        db,
+        current_user=current_user,
+        status=status_filter,
+        operation_type=operation_type,
+        scenario_id=scenario_id,
+        cantidad=cantidad,
+        offset=offset,
+    )
+
+
+@router.get("/operations/{job_id}", response_model=ScenarioOperationJobPublic)
+def get_scenario_operation(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        return ScenarioOperationService.get_by_id(db, current_user=current_user, job_id=job_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/operations/{job_id}/logs", response_model=PaginatedResponse[ScenarioOperationLogPublic])
+def get_scenario_operation_logs(
+    job_id: int,
+    cantidad: int | None = 50,
+    offset: int | None = 1,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        return ScenarioOperationService.list_logs(
+            db,
+            current_user=current_user,
+            job_id=job_id,
+            cantidad=cantidad,
+            offset=offset,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.post("", response_model=ScenarioPublic, status_code=201)
@@ -136,6 +195,7 @@ def create_scenario_from_excel(
             selected_sheet_name=sheet_name,
             scenario_id_override=int(scenario.id),
         )
+        ScenarioService.sync_catalogs_from_scenario_values(db, scenario_id=int(scenario.id))
         ScenarioService.ensure_default_reserve_margin_udc(db, scenario_id=int(scenario.id))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -181,10 +241,11 @@ def get_scenario(
 @router.get("/{scenario_id}/export-excel")
 def export_scenario_excel(
     scenario_id: int,
+    export_format: str = Query(default="sand", alias="format"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Descarga el escenario en formato Excel SAND (hoja Parameters)."""
+    """Descarga el escenario en Excel: `sand` (default) o `raw`."""
     try:
         scenario_dict = ScenarioService.get_public(
             db, scenario_id=scenario_id, current_user=current_user
@@ -195,11 +256,20 @@ def export_scenario_excel(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
 
     scenario_name = scenario_dict.get("name", "scenario")
+    normalized_format = (export_format or "sand").strip().lower()
+    if normalized_format not in {"sand", "raw"}:
+        raise HTTPException(status_code=422, detail="Formato inválido. Usa 'sand' o 'raw'.")
     safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in scenario_name).strip() or "scenario"
-    filename = f"{safe_name}_Parameters.xlsx"
+    filename = (
+        f"{safe_name}_Parameters_RAW.xlsx"
+        if normalized_format == "raw"
+        else f"{safe_name}_Parameters_SAND.xlsx"
+    )
 
-    content = export_scenario_to_excel(
-        db, scenario_id=scenario_id, scenario_name=scenario_name
+    content = (
+        export_scenario_raw_to_excel(db, scenario_id=scenario_id, scenario_name=scenario_name)
+        if normalized_format == "raw"
+        else export_scenario_to_excel(db, scenario_id=scenario_id, scenario_name=scenario_name)
     )
     return StreamingResponse(
         BytesIO(content),
@@ -279,6 +349,30 @@ def clone_scenario(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
+@router.post("/{scenario_id}/clone-async", response_model=ScenarioOperationJobPublic, status_code=202)
+def clone_scenario_async(
+    scenario_id: int,
+    payload: ScenarioCloneAsyncCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        return ScenarioOperationService.submit_clone(
+            db,
+            scenario_id=scenario_id,
+            current_user=current_user,
+            name=payload.name,
+            description=payload.description,
+            edit_policy=payload.edit_policy,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
 @router.post(
     "/{scenario_id}/update-from-excel",
     response_model=ScenarioExcelUpdateResponse,
@@ -329,6 +423,7 @@ def update_scenario_from_excel(
             content=content,
             selected_sheet_name=sheet_name,
         )
+        ScenarioService.sync_catalogs_from_scenario_values(db, scenario_id=scenario_id)
         changed_param_names = sorted({row["param_name"] for row in preview["changes"]})
         ScenarioService._track_changed_params(scenario, param_names=changed_param_names)
         if changed_param_names:
@@ -416,6 +511,7 @@ def apply_excel_changes(
         scenario_id=scenario_id,
         changes=[{"row_id": c.row_id, "new_value": c.new_value} for c in payload.changes],
     )
+    ScenarioService.sync_catalogs_from_scenario_values(db, scenario_id=scenario_id)
     changed_param_names = sorted(
         {
             row.param_name
@@ -437,6 +533,32 @@ def apply_excel_changes(
         "total_rows_read": len(payload.changes),
         "warnings": [],
     }
+
+
+@router.post(
+    "/{scenario_id}/apply-excel-changes-async",
+    response_model=ScenarioOperationJobPublic,
+    status_code=202,
+)
+def apply_excel_changes_async(
+    scenario_id: int,
+    payload: ApplyExcelChangesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        return ScenarioOperationService.submit_apply_excel_changes(
+            db,
+            scenario_id=scenario_id,
+            current_user=current_user,
+            changes=[{"row_id": c.row_id, "new_value": c.new_value} for c in payload.changes],
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 @router.get("/{scenario_id}/permissions", response_model=list[ScenarioPermissionPublic])

@@ -16,18 +16,25 @@ class SolverRepository:
         db: Session,
         *,
         busqueda: str | None,
-        is_active: bool,
+        is_active: bool | None,
         row_offset: int,
         limit: int,
     ) -> tuple[list[Solver], int]:
         """Consulta paginada de solvers."""
-        cond = Solver.is_active.is_(is_active)
+        stmt = select(Solver)
+        count_stmt = select(func.count()).select_from(Solver)
+        if is_active is not None:
+            state_filter = Solver.is_active.is_(is_active)
+            stmt = stmt.where(state_filter)
+            count_stmt = count_stmt.where(state_filter)
         if busqueda:
-            cond = cond & Solver.name.ilike(f"%{busqueda}%")
+            search_filter = Solver.name.ilike(f"%{busqueda}%")
+            stmt = stmt.where(search_filter)
+            count_stmt = count_stmt.where(search_filter)
 
-        total = int(db.scalar(select(func.count()).select_from(Solver).where(cond)) or 0)
+        total = int(db.scalar(count_stmt) or 0)
         items = (
-            db.execute(select(Solver).where(cond).order_by(Solver.name.asc()).offset(row_offset).limit(limit))
+            db.execute(stmt.order_by(Solver.name.asc()).offset(row_offset).limit(limit))
             .scalars()
             .all()
         )

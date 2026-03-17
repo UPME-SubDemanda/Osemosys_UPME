@@ -112,7 +112,8 @@ def _load_variable_data(
         # Variable intermedia → extraer de index_json
         records = []
         for r in rows:
-            idx = r.index_json if r.index_json else []
+            idx_raw = r.index_json if r.index_json else []
+            idx = idx_raw if isinstance(idx_raw, (list, tuple)) else []
             # Convenciones del pipeline:
             #   ProductionByTechnology / UseByTechnology / TotalCapacityAnnual /
             #   AccumulatedNewCapacity / AnnualTechnologyEmission:
@@ -1115,10 +1116,8 @@ def export_raw_data_excel(
         # Autofit columns without depending on xlsxwriter.
         for idx, col in enumerate(df):
             series = df[col]
-            max_len = max((
-                series.astype(str).map(len).max(),
-                len(str(series.name))
-            )) + 2
+            value_len_max = int(series.apply(lambda x: len(str(x)) if pd.notna(x) else 0).max())
+            max_len = max(value_len_max, len(str(series.name))) + 2
             worksheet.column_dimensions[get_column_letter(idx + 1)].width = max_len
             
     output.seek(0)

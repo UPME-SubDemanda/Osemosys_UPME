@@ -42,7 +42,7 @@ celery_app.conf.update(
     enable_utc=True,
 )
 
-celery_app.autodiscover_tasks(["app.simulation"])
+celery_app.autodiscover_tasks(["app.simulation", "app.scenario"])
 
 availability = get_solver_availability()
 missing = [name for name, enabled in availability.items() if not enabled]

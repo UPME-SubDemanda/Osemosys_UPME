@@ -11,7 +11,7 @@ set -euo pipefail
 #   ./backend/scripts/deploy-local.sh
 #
 # Variables opcionales:
-#   API_BIND_HOST=0.0.0.0
+#   API_BIND_HOST=127.0.0.1
 #   API_PORT=18010
 #   API_WORKERS=3
 #   REDIS_BIND_HOST=127.0.0.1
@@ -20,6 +20,7 @@ set -euo pipefail
 #   POSTGRES_PORT=5432 (si está ocupado, el script usa 5433 por defecto)
 #   APP_USERS="lcardona,jchavez,dbedoya"
 #   APP_PASSWORD="Cambio123!"
+#   SECRET_KEY="valor-largo-y-aleatorio"
 #   APP_ADMIN_USERS="lcardona,jchavez,dbedoya" (por defecto usa APP_USERS)
 #   BACKUP_BEFORE_MIGRATIONS=1 (1=habilitado, 0=deshabilitado)
 #   BACKUP_DIR=/ruta/backups
@@ -110,6 +111,20 @@ require_cmd() {
   fi
 }
 
+require_non_default_secret_key() {
+  local secret_key="$1"
+
+  if [[ -z "${secret_key}" ]]; then
+    echo "SECRET_KEY es obligatorio para despliegue." >&2
+    exit 1
+  fi
+
+  if [[ "${secret_key}" == "change-me" || "${secret_key}" == "change-me-local" || "${secret_key}" == "replace-me-before-deploy" ]]; then
+    echo "SECRET_KEY no puede usar el valor por defecto del ejemplo." >&2
+    exit 1
+  fi
+}
+
 is_port_in_use() {
   local port="$1"
   ss -ltnH | awk '{print $4}' | grep -Eq "(^|:)${port}$"
@@ -188,11 +203,12 @@ API_PORT="${API_PORT:-18010}"
 API_WORKERS="${API_WORKERS:-3}"
 REDIS_PORT="${REDIS_PORT:-6380}"
 POSTGRES_PORT="${POSTGRES_PORT:-}"
-API_BIND_HOST="${API_BIND_HOST:-0.0.0.0}"
+API_BIND_HOST="${API_BIND_HOST:-127.0.0.1}"
 POSTGRES_BIND_HOST="${POSTGRES_BIND_HOST:-127.0.0.1}"
 REDIS_BIND_HOST="${REDIS_BIND_HOST:-127.0.0.1}"
 APP_USERS="${APP_USERS:-lcardona,jchavez,dbedoya}"
 APP_PASSWORD="${APP_PASSWORD:-Cambio123!}"
+SECRET_KEY="${SECRET_KEY:-}"
 APP_ADMIN_USERS="${APP_ADMIN_USERS:-$APP_USERS}"
 BACKUP_BEFORE_MIGRATIONS="${BACKUP_BEFORE_MIGRATIONS:-1}"
 BACKUP_DIR="${BACKUP_DIR:-${REPO_ROOT}/backups}"
@@ -210,6 +226,8 @@ if [[ -z "${POSTGRES_PORT}" ]]; then
   fi
 fi
 
+require_non_default_secret_key "${SECRET_KEY}"
+
 upsert_env_key .env API_PORT "${API_PORT}"
 upsert_env_key .env API_WORKERS "${API_WORKERS}"
 upsert_env_key .env REDIS_PORT "${REDIS_PORT}"
@@ -217,6 +235,7 @@ upsert_env_key .env POSTGRES_PORT "${POSTGRES_PORT}"
 upsert_env_key .env API_BIND_HOST "${API_BIND_HOST}"
 upsert_env_key .env POSTGRES_BIND_HOST "${POSTGRES_BIND_HOST}"
 upsert_env_key .env REDIS_BIND_HOST "${REDIS_BIND_HOST}"
+upsert_env_key .env SECRET_KEY "${SECRET_KEY}"
 upsert_env_key .env SIM_WORKER_REPLICAS "${SIM_WORKER_REPLICAS}"
 upsert_env_key .env SIM_MAX_CONCURRENCY "${SIM_MAX_CONCURRENCY}"
 upsert_env_key .env SIM_USER_ACTIVE_LIMIT "${SIM_USER_ACTIVE_LIMIT}"
@@ -306,7 +325,6 @@ with SessionLocal() as s:
         print(f"admin_promovido: {username}")
     s.commit()
 
-print(f"password_default={password}")
 print(f"admin_users={','.join(admin_users) if admin_users else '(ninguno)'}")
 PY
 
@@ -345,7 +363,7 @@ echo "Readiness API: http://${HOST_IP:-<IP_MAQUINA>}:${API_PORT}/api/v1/health/r
 echo "Swagger API: http://${HOST_IP:-<IP_MAQUINA>}:${API_PORT}/docs"
 echo "Usuarios: ${APP_USERS}"
 echo "Usuarios admin: ${APP_ADMIN_USERS}"
-echo "Password inicial: ${APP_PASSWORD}"
+echo "Password inicial: configurado por variable segura"
 echo "Workers simulación: ${SIM_WORKER_REPLICAS} (concurrency=${SIM_MAX_CONCURRENCY})"
 echo
 echo "Si usas firewall, permite puerto ${API_PORT}/tcp (ej: sudo ufw allow ${API_PORT}/tcp)."

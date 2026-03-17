@@ -85,23 +85,30 @@ def build_instance(
     _load_param("YearSplit.csv", "YearSplit", ["TIMESLICE", "YEAR"])
     _load_param("DiscountRate.csv", "DiscountRate", ["REGION"])
     # _load_param("DiscountRateIdv.csv", "DiscountRateIdv", ["REGION", "TECHNOLOGY"])
-    # _load_param("DepreciationMethod.csv", "DepreciationMethod", ["REGION"])
+    # TB-04 (paridad notebook vs app): habilitamos DepreciationMethod para evitar
+    # resolver un LP distinto al notebook cuando el escenario provee este parámetro.
+    # Si el CSV no existe o está vacío, el modelo usa su default (no debe fallar).
+    _load_param("DepreciationMethod.csv", "DepreciationMethod", ["REGION"])
     _load_param("CapacityToActivityUnit.csv", "CapacityToActivityUnit", ["REGION", "TECHNOLOGY"])
-    # _load_param(
-    #     "CapacityOfOneTechnologyUnit.csv", "CapacityOfOneTechnologyUnit",
-    #     ["REGION", "TECHNOLOGY", "YEAR"],
-    # )
+    # TB-04 (paridad notebook vs app): este parámetro restringe inversión a unidades discretas.
+    # Sin cargarlo, el solver puede encontrar soluciones más “fraccionarias” y baratas que el notebook.
+    _load_param(
+        "CapacityOfOneTechnologyUnit.csv", "CapacityOfOneTechnologyUnit",
+        ["REGION", "TECHNOLOGY", "YEAR"],
+    )
     _load_param("OperationalLife.csv", "OperationalLife", ["REGION", "TECHNOLOGY"])
 
     # Inversión y capacidad
-    # _load_param(
-    #     "TotalAnnualMaxCapacityInvestment.csv", "TotalAnnualMaxCapacityInvestment",
-    #     ["REGION", "TECHNOLOGY", "YEAR"],
-    # )
-    # _load_param(
-    #     "TotalAnnualMinCapacityInvestment.csv", "TotalAnnualMinCapacityInvestment",
-    #     ["REGION", "TECHNOLOGY", "YEAR"],
-    # )
+    # TB-04 (paridad notebook vs app): límite superior anual de inversión/capacidad nueva.
+    _load_param(
+        "TotalAnnualMaxCapacityInvestment.csv", "TotalAnnualMaxCapacityInvestment",
+        ["REGION", "TECHNOLOGY", "YEAR"],
+    )
+    # TB-04 (paridad notebook vs app): límite inferior anual de inversión/capacidad nueva.
+    _load_param(
+        "TotalAnnualMinCapacityInvestment.csv", "TotalAnnualMinCapacityInvestment",
+        ["REGION", "TECHNOLOGY", "YEAR"],
+    )
     _load_param(
         "TotalTechnologyAnnualActivityLowerLimit.csv", "TotalTechnologyAnnualActivityLowerLimit",
         ["REGION", "TECHNOLOGY", "YEAR"],
@@ -140,17 +147,19 @@ def build_instance(
         "EmissionActivityRatio.csv", "EmissionActivityRatio",
         ["REGION", "TECHNOLOGY", "EMISSION", "MODE_OF_OPERATION", "YEAR"],
     )
-    # _load_param("EmissionsPenalty.csv", "EmissionsPenalty", ["REGION", "EMISSION", "YEAR"])
+    # TB-04 (paridad notebook vs app): penalidad por emisiones (si existe en el escenario).
+    _load_param("EmissionsPenalty.csv", "EmissionsPenalty", ["REGION", "EMISSION", "YEAR"])
     _load_param(
         "ModelPeriodEmissionLimit.csv", "ModelPeriodEmissionLimit", ["REGION", "EMISSION"],
     )
-    # _load_param(
-    #     "ModelPeriodExogenousEmission.csv", "ModelPeriodExogenousEmission", ["REGION", "EMISSION"],
-    # )
-    # _load_param(
-    #     "AnnualExogenousEmission.csv", "AnnualExogenousEmission",
-    #     ["REGION", "EMISSION", "YEAR"],
-    # )
+    # TB-04 (paridad notebook vs app): emisiones exógenas por periodo y por año.
+    _load_param(
+        "ModelPeriodExogenousEmission.csv", "ModelPeriodExogenousEmission", ["REGION", "EMISSION"],
+    )
+    _load_param(
+        "AnnualExogenousEmission.csv", "AnnualExogenousEmission",
+        ["REGION", "EMISSION", "YEAR"],
+    )
     _load_param(
         "AnnualEmissionLimit.csv", "AnnualEmissionLimit", ["REGION", "EMISSION", "YEAR"],
     )
@@ -165,38 +174,40 @@ def build_instance(
         ["REGION", "TECHNOLOGY", "FUEL", "MODE_OF_OPERATION", "YEAR"],
     )
 
-    # Reserve Margin y RE (no cargados en notebook OPT_YA_20260220)
-    # _load_param("ReserveMarginTagFuel.csv", "ReserveMarginTagFuel", ["REGION", "FUEL", "YEAR"])
-    # _load_param("RETagTechnology.csv", "RETagTechnology", ["REGION", "TECHNOLOGY", "YEAR"])
-    # _load_param("RETagFuel.csv", "RETagFuel", ["REGION", "FUEL", "YEAR"])
-    # _load_param("REMinProductionTarget.csv", "REMinProductionTarget", ["REGION", "YEAR"])
-    # _load_param(
-    #     "ReserveMarginTagTechnology.csv", "ReserveMarginTagTechnology",
-    #     ["REGION", "TECHNOLOGY", "YEAR"],
-    # )
-    # _load_param("ReserveMargin.csv", "ReserveMargin", ["REGION", "YEAR"])
+    # TB-04 (paridad notebook vs app): Reserve Margin y metas RE.
+    _load_param("ReserveMarginTagFuel.csv", "ReserveMarginTagFuel", ["REGION", "FUEL", "YEAR"])
+    _load_param("RETagTechnology.csv", "RETagTechnology", ["REGION", "TECHNOLOGY", "YEAR"])
+    _load_param("RETagFuel.csv", "RETagFuel", ["REGION", "FUEL", "YEAR"])
+    _load_param("REMinProductionTarget.csv", "REMinProductionTarget", ["REGION", "YEAR"])
+    _load_param(
+        "ReserveMarginTagTechnology.csv", "ReserveMarginTagTechnology",
+        ["REGION", "TECHNOLOGY", "YEAR"],
+    )
+    _load_param("ReserveMargin.csv", "ReserveMargin", ["REGION", "YEAR"])
 
     # Demandas
     _load_param(
         "AccumulatedAnnualDemand.csv", "AccumulatedAnnualDemand", ["REGION", "FUEL", "YEAR"],
     )
-    # _load_param(
-    #     "SpecifiedAnnualDemand.csv", "SpecifiedAnnualDemand", ["REGION", "FUEL", "YEAR"],
-    # )
-    # _load_param(
-    #     "SpecifiedDemandProfile.csv", "SpecifiedDemandProfile",
-    #     ["REGION", "FUEL", "TIMESLICE", "YEAR"],
-    # )
+    # TB-04 (paridad notebook vs app): demanda especificada y su perfil por timeslice.
+    _load_param(
+        "SpecifiedAnnualDemand.csv", "SpecifiedAnnualDemand", ["REGION", "FUEL", "YEAR"],
+    )
+    _load_param(
+        "SpecifiedDemandProfile.csv", "SpecifiedDemandProfile",
+        ["REGION", "FUEL", "TIMESLICE", "YEAR"],
+    )
 
     # Capacidad
     _load_param(
         "TotalAnnualMaxCapacity.csv", "TotalAnnualMaxCapacity",
         ["REGION", "TECHNOLOGY", "YEAR"],
     )
-    # _load_param(
-    #     "TotalAnnualMinCapacity.csv", "TotalAnnualMinCapacity",
-    #     ["REGION", "TECHNOLOGY", "YEAR"],
-    # )
+    # TB-04 (paridad notebook vs app): capacidad mínima anual requerida.
+    _load_param(
+        "TotalAnnualMinCapacity.csv", "TotalAnnualMinCapacity",
+        ["REGION", "TECHNOLOGY", "YEAR"],
+    )
 
     # MUIO (no cargados en notebook OPT_YA_20260220)
     # _load_param(

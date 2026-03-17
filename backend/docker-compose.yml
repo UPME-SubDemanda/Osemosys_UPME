@@ -138,4 +138,5 @@ volumes:
 
 networks:
   backend_bridge:
+    external: true
     name: ${BACKEND_BRIDGE_NETWORK:-osemosys_api_bridge}

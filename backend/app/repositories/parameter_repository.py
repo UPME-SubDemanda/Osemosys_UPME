@@ -16,20 +16,26 @@ class ParameterRepository:
         db: Session,
         *,
         busqueda: str | None,
-        is_active: bool,
+        is_active: bool | None,
         row_offset: int,
         limit: int,
     ) -> tuple[list[Parameter], int]:
         """Retorna lote paginado y total para filtros de catálogo."""
-        cond = Parameter.is_active.is_(is_active)
+        stmt = select(Parameter)
+        count_stmt = select(func.count()).select_from(Parameter)
+        if is_active is not None:
+            state_filter = Parameter.is_active.is_(is_active)
+            stmt = stmt.where(state_filter)
+            count_stmt = count_stmt.where(state_filter)
         if busqueda:
-            cond = cond & Parameter.name.ilike(f"%{busqueda}%")
+            search_filter = Parameter.name.ilike(f"%{busqueda}%")
+            stmt = stmt.where(search_filter)
+            count_stmt = count_stmt.where(search_filter)
 
-        total = int(db.scalar(select(func.count()).select_from(Parameter).where(cond)) or 0)
+        total = int(db.scalar(count_stmt) or 0)
         items = (
             db.execute(
-                select(Parameter)
-                .where(cond)
+                stmt
                 .order_by(Parameter.name.asc())
                 .offset(row_offset)
                 .limit(limit)

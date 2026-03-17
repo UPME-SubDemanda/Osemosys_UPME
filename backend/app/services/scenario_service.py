@@ -21,9 +21,11 @@ from app.models import (
     Emission,
     Fuel,
     OsemosysParamValue,
+    Parameter,
     Region,
     Scenario,
     ScenarioPermission,
+    Solver,
     Technology,
     UdcSet,
     User,
@@ -156,6 +158,7 @@ class ScenarioService:
         source_id: int,
         new_id: int,
         batch_size: int = CLONE_BATCH_SIZE,
+        on_batch: callable | None = None,
     ) -> int:
         """Copia osemosys_param_value por lotes usando paginación por cursor.
 
@@ -216,6 +219,8 @@ class ScenarioService:
             logger.info(
                 "Lote clonado: %d filas (acumulado: %d)", cnt, total,
             )
+            if on_batch is not None:
+                on_batch(cnt, total)
 
         return total
 
@@ -427,6 +432,7 @@ class ScenarioService:
         count = ScenarioService._clone_data_batched(
             db, source_id=source_scenario_id, new_id=new_scenario.id,
         )
+        ScenarioService.sync_catalogs_from_scenario_values(db, scenario_id=int(new_scenario.id))
         logger.info(
             "Escenario %s clonado desde %s: %d filas copiadas",
             new_scenario.id, source_scenario_id, count,
@@ -481,14 +487,135 @@ class ScenarioService:
         raise ForbiddenError("No tienes permisos para editar valores de este escenario.")
 
     @staticmethod
-    def _resolve_catalog_name(db: Session, *, model, name: str | None, label: str) -> int | None:
+    def _resolve_or_create_catalog_name(db: Session, *, model, name: str | None, label: str) -> int | None:
         cleaned = (name or "").strip()
         if not cleaned:
             return None
         obj = db.execute(select(model).where(model.name == cleaned)).scalar_one_or_none()
         if obj is None:
-            raise NotFoundError(f"{label} no encontrado: {cleaned}")
+            obj = model(name=cleaned)
+            db.add(obj)
+            db.flush()
+        # Si el catálogo usa soft delete, se reactiva al reutilizarse desde escenario.
+        if hasattr(obj, "is_active") and getattr(obj, "is_active") is False:
+            setattr(obj, "is_active", True)
+            db.flush()
         return int(obj.id)
+
+    @staticmethod
+    def _ensure_parameter_exists(db: Session, *, param_name: str) -> str:
+        cleaned = str(param_name or "").strip()
+        if not cleaned:
+            raise ConflictError("El parámetro es obligatorio.")
+        obj = db.execute(select(Parameter).where(Parameter.name == cleaned)).scalar_one_or_none()
+        if obj is None:
+            obj = Parameter(name=cleaned, is_active=True)
+            db.add(obj)
+            db.flush()
+        elif obj.is_active is False:
+            obj.is_active = True
+            db.flush()
+        return cleaned
+
+    @staticmethod
+    def _ensure_solver_if_provided(db: Session, *, solver_name: str | None) -> None:
+        cleaned = (solver_name or "").strip()
+        if not cleaned:
+            return
+        ScenarioService._resolve_or_create_catalog_name(
+            db, model=Solver, name=cleaned, label="Solver"
+        )
+
+    @staticmethod
+    def sync_catalogs_from_scenario_values(db: Session, *, scenario_id: int) -> None:
+        """Sincroniza catálogos globales a partir de valores del escenario.
+
+        - Garantiza que `param_name` de `osemosys_param_value` exista y esté activo en `parameter`.
+        - Reactiva catálogos referenciados por ID (region, technology, fuel, emission).
+        """
+        # 1) Parámetros por nombre desde osemosys_param_value
+        param_names = (
+            db.execute(
+                select(OsemosysParamValue.param_name)
+                .where(OsemosysParamValue.id_scenario == scenario_id)
+                .distinct()
+            )
+            .scalars()
+            .all()
+        )
+        for raw_name in param_names:
+            clean_name = str(raw_name or "").strip()
+            if not clean_name:
+                continue
+            ScenarioService._ensure_parameter_exists(db, param_name=clean_name)
+
+        # 2) Reactivar entidades referenciadas por IDs del escenario
+        id_regions = (
+            db.execute(
+                select(OsemosysParamValue.id_region)
+                .where(
+                    OsemosysParamValue.id_scenario == scenario_id,
+                    OsemosysParamValue.id_region.is_not(None),
+                )
+                .distinct()
+            )
+            .scalars()
+            .all()
+        )
+        id_technologies = (
+            db.execute(
+                select(OsemosysParamValue.id_technology)
+                .where(
+                    OsemosysParamValue.id_scenario == scenario_id,
+                    OsemosysParamValue.id_technology.is_not(None),
+                )
+                .distinct()
+            )
+            .scalars()
+            .all()
+        )
+        id_fuels = (
+            db.execute(
+                select(OsemosysParamValue.id_fuel)
+                .where(
+                    OsemosysParamValue.id_scenario == scenario_id,
+                    OsemosysParamValue.id_fuel.is_not(None),
+                )
+                .distinct()
+            )
+            .scalars()
+            .all()
+        )
+        id_emissions = (
+            db.execute(
+                select(OsemosysParamValue.id_emission)
+                .where(
+                    OsemosysParamValue.id_scenario == scenario_id,
+                    OsemosysParamValue.id_emission.is_not(None),
+                )
+                .distinct()
+            )
+            .scalars()
+            .all()
+        )
+
+        for model, ids in (
+            (Region, id_regions),
+            (Technology, id_technologies),
+            (Fuel, id_fuels),
+            (Emission, id_emissions),
+        ):
+            if not ids:
+                continue
+            objects = (
+                db.execute(select(model).where(model.id.in_(list(ids))))
+                .scalars()
+                .all()
+            )
+            for obj in objects:
+                if hasattr(obj, "is_active") and getattr(obj, "is_active") is False:
+                    setattr(obj, "is_active", True)
+            db.flush()
 
     @staticmethod
     def list_permissions(db: Session, *, scenario_id: int, current_user: User):
@@ -881,18 +1008,22 @@ class ScenarioService:
         scenario = ScenarioService._require_manage_values(
             db, scenario_id=scenario_id, current_user=current_user
         )
-        id_region = ScenarioService._resolve_catalog_name(
+        clean_param_name = ScenarioService._ensure_parameter_exists(
+            db, param_name=str(payload.get("param_name") or "")
+        )
+        id_region = ScenarioService._resolve_or_create_catalog_name(
             db, model=Region, name=payload.get("region_name"), label="Región"
         )
-        id_technology = ScenarioService._resolve_catalog_name(
+        id_technology = ScenarioService._resolve_or_create_catalog_name(
             db, model=Technology, name=payload.get("technology_name"), label="Tecnología"
         )
-        id_fuel = ScenarioService._resolve_catalog_name(
+        id_fuel = ScenarioService._resolve_or_create_catalog_name(
             db, model=Fuel, name=payload.get("fuel_name"), label="Combustible"
         )
-        id_emission = ScenarioService._resolve_catalog_name(
+        id_emission = ScenarioService._resolve_or_create_catalog_name(
             db, model=Emission, name=payload.get("emission_name"), label="Emisión"
         )
+        ScenarioService._ensure_solver_if_provided(db, solver_name=payload.get("solver_name"))
         udc_code = (payload.get("udc_name") or "").strip() or None
         id_udc_set: int | None = None
         if udc_code:
@@ -902,7 +1033,7 @@ class ScenarioService:
             id_udc_set = int(obj_udc.id)
         obj = OsemosysParamValue(
             id_scenario=scenario_id,
-            param_name=str(payload.get("param_name") or "").strip(),
+            param_name=clean_param_name,
             id_region=id_region,
             id_technology=id_technology,
             id_fuel=id_fuel,
@@ -913,7 +1044,7 @@ class ScenarioService:
         )
         db.add(obj)
         ScenarioService._track_changed_params(
-            scenario, param_names=[str(payload.get("param_name") or "").strip()]
+            scenario, param_names=[clean_param_name]
         )
         try:
             db.commit()
@@ -948,19 +1079,22 @@ class ScenarioService:
         if obj is None or int(obj.id_scenario) != scenario_id:
             raise NotFoundError("Valor OSeMOSYS no encontrado en el escenario.")
         previous_param_name = obj.param_name
-        obj.param_name = str(payload.get("param_name") or "").strip()
-        obj.id_region = ScenarioService._resolve_catalog_name(
+        obj.param_name = ScenarioService._ensure_parameter_exists(
+            db, param_name=str(payload.get("param_name") or "")
+        )
+        obj.id_region = ScenarioService._resolve_or_create_catalog_name(
             db, model=Region, name=payload.get("region_name"), label="Región"
         )
-        obj.id_technology = ScenarioService._resolve_catalog_name(
+        obj.id_technology = ScenarioService._resolve_or_create_catalog_name(
             db, model=Technology, name=payload.get("technology_name"), label="Tecnología"
         )
-        obj.id_fuel = ScenarioService._resolve_catalog_name(
+        obj.id_fuel = ScenarioService._resolve_or_create_catalog_name(
             db, model=Fuel, name=payload.get("fuel_name"), label="Combustible"
         )
-        obj.id_emission = ScenarioService._resolve_catalog_name(
+        obj.id_emission = ScenarioService._resolve_or_create_catalog_name(
             db, model=Emission, name=payload.get("emission_name"), label="Emisión"
         )
+        ScenarioService._ensure_solver_if_provided(db, solver_name=payload.get("solver_name"))
         udc_code = (payload.get("udc_name") or "").strip() or None
         if udc_code:
             obj_udc = db.execute(select(UdcSet).where(UdcSet.code == udc_code)).scalar_one_or_none()

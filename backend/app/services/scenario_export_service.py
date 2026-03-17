@@ -33,6 +33,22 @@ SAND_DIMENSION_HEADERS = [
     "UDC",
 ]
 TIME_INDEPENDENT_HEADER = "Time indipendent variables"
+RAW_HEADERS = [
+    "Parameter",
+    "REGION",
+    "TECHNOLOGY",
+    "FUEL",
+    "EMISSION",
+    "TIMESLICE",
+    "MODE_OF_OPERATION",
+    "Storage",
+    "Season",
+    "Daytype",
+    "Dailytimebracket",
+    "UDC",
+    "YEAR",
+    "VALUE",
+]
 
 
 def _row_to_str(val) -> str:
@@ -119,6 +135,34 @@ def export_scenario_to_excel(db: Session, *, scenario_id: int, scenario_name: st
             for i, yr in enumerate(years_sorted):
                 val = year_to_val.get(yr)
                 ws.cell(row=excel_row, column=first_year_col + i, value=val)
+
+    out = BytesIO()
+    wb.save(out)
+    return out.getvalue()
+
+
+def export_scenario_raw_to_excel(db: Session, *, scenario_id: int, scenario_name: str) -> bytes:
+    """Genera un Excel RAW (1 fila por registro) de `osemosys_param_value`.
+
+    A diferencia del formato SAND, no agrupa por dimensiones y no filtra por PARAM_INDEX.
+    """
+    result_proxy = db.execute(_resolved_query(), {"scenario_id": scenario_id})
+
+    wb = Workbook()
+    ws = wb.active
+    if ws is None:
+        raise RuntimeError("Workbook has no active sheet")
+    ws.title = "RawParameters"
+
+    for col, h in enumerate(RAW_HEADERS, start=1):
+        ws.cell(row=1, column=col, value=h)
+
+    for excel_row, row in enumerate(result_proxy.yield_per(50_000), start=2):
+        ws.cell(row=excel_row, column=1, value=_row_to_str(row[0]) or None)
+        for idx, col in enumerate(range(1, 12), start=2):
+            ws.cell(row=excel_row, column=idx, value=_row_to_str(row[col]) or None)
+        ws.cell(row=excel_row, column=13, value=int(row[12]) if row[12] is not None else None)
+        ws.cell(row=excel_row, column=14, value=float(row[13]) if row[13] is not None else None)
 
     out = BytesIO()
     wb.save(out)

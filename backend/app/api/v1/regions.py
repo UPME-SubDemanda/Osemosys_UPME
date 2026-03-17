@@ -19,6 +19,7 @@ router = APIRouter(prefix="/regions")
 @router.get("", response_model=PaginatedResponse[RegionPublic])
 def list_regions(
     busqueda: str | None = None,
+    include_inactive: bool = False,
     cantidad: int | None = 25,
     offset: int | None = 1,
     db: Session = Depends(get_db),
@@ -28,7 +29,7 @@ def list_regions(
     return RegionService.list(
         db,
         busqueda=busqueda,
-        is_active=True,
+        is_active=None if include_inactive else True,
         cantidad=cantidad,
         offset=offset,
     )

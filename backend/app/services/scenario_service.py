@@ -725,7 +725,6 @@ class ScenarioService:
         )
 
     @staticmethod
-    @staticmethod
     def list_osemosys_summary(db: Session, *, scenario_id: int, current_user: User) -> list[dict]:
         """Retorna resumen agregado por parámetro/año de `osemosys_param_value`."""
         ScenarioService._require_access(db, scenario_id=scenario_id, current_user=current_user)
@@ -997,6 +996,39 @@ class ScenarioService:
         db.commit()
 
     @staticmethod
+    def _osemosys_value_to_public(db: Session, *, value_id: int) -> dict:
+        """Devuelve un dict público de un OsemosysParamValue por ID exacto con JOINs."""
+        row = (
+            db.query(
+                OsemosysParamValue,
+                Region.name.label("region_name"),
+                Technology.name.label("technology_name"),
+                Fuel.name.label("fuel_name"),
+                Emission.name.label("emission_name"),
+                UdcSet.code.label("udc_name"),
+            )
+            .outerjoin(Region, OsemosysParamValue.id_region == Region.id)
+            .outerjoin(Technology, OsemosysParamValue.id_technology == Technology.id)
+            .outerjoin(Fuel, OsemosysParamValue.id_fuel == Fuel.id)
+            .outerjoin(Emission, OsemosysParamValue.id_emission == Emission.id)
+            .outerjoin(UdcSet, OsemosysParamValue.id_udc_set == UdcSet.id)
+            .filter(OsemosysParamValue.id == value_id)
+            .one()
+        )
+        return {
+            "id": int(row.OsemosysParamValue.id),
+            "id_scenario": int(row.OsemosysParamValue.id_scenario),
+            "param_name": str(row.OsemosysParamValue.param_name),
+            "region_name": row.region_name,
+            "technology_name": row.technology_name,
+            "fuel_name": row.fuel_name,
+            "emission_name": row.emission_name,
+            "udc_name": row.udc_name,
+            "year": int(row.OsemosysParamValue.year) if row.OsemosysParamValue.year is not None else None,
+            "value": float(row.OsemosysParamValue.value),
+        }
+
+    @staticmethod
     def create_osemosys_value(
         db: Session,
         *,
@@ -1052,15 +1084,7 @@ class ScenarioService:
             db.rollback()
             raise ConflictError("No se pudo crear el valor OSeMOSYS (posible duplicado de dimensiones).") from e
         db.refresh(obj)
-        result = ScenarioService.list_osemosys_values(
-            db,
-            scenario_id=scenario_id,
-            current_user=current_user,
-            param_name=obj.param_name,
-            year=obj.year,
-            limit=1,
-        )
-        return result["items"][0]
+        return ScenarioService._osemosys_value_to_public(db, value_id=int(obj.id))
 
     @staticmethod
     def update_osemosys_value(
@@ -1115,15 +1139,7 @@ class ScenarioService:
             db.rollback()
             raise ConflictError("No se pudo actualizar el valor OSeMOSYS (posible duplicado de dimensiones).") from e
         db.refresh(obj)
-        result = ScenarioService.list_osemosys_values(
-            db,
-            scenario_id=scenario_id,
-            current_user=current_user,
-            param_name=obj.param_name,
-            year=obj.year,
-            limit=1,
-        )
-        return result["items"][0]
+        return ScenarioService._osemosys_value_to_public(db, value_id=int(obj.id))
 
     @staticmethod
     def deactivate_osemosys_value(

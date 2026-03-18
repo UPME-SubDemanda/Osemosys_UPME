@@ -7,7 +7,7 @@ from openpyxl import Workbook
 
 import app.services.scenario_service as scenario_service_module
 from app.core.exceptions import ForbiddenError
-from app.models import OsemosysParamValue
+from app.models import Emission, Fuel, OsemosysParamValue, Technology
 from app.services.official_import_service import OfficialImportService
 from app.services.scenario_service import ScenarioService
 
@@ -216,6 +216,7 @@ def test_excel_preview_apply_and_update_change_values(db_session) -> None:
     assert preview["total_rows_read"] == 1
     assert preview["not_found"] == 0
     assert len(preview["changes"]) == 1
+    assert preview["changes"][0]["action"] == "update"
     assert preview["changes"][0]["row_id"] == seeded_row.id
     assert preview["changes"][0]["old_value"] == 11.0
     assert preview["changes"][0]["new_value"] == 12.5
@@ -225,7 +226,9 @@ def test_excel_preview_apply_and_update_change_values(db_session) -> None:
         scenario_id=scenario.id,
         changes=preview["changes"],
     )
-    assert applied == {"updated": 1, "skipped": 0}
+    assert applied["updated"] == 1
+    assert applied["inserted"] == 0
+    assert applied["skipped"] == 0
     db_session.refresh(seeded_row)
     assert seeded_row.value == 12.5
 
@@ -246,6 +249,149 @@ def test_excel_preview_apply_and_update_change_values(db_session) -> None:
     assert updated["not_found"] == 0
     db_session.refresh(seeded_row)
     assert seeded_row.value == 14.0
+
+
+def test_excel_preview_detects_inserts_and_apply_creates_missing_catalogs(db_session) -> None:
+    owner = create_user(db_session, username="excel-insert-owner")
+    scenario = create_scenario(
+        db_session, name="Excel insert", owner=owner.username, edit_policy="OWNER_ONLY"
+    )
+    region = create_region(db_session, name="Sur")
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Parameters"
+    sheet.append(["Parameter", "Region", "Technology", "Fuel", "Emission", 2026])
+    sheet.append(["VariableCost", region.name, "TECH_NEW_TEST", "FUEL_NEW_TEST", "EMI_NEW_TEST", 9.75])
+    data = BytesIO()
+    workbook.save(data)
+
+    preview = OfficialImportService.preview_scenario_from_excel(
+        db_session,
+        scenario_id=scenario.id,
+        filename="insert.xlsx",
+        content=data.getvalue(),
+        selected_sheet_name="Parameters",
+    )
+    assert preview["total_rows_read"] == 1
+    assert len(preview["changes"]) == 1
+    row = preview["changes"][0]
+    assert row["action"] == "insert"
+    assert row["row_id"] is None
+    assert row["old_value"] is None
+    assert row["new_value"] == 9.75
+
+    applied = OfficialImportService.apply_excel_changes(
+        db_session,
+        scenario_id=scenario.id,
+        changes=preview["changes"],
+    )
+    assert applied["updated"] == 0
+    assert applied["inserted"] == 1
+    assert applied["skipped"] == 0
+
+    inserted_row = (
+        db_session.query(OsemosysParamValue)
+        .filter(
+            OsemosysParamValue.id_scenario == scenario.id,
+            OsemosysParamValue.param_name == "VariableCost",
+            OsemosysParamValue.year == 2026,
+        )
+        .one_or_none()
+    )
+    assert inserted_row is not None
+    assert float(inserted_row.value) == 9.75
+    assert db_session.query(Technology).filter(Technology.name == "TECH_NEW_TEST").one_or_none() is not None
+    assert db_session.query(Fuel).filter(Fuel.name == "FUEL_NEW_TEST").one_or_none() is not None
+    assert db_session.query(Emission).filter(Emission.name == "EMI_NEW_TEST").one_or_none() is not None
+
+
+def test_excel_new_rows_use_sand_processing_defaults_for_preview_and_apply(db_session) -> None:
+    owner = create_user(db_session, username="excel-default-owner")
+    scenario = create_scenario(
+        db_session, name="Excel defaults", owner=owner.username, edit_policy="OWNER_ONLY"
+    )
+    region = create_region(db_session, name="Oriente")
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Parameters"
+    sheet.append(["Parameter", "Region", "Technology", "Fuel", "Emission", 2026])
+    # Celda vacía en VariableCost debe resolverse con default SAND (0.000001),
+    # por lo tanto debe detectarse como insert real.
+    sheet.append(["VariableCost", region.name, "TECH_DEF_TEST", "FUEL_DEF_TEST", "EMI_DEF_TEST", None])
+    data = BytesIO()
+    workbook.save(data)
+
+    preview = OfficialImportService.preview_scenario_from_excel(
+        db_session,
+        scenario_id=scenario.id,
+        filename="defaults.xlsx",
+        content=data.getvalue(),
+        selected_sheet_name="Parameters",
+    )
+    assert preview["total_rows_read"] == 1
+    assert len(preview["changes"]) == 1
+    row = preview["changes"][0]
+    assert row["action"] == "insert"
+    assert abs(float(row["new_value"]) - 0.000001) < 1e-12
+
+    applied = OfficialImportService.apply_excel_changes(
+        db_session,
+        scenario_id=scenario.id,
+        changes=preview["changes"],
+    )
+    assert applied["updated"] == 0
+    assert applied["inserted"] == 1
+    assert applied["skipped"] == 0
+
+    inserted_row = (
+        db_session.query(OsemosysParamValue)
+        .filter(
+            OsemosysParamValue.id_scenario == scenario.id,
+            OsemosysParamValue.param_name == "VariableCost",
+            OsemosysParamValue.year == 2026,
+        )
+        .one_or_none()
+    )
+    assert inserted_row is not None
+    assert abs(float(inserted_row.value) - 0.000001) < 1e-12
+
+
+def test_excel_new_rows_with_timeslice_all_zero_are_skipped_by_sand_aggregation(db_session) -> None:
+    owner = create_user(db_session, username="excel-timeslice-owner")
+    scenario = create_scenario(
+        db_session, name="Excel timeslice", owner=owner.username, edit_policy="OWNER_ONLY"
+    )
+    region = create_region(db_session, name="CentroOriente")
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Parameters"
+    sheet.append(["Parameter", "Region", "Technology", "Fuel", "Emission", "TIMESLICE", 2026])
+    sheet.append(["FixedCost", region.name, "TECH_TS_TEST", "FUEL_TS_TEST", "EMI_TS_TEST", "TS1", 0])
+    sheet.append(["FixedCost", region.name, "TECH_TS_TEST", "FUEL_TS_TEST", "EMI_TS_TEST", "TS2", 0])
+    data = BytesIO()
+    workbook.save(data)
+
+    preview = OfficialImportService.preview_scenario_from_excel(
+        db_session,
+        scenario_id=scenario.id,
+        filename="timeslice_zero.xlsx",
+        content=data.getvalue(),
+        selected_sheet_name="Parameters",
+    )
+    assert preview["total_rows_read"] == 2
+    assert preview["changes"] == []
+
+    applied = OfficialImportService.apply_excel_changes(
+        db_session,
+        scenario_id=scenario.id,
+        changes=preview["changes"],
+    )
+    assert applied["updated"] == 0
+    assert applied["inserted"] == 0
+    assert applied["skipped"] == 0
 
 
 def test_open_scenario_allows_authenticated_non_owner_to_manage_values(db_session) -> None:
@@ -345,6 +491,7 @@ def test_open_scenario_excel_updates_do_not_require_explicit_permission(db_sessi
         content=workbook_v1,
         selected_sheet_name="Parameters",
     )
+    assert preview["changes"][0]["action"] == "update"
     assert preview["changes"][0]["row_id"] == seeded_row.id
 
     ScenarioService._require_manage_values(
@@ -358,7 +505,9 @@ def test_open_scenario_excel_updates_do_not_require_explicit_permission(db_sessi
         scenario_id=scenario.id,
         changes=preview["changes"],
     )
-    assert applied == {"updated": 1, "skipped": 0}
+    assert applied["updated"] == 1
+    assert applied["inserted"] == 0
+    assert applied["skipped"] == 0
     db_session.refresh(seeded_row)
     assert seeded_row.value == 13.5
 

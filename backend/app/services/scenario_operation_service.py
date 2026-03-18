@@ -428,24 +428,35 @@ class ScenarioOperationService:
         )
         scenario = db.get(Scenario, scenario_id)
         if scenario is not None and changes:
+            changed_param_names = sorted(
+                {
+                    str(c.get("param_name") or "").strip()
+                    for c in changes
+                    if str(c.get("param_name") or "").strip()
+                }
+            )
             change_ids = [int(c.get("row_id")) for c in changes if c.get("row_id") is not None]
             if change_ids:
-                changed_param_names = sorted(
-                    {
-                        row.param_name
-                        for row in db.query(OsemosysParamValue)
-                        .filter(
-                            OsemosysParamValue.id_scenario == scenario_id,
-                            OsemosysParamValue.id.in_(change_ids),
-                        )
-                        .all()
-                    }
+                changed_param_names.extend(
+                    sorted(
+                        {
+                            row.param_name
+                            for row in db.query(OsemosysParamValue)
+                            .filter(
+                                OsemosysParamValue.id_scenario == scenario_id,
+                                OsemosysParamValue.id.in_(change_ids),
+                            )
+                            .all()
+                        }
+                    )
                 )
-                ScenarioService._track_changed_params(scenario, param_names=changed_param_names)
-                if changed_param_names:
-                    db.commit()
+            changed_param_names = sorted({name for name in changed_param_names if name})
+            ScenarioService._track_changed_params(scenario, param_names=changed_param_names)
+            if changed_param_names:
+                db.commit()
         job.result_json = {
             "updated": int(result.get("updated", 0)),
+            "inserted": int(result.get("inserted", 0)),
             "skipped": int(result.get("skipped", 0)),
             "total_rows_read": len(changes),
         }

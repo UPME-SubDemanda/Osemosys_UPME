@@ -509,27 +509,41 @@ def apply_excel_changes(
     result = OfficialImportService.apply_excel_changes(
         db,
         scenario_id=scenario_id,
-        changes=[{"row_id": c.row_id, "new_value": c.new_value} for c in payload.changes],
+        changes=[c.model_dump() for c in payload.changes],
     )
     ScenarioService.sync_catalogs_from_scenario_values(db, scenario_id=scenario_id)
     changed_param_names = sorted(
         {
-            row.param_name
-            for row in db.query(OsemosysParamValue)
-            .filter(
-                OsemosysParamValue.id_scenario == scenario_id,
-                OsemosysParamValue.id.in_([c.row_id for c in payload.changes]),
-            )
-            .all()
+            str(c.param_name).strip()
+            for c in payload.changes
+            if c.param_name is not None and str(c.param_name).strip()
         }
     )
+    update_ids = [int(c.row_id) for c in payload.changes if c.row_id is not None]
+    if update_ids:
+        changed_param_names.extend(
+            sorted(
+                {
+                    row.param_name
+                    for row in db.query(OsemosysParamValue)
+                    .filter(
+                        OsemosysParamValue.id_scenario == scenario_id,
+                        OsemosysParamValue.id.in_(update_ids),
+                    )
+                    .all()
+                }
+            )
+        )
+        changed_param_names = sorted({name for name in changed_param_names if name})
     ScenarioService._track_changed_params(scenario, param_names=changed_param_names)
     if changed_param_names:
         db.commit()
 
     return {
         "updated": result["updated"],
-        "not_found": result["skipped"],
+        "inserted": result.get("inserted", 0),
+        "skipped": result["skipped"],
+        "not_found": 0,
         "total_rows_read": len(payload.changes),
         "warnings": [],
     }
@@ -551,7 +565,7 @@ def apply_excel_changes_async(
             db,
             scenario_id=scenario_id,
             current_user=current_user,
-            changes=[{"row_id": c.row_id, "new_value": c.new_value} for c in payload.changes],
+            changes=[c.model_dump() for c in payload.changes],
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

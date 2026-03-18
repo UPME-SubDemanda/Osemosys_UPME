@@ -650,9 +650,19 @@ class ParsedRow:
     """Fila SAND parseada con dimensiones resueltas a IDs y valores por año."""
     param_name: str
     ids: dict[str, int | None]
+    region_name: str | None
+    technology_name: str | None
+    fuel_name: str | None
+    emission_name: str | None
     year_values: dict[int, float]
     time_indep_val: float | None
     timeslice_code: str | None
+    mode_code: str | None
+    season_code: str | None
+    daytype_code: str | None
+    dtb_code: str | None
+    storage_code: str | None
+    udc_code: str | None
     group_key: tuple | None
 
 
@@ -791,9 +801,19 @@ def _parse_sand_rows(
         yield ParsedRow(
             param_name=param_name,
             ids=ids,
+            region_name=region_name,
+            technology_name=technology_name,
+            fuel_name=fuel_name,
+            emission_name=emission_name,
             year_values=year_values,
             time_indep_val=time_indep_val,
             timeslice_code=timeslice_code,
+            mode_code=mode_code,
+            season_code=season_code,
+            daytype_code=daytype_code,
+            dtb_code=dtb_code,
+            storage_code=storage_code,
+            udc_code=udc_code,
             group_key=group_key,
         )
 
@@ -1306,9 +1326,68 @@ def _preview_sand_matrix_sheet(
 
     not_found_count = 0
     changes: list[dict] = []
+    canonical_years: set[int] = set()
 
-    def _try_preview(param_name: str, ids: dict, value: float, year: int | None) -> None:
+    def _build_preview_id(
+        *,
+        action: str,
+        row_id: int | None,
+        param_name: str,
+        year: int | None,
+        region_name: str | None,
+        technology_name: str | None,
+        fuel_name: str | None,
+        emission_name: str | None,
+        timeslice_code: str | None,
+        mode_code: str | None,
+        season_code: str | None,
+        daytype_code: str | None,
+        dtb_code: str | None,
+        storage_code: str | None,
+        udc_code: str | None,
+    ) -> str:
+        if action == "update" and row_id is not None:
+            return f"u:{row_id}"
+        signature = "|".join(
+            [
+                str(param_name or ""),
+                str(region_name or ""),
+                str(technology_name or ""),
+                str(fuel_name or ""),
+                str(emission_name or ""),
+                str(timeslice_code or ""),
+                str(mode_code or ""),
+                str(season_code or ""),
+                str(daytype_code or ""),
+                str(dtb_code or ""),
+                str(storage_code or ""),
+                str(udc_code or ""),
+                str(year if year is not None else ""),
+            ]
+        )
+        return f"i:{signature}"
+
+    def _try_preview(
+        param_name: str,
+        ids: dict,
+        value: float,
+        year: int | None,
+        *,
+        region_name: str | None,
+        technology_name: str | None,
+        fuel_name: str | None,
+        emission_name: str | None,
+        timeslice_code: str | None,
+        mode_code: str | None,
+        season_code: str | None,
+        daytype_code: str | None,
+        dtb_code: str | None,
+        storage_code: str | None,
+        udc_code: str | None,
+    ) -> None:
         nonlocal not_found_count
+        if year is not None and canonical_years and year not in canonical_years:
+            return
         key = (
             param_name,
             ids.get("id_region"),
@@ -1331,27 +1410,83 @@ def _preview_sand_matrix_sheet(
             # Solo incluir en el preview filas donde el valor realmente cambió (evita saturar UI con miles de filas iguales)
             if abs(old_value - new_val) > 1e-12:
                 changes.append({
+                    "preview_id": _build_preview_id(
+                        action="update",
+                        row_id=row_id,
+                        param_name=param_name,
+                        year=year,
+                        region_name=region_name,
+                        technology_name=technology_name,
+                        fuel_name=fuel_name,
+                        emission_name=emission_name,
+                        timeslice_code=timeslice_code,
+                        mode_code=mode_code,
+                        season_code=season_code,
+                        daytype_code=daytype_code,
+                        dtb_code=dtb_code,
+                        storage_code=storage_code,
+                        udc_code=udc_code,
+                    ),
+                    "action": "update",
                     "row_id": row_id,
                     "param_name": param_name,
-                    "region_name": rev_region.get(ids.get("id_region")) if ids.get("id_region") else None,
-                    "technology_name": rev_tech.get(ids.get("id_technology")) if ids.get("id_technology") else None,
-                    "fuel_name": rev_fuel.get(ids.get("id_fuel")) if ids.get("id_fuel") else None,
-                    "emission_name": rev_emission.get(ids.get("id_emission")) if ids.get("id_emission") else None,
+                    "region_name": region_name or (rev_region.get(ids.get("id_region")) if ids.get("id_region") else None),
+                    "technology_name": technology_name
+                    or (rev_tech.get(ids.get("id_technology")) if ids.get("id_technology") else None),
+                    "fuel_name": fuel_name or (rev_fuel.get(ids.get("id_fuel")) if ids.get("id_fuel") else None),
+                    "emission_name": emission_name
+                    or (rev_emission.get(ids.get("id_emission")) if ids.get("id_emission") else None),
+                    "timeslice_code": timeslice_code,
+                    "mode_of_operation_code": mode_code,
+                    "season_code": season_code,
+                    "daytype_code": daytype_code,
+                    "dailytimebracket_code": dtb_code,
+                    "storage_set_code": storage_code,
+                    "udc_set_code": udc_code,
                     "year": year,
                     "old_value": old_value,
                     "new_value": new_val,
                 })
         else:
-            not_found_count += 1
-            dims = f"param={param_name}, year={year}"
-            for dim_label, dim_key in [
-                ("region", "id_region"), ("tech", "id_technology"),
-                ("fuel", "id_fuel"), ("emission", "id_emission"),
-            ]:
-                v = ids.get(dim_key)
-                if v is not None:
-                    dims += f", {dim_label}={v}"
-            stats.warn(f"[update] No encontrado: {dims}")
+            new_val = float(value)
+            changes.append(
+                {
+                    "preview_id": _build_preview_id(
+                        action="insert",
+                        row_id=None,
+                        param_name=param_name,
+                        year=year,
+                        region_name=region_name,
+                        technology_name=technology_name,
+                        fuel_name=fuel_name,
+                        emission_name=emission_name,
+                        timeslice_code=timeslice_code,
+                        mode_code=mode_code,
+                        season_code=season_code,
+                        daytype_code=daytype_code,
+                        dtb_code=dtb_code,
+                        storage_code=storage_code,
+                        udc_code=udc_code,
+                    ),
+                    "action": "insert",
+                    "row_id": None,
+                    "param_name": param_name,
+                    "region_name": region_name,
+                    "technology_name": technology_name,
+                    "fuel_name": fuel_name,
+                    "emission_name": emission_name,
+                    "timeslice_code": timeslice_code,
+                    "mode_of_operation_code": mode_code,
+                    "season_code": season_code,
+                    "daytype_code": daytype_code,
+                    "dailytimebracket_code": dtb_code,
+                    "storage_set_code": storage_code,
+                    "udc_set_code": udc_code,
+                    "year": year,
+                    "old_value": None,
+                    "new_value": new_val,
+                }
+            )
 
     def _flush_agg_group_preview(group_key: _AggKey, rows_in_group: list[dict]) -> None:
         if not rows_in_group:
@@ -1374,16 +1509,223 @@ def _preview_sand_matrix_sheet(
         ids = representative["ids"]
         stats.total_rows_read += n
         if representative.get("time_indep_val") is not None:
-            _try_preview(param_name, ids, representative["time_indep_val"], None)
+            _try_preview(
+                param_name,
+                ids,
+                representative["time_indep_val"],
+                None,
+                region_name=representative.get("region_name"),
+                technology_name=representative.get("technology_name"),
+                fuel_name=representative.get("fuel_name"),
+                emission_name=representative.get("emission_name"),
+                timeslice_code=representative.get("timeslice_code"),
+                mode_code=representative.get("mode_code"),
+                season_code=representative.get("season_code"),
+                daytype_code=representative.get("daytype_code"),
+                dtb_code=representative.get("dtb_code"),
+                storage_code=representative.get("storage_code"),
+                udc_code=representative.get("udc_code"),
+            )
         else:
             for yr, val in aggregated_years.items():
-                _try_preview(param_name, ids, val, yr)
+                _try_preview(
+                    param_name,
+                    ids,
+                    val,
+                    yr,
+                    region_name=representative.get("region_name"),
+                    technology_name=representative.get("technology_name"),
+                    fuel_name=representative.get("fuel_name"),
+                    emission_name=representative.get("emission_name"),
+                    timeslice_code=representative.get("timeslice_code"),
+                    mode_code=representative.get("mode_code"),
+                    season_code=representative.get("season_code"),
+                    daytype_code=representative.get("daytype_code"),
+                    dtb_code=representative.get("dtb_code"),
+                    storage_code=representative.get("storage_code"),
+                    udc_code=representative.get("udc_code"),
+                )
 
-    logger.info("⏳ [3/3] Procesando filas y calculando diferencias...")
+    def _normalize_param_name(name: str) -> str:
+        return "".join(ch for ch in str(name or "").strip().lower() if ch.isalnum())
+
+    def _has_nonzero_value(parsed) -> bool:
+        if parsed.time_indep_val is not None:
+            return abs(float(parsed.time_indep_val)) > 1e-12
+        return any(abs(float(v)) > 1e-12 for v in parsed.year_values.values())
+
+    logger.info("⏳ [3/3] Derivando sets canónicos del SAND para filtrar preview...")
+    sets_start_time = time.time()
+    canonical_regions: set[int] = set()
+    canonical_technologies: set[int] = set()
+    canonical_fuels: set[int] = set()
+    canonical_emissions: set[int] = set()
+    canonical_timeslices: set[int] = set()
+    canonical_modes: set[int] = set()
+    canonical_years = set()
+    canonical_storages: set[int] = set()
+    canonical_udcs: set[int] = set()
+
+    all_regions: set[int] = set()
+    all_technologies: set[int] = set()
+    all_fuels: set[int] = set()
+    all_emissions: set[int] = set()
+    all_timeslices: set[int] = set()
+    all_modes: set[int] = set()
+    all_years: set[int] = set()
+
+    parsed_rows_first_pass = 0
+    for parsed in _parse_sand_rows(
+        db,
+        sheet=sheet,
+        stats=stats,
+        region_map=region_map,
+        tech_map=tech_map,
+        fuel_map=fuel_map,
+        emission_map=emission_map,
+        timeslice_map=timeslice_map,
+        mode_map=mode_map,
+        storage_map=storage_map,
+        season_map=season_map,
+        daytype_map=daytype_map,
+        dtb_map=dtb_map,
+        udc_map=udc_map,
+        create_missing_catalogs=False,
+    ):
+        parsed_rows_first_pass += 1
+        ids = parsed.ids
+        id_region = ids.get("id_region")
+        id_technology = ids.get("id_technology")
+        id_fuel = ids.get("id_fuel")
+        id_emission = ids.get("id_emission")
+        id_timeslice = ids.get("id_timeslice")
+        id_mode = ids.get("id_mode_of_operation")
+        id_storage = ids.get("id_storage_set")
+        id_udc = ids.get("id_udc_set")
+
+        if id_region is not None:
+            all_regions.add(id_region)
+        if id_technology is not None:
+            all_technologies.add(id_technology)
+        if id_fuel is not None:
+            all_fuels.add(id_fuel)
+        if id_emission is not None:
+            all_emissions.add(id_emission)
+        if id_timeslice is not None:
+            all_timeslices.add(id_timeslice)
+        if id_mode is not None:
+            all_modes.add(id_mode)
+        if id_storage is not None:
+            canonical_storages.add(id_storage)
+        if id_udc is not None:
+            canonical_udcs.add(id_udc)
+        for yr in parsed.year_values.keys():
+            all_years.add(int(yr))
+
+        pname = _normalize_param_name(parsed.param_name)
+        if pname == "yearsplit":
+            if id_region is not None:
+                canonical_regions.add(id_region)
+            if id_timeslice is not None:
+                canonical_timeslices.add(id_timeslice)
+            for yr in parsed.year_values.keys():
+                canonical_years.add(int(yr))
+        elif pname == "outputactivityratio":
+            if _has_nonzero_value(parsed):
+                if id_region is not None:
+                    canonical_regions.add(id_region)
+                if id_technology is not None:
+                    canonical_technologies.add(id_technology)
+                if id_fuel is not None:
+                    canonical_fuels.add(id_fuel)
+                if id_mode is not None:
+                    canonical_modes.add(id_mode)
+            for yr in parsed.year_values.keys():
+                canonical_years.add(int(yr))
+        elif pname == "emissionactivityratio":
+            if _has_nonzero_value(parsed):
+                if id_region is not None:
+                    canonical_regions.add(id_region)
+                if id_technology is not None:
+                    canonical_technologies.add(id_technology)
+                if id_emission is not None:
+                    canonical_emissions.add(id_emission)
+                if id_mode is not None:
+                    canonical_modes.add(id_mode)
+            for yr in parsed.year_values.keys():
+                canonical_years.add(int(yr))
+        elif pname == "capacitytoactivityunit":
+            if _has_nonzero_value(parsed):
+                if id_region is not None:
+                    canonical_regions.add(id_region)
+                if id_technology is not None:
+                    canonical_technologies.add(id_technology)
+
+    if not canonical_regions or not canonical_years:
+        canonical_regions.update(all_regions)
+        canonical_years.update(all_years)
+    if not canonical_timeslices:
+        canonical_timeslices.update(all_timeslices)
+    if not canonical_technologies:
+        canonical_technologies.update(all_technologies)
+    if not canonical_fuels:
+        canonical_fuels.update(all_fuels)
+    if not canonical_modes:
+        canonical_modes.update(all_modes)
+    if not canonical_emissions:
+        canonical_emissions.update(all_emissions)
+    if not canonical_storages:
+        canonical_storages.update(storage_map.values())
+    if not canonical_udcs:
+        canonical_udcs.update(udc_map.values())
+
+    canonical_sets = {
+        "region": canonical_regions,
+        "technology": canonical_technologies,
+        "fuel": canonical_fuels,
+        "emission": canonical_emissions,
+        "timeslice": canonical_timeslices,
+        "mode_of_operation": canonical_modes,
+        "year": canonical_years,
+        "storage": canonical_storages,
+        "udc": canonical_udcs,
+    }
+    logger.info(
+        "✅ [preview] Sets canónicos listos en %.2f segundos (rows=%s, region=%s, technology=%s, fuel=%s, emission=%s, timeslice=%s, mode=%s, year=%s).",
+        time.time() - sets_start_time,
+        parsed_rows_first_pass,
+        len(canonical_regions),
+        len(canonical_technologies),
+        len(canonical_fuels),
+        len(canonical_emissions),
+        len(canonical_timeslices),
+        len(canonical_modes),
+        len(canonical_years),
+    )
+
+    def _passes_canonical_filter(parsed) -> bool:
+        ids = parsed.ids
+        checks = [
+            ("id_region", "region"),
+            ("id_technology", "technology"),
+            ("id_fuel", "fuel"),
+            ("id_emission", "emission"),
+            ("id_timeslice", "timeslice"),
+            ("id_mode_of_operation", "mode_of_operation"),
+        ]
+        for id_key, set_key in checks:
+            id_value = ids.get(id_key)
+            valid_ids = canonical_sets.get(set_key)
+            if id_value is not None and valid_ids and id_value not in valid_ids:
+                return False
+        return True
+
+    logger.info("⏳ [preview] Procesando filas y calculando diferencias (post-filtro canónico)...")
     parse_start_time = time.time()
     parsed_rows_count = 0
     grouped_rows_count = 0
     direct_rows_count = 0
+    filtered_out_count = 0
     for parsed in _parse_sand_rows(
         db,
         sheet=sheet,
@@ -1404,18 +1746,34 @@ def _preview_sand_matrix_sheet(
         parsed_rows_count += 1
         if parsed_rows_count % 500 == 0:
             logger.info(
-                "📈 [preview] Progreso parseo: %s filas leídas (directas=%s, agrupables=%s, cambios=%s, no_encontradas=%s).",
+                "📈 [preview] Progreso parseo: %s filas leídas (directas=%s, agrupables=%s, filtradas=%s, cambios=%s, no_encontradas=%s).",
                 parsed_rows_count,
                 direct_rows_count,
                 grouped_rows_count,
+                filtered_out_count,
                 len(changes),
                 not_found_count,
             )
+
+        if not _passes_canonical_filter(parsed):
+            filtered_out_count += 1
+            continue
+
         if parsed.group_key is not None:
             grouped_rows_count += 1
             row_entry = {
                 "param_name": parsed.param_name,
                 "timeslice_code": parsed.timeslice_code,
+                "mode_code": parsed.mode_code,
+                "season_code": parsed.season_code,
+                "daytype_code": parsed.daytype_code,
+                "dtb_code": parsed.dtb_code,
+                "storage_code": parsed.storage_code,
+                "udc_code": parsed.udc_code,
+                "region_name": parsed.region_name,
+                "technology_name": parsed.technology_name,
+                "fuel_name": parsed.fuel_name,
+                "emission_name": parsed.emission_name,
                 "year_values": parsed.year_values,
                 "time_indep_val": parsed.time_indep_val,
                 "ids": parsed.ids,
@@ -1427,19 +1785,52 @@ def _preview_sand_matrix_sheet(
             direct_rows_count += 1
             stats.total_rows_read += 1
             if parsed.time_indep_val is not None:
-                _try_preview(parsed.param_name, parsed.ids, parsed.time_indep_val, None)
+                _try_preview(
+                    parsed.param_name,
+                    parsed.ids,
+                    parsed.time_indep_val,
+                    None,
+                    region_name=parsed.region_name,
+                    technology_name=parsed.technology_name,
+                    fuel_name=parsed.fuel_name,
+                    emission_name=parsed.emission_name,
+                    timeslice_code=parsed.timeslice_code,
+                    mode_code=parsed.mode_code,
+                    season_code=parsed.season_code,
+                    daytype_code=parsed.daytype_code,
+                    dtb_code=parsed.dtb_code,
+                    storage_code=parsed.storage_code,
+                    udc_code=parsed.udc_code,
+                )
             else:
                 for yr, val in parsed.year_values.items():
-                    _try_preview(parsed.param_name, parsed.ids, val, yr)
+                    _try_preview(
+                        parsed.param_name,
+                        parsed.ids,
+                        val,
+                        yr,
+                        region_name=parsed.region_name,
+                        technology_name=parsed.technology_name,
+                        fuel_name=parsed.fuel_name,
+                        emission_name=parsed.emission_name,
+                        timeslice_code=parsed.timeslice_code,
+                        mode_code=parsed.mode_code,
+                        season_code=parsed.season_code,
+                        daytype_code=parsed.daytype_code,
+                        dtb_code=parsed.dtb_code,
+                        storage_code=parsed.storage_code,
+                        udc_code=parsed.udc_code,
+                    )
     logger.info(
-        "✅ [3/3] Procesamiento de filas completado en %.2f segundos.",
+        "✅ [preview] Procesamiento de filas completado en %.2f segundos.",
         time.time() - parse_start_time,
     )
     logger.info(
-        "📊 [preview] Resumen parseo: total=%s, directas=%s, agrupables=%s, grupos=%s.",
+        "📊 [preview] Resumen parseo: total=%s, directas=%s, agrupables=%s, filtradas=%s, grupos=%s.",
         parsed_rows_count,
         direct_rows_count,
         grouped_rows_count,
+        filtered_out_count,
         len(_agg_buffer),
     )
 
@@ -2557,6 +2948,8 @@ class OfficialImportService:
         db.commit()
         return {
             "updated": result["updated"],
+            "inserted": 0,
+            "skipped": 0,
             "not_found": result["not_found"],
             "total_rows_read": stats.total_rows_read,
             "warnings": stats.warnings or [],
@@ -2694,39 +3087,203 @@ class OfficialImportService:
     ) -> dict:
         """Aplica cambios confirmados por el usuario tras preview.
 
-        Cada entry en ``changes`` tiene ``row_id`` y ``new_value``.
-        Solo actualiza filas que pertenecen al escenario indicado.
+        Soporta dos acciones:
+        - ``update``: actualiza por ``row_id`` existente en el escenario.
+        - ``insert``: inserta una nueva fila resolviendo/creando catálogos faltantes.
         """
         if not changes:
-            return {"updated": 0, "skipped": 0}
+            return {"updated": 0, "inserted": 0, "skipped": 0}
 
-        valid_ids = set(
-            row[0]
-            for row in db.execute(
-                select(OsemosysParamValue.id).where(
-                    OsemosysParamValue.id_scenario == scenario_id
-                )
-            ).all()
-        )
+        valid_rows = db.execute(
+            select(
+                OsemosysParamValue.id,
+                OsemosysParamValue.param_name,
+                OsemosysParamValue.id_region,
+                OsemosysParamValue.id_technology,
+                OsemosysParamValue.id_fuel,
+                OsemosysParamValue.id_emission,
+                OsemosysParamValue.id_timeslice,
+                OsemosysParamValue.id_mode_of_operation,
+                OsemosysParamValue.id_season,
+                OsemosysParamValue.id_daytype,
+                OsemosysParamValue.id_dailytimebracket,
+                OsemosysParamValue.id_storage_set,
+                OsemosysParamValue.id_udc_set,
+                OsemosysParamValue.year,
+            ).where(OsemosysParamValue.id_scenario == scenario_id)
+        ).all()
+        valid_ids = {int(r.id) for r in valid_rows}
+        existing_index: dict[tuple, int] = {
+            (
+                r.param_name,
+                r.id_region,
+                r.id_technology,
+                r.id_fuel,
+                r.id_emission,
+                r.id_timeslice,
+                r.id_mode_of_operation,
+                r.id_season,
+                r.id_daytype,
+                r.id_dailytimebracket,
+                r.id_storage_set,
+                r.id_udc_set,
+                r.year,
+            ): int(r.id)
+            for r in valid_rows
+        }
+
+        param_map = _load_name_map(db, Parameter)
+        region_map = _load_name_map(db, Region)
+        tech_map = _load_name_map(db, Technology)
+        fuel_map = _load_name_map(db, Fuel)
+        emission_map = _load_name_map(db, Emission)
+        timeslice_map = _load_code_map(db, Timeslice)
+        mode_map = _load_code_map(db, ModeOfOperation)
+        season_map = _load_code_map(db, Season)
+        daytype_map = _load_code_map(db, Daytype)
+        dtb_map = _load_code_map(db, Dailytimebracket)
+        storage_map = _load_code_map(db, StorageSet)
+        udc_map = _load_code_map(db, UdcSet)
 
         to_update: list[dict] = []
+        to_insert: list[OsemosysParamValue] = []
+        pending_insert_map: dict[tuple, OsemosysParamValue] = {}
+        updated = 0
+        inserted = 0
         skipped = 0
-        for ch in changes:
-            rid = ch["row_id"]
-            if rid in valid_ids:
-                to_update.append({"_id": rid, "value": float(ch["new_value"])})
-            else:
-                skipped += 1
 
-        if to_update:
+        def _flush_updates() -> None:
+            if not to_update:
+                return
             tbl = OsemosysParamValue.__table__
             stmt = (
                 sa_update(tbl)
                 .where(tbl.c.id == bindparam("_id"))
                 .values(value=bindparam("value"))
             )
-            for i in range(0, len(to_update), BATCH_SIZE):
-                db.execute(stmt, to_update[i : i + BATCH_SIZE])
+            db.execute(stmt, to_update)
+            to_update.clear()
 
+        for ch in changes:
+            action = str(ch.get("action") or "").strip().lower() or "update"
+            new_value = float(ch.get("new_value", 0.0))
+            if action == "update":
+                rid = ch.get("row_id")
+                if rid is None:
+                    skipped += 1
+                    continue
+                rid = int(rid)
+                if rid in valid_ids:
+                    to_update.append({"_id": rid, "value": new_value})
+                    updated += 1
+                    if len(to_update) >= BATCH_SIZE:
+                        _flush_updates()
+                else:
+                    skipped += 1
+                continue
+
+            if action != "insert":
+                skipped += 1
+                continue
+
+            param_name = _clean_str(ch.get("param_name"))
+            if not param_name:
+                skipped += 1
+                continue
+
+            # Insert: resolver/crear catálogos faltantes de manera equivalente al import.
+            _get_or_create_name_id(db, model=Parameter, name=param_name, ref_map=param_map)
+            id_region = _get_or_create_name_id(
+                db, model=Region, name=_dimension_str(ch.get("region_name")), ref_map=region_map
+            )
+            id_technology = _get_or_create_name_id(
+                db, model=Technology, name=_dimension_str(ch.get("technology_name")), ref_map=tech_map
+            )
+            id_fuel = _get_or_create_name_id(
+                db, model=Fuel, name=_dimension_str(ch.get("fuel_name")), ref_map=fuel_map
+            )
+            id_emission = _get_or_create_name_id(
+                db, model=Emission, name=_dimension_str(ch.get("emission_name")), ref_map=emission_map
+            )
+            id_timeslice = _get_or_create_code_id(
+                db, model=Timeslice, code=_dimension_str(ch.get("timeslice_code")), ref_map=timeslice_map
+            )
+            id_mode = _get_or_create_code_id(
+                db,
+                model=ModeOfOperation,
+                code=_dimension_str(ch.get("mode_of_operation_code")),
+                ref_map=mode_map,
+            )
+            id_season = _get_or_create_code_id(
+                db, model=Season, code=_dimension_str(ch.get("season_code")), ref_map=season_map
+            )
+            id_daytype = _get_or_create_code_id(
+                db, model=Daytype, code=_dimension_str(ch.get("daytype_code")), ref_map=daytype_map
+            )
+            id_dtb = _get_or_create_code_id(
+                db,
+                model=Dailytimebracket,
+                code=_dimension_str(ch.get("dailytimebracket_code")),
+                ref_map=dtb_map,
+            )
+            id_storage = _get_or_create_code_id(
+                db, model=StorageSet, code=_dimension_str(ch.get("storage_set_code")), ref_map=storage_map
+            )
+            id_udc = _get_or_create_code_id(
+                db, model=UdcSet, code=_dimension_str(ch.get("udc_set_code")), ref_map=udc_map
+            )
+            year = _to_int(ch.get("year"))
+
+            key = (
+                param_name,
+                id_region,
+                id_technology,
+                id_fuel,
+                id_emission,
+                id_timeslice,
+                id_mode,
+                id_season,
+                id_daytype,
+                id_dtb,
+                id_storage,
+                id_udc,
+                year,
+            )
+            pending = pending_insert_map.get(key)
+            if pending is not None:
+                pending.value = new_value
+                continue
+            existing_row_id = existing_index.get(key)
+            if existing_row_id is not None:
+                to_update.append({"_id": existing_row_id, "value": new_value})
+                updated += 1
+                if len(to_update) >= BATCH_SIZE:
+                    _flush_updates()
+                continue
+
+            obj = OsemosysParamValue(
+                id_scenario=scenario_id,
+                param_name=param_name,
+                id_region=id_region,
+                id_technology=id_technology,
+                id_fuel=id_fuel,
+                id_emission=id_emission,
+                id_timeslice=id_timeslice,
+                id_mode_of_operation=id_mode,
+                id_season=id_season,
+                id_daytype=id_daytype,
+                id_dailytimebracket=id_dtb,
+                id_storage_set=id_storage,
+                id_udc_set=id_udc,
+                year=year,
+                value=new_value,
+            )
+            to_insert.append(obj)
+            pending_insert_map[key] = obj
+            inserted += 1
+
+        _flush_updates()
+        if to_insert:
+            db.add_all(to_insert)
         db.commit()
-        return {"updated": len(to_update), "skipped": skipped}
+        return {"updated": updated, "inserted": inserted, "skipped": skipped}

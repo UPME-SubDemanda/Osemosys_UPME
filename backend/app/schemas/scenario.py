@@ -118,22 +118,33 @@ class ScenarioExcelUpdateResponse(BaseModel):
     """Resultado de actualizar un escenario existente desde un Excel SAND."""
 
     updated: int
-    not_found: int
+    inserted: int = 0
+    skipped: int = 0
+    not_found: int = 0
     total_rows_read: int
     warnings: list[str]
 
 
 class ExcelUpdatePreviewRow(BaseModel):
-    """Una fila del preview: registro existente que cambiaría de valor."""
+    """Una fila del preview: puede ser actualización o inserción."""
 
-    row_id: int
+    preview_id: str
+    action: Literal["update", "insert"] = "update"
+    row_id: int | None = None
     param_name: str
     region_name: str | None = None
     technology_name: str | None = None
     fuel_name: str | None = None
     emission_name: str | None = None
+    timeslice_code: str | None = None
+    mode_of_operation_code: str | None = None
+    season_code: str | None = None
+    daytype_code: str | None = None
+    dailytimebracket_code: str | None = None
+    storage_set_code: str | None = None
+    udc_set_code: str | None = None
     year: int | None = None
-    old_value: float
+    old_value: float | None = None
     new_value: float
 
 
@@ -149,7 +160,22 @@ class ScenarioExcelPreviewResponse(BaseModel):
 class ExcelChangeToApply(BaseModel):
     """Un cambio confirmado por el usuario para aplicar."""
 
-    row_id: int
+    preview_id: str
+    action: Literal["update", "insert"] = "update"
+    row_id: int | None = None
+    param_name: str | None = None
+    region_name: str | None = None
+    technology_name: str | None = None
+    fuel_name: str | None = None
+    emission_name: str | None = None
+    timeslice_code: str | None = None
+    mode_of_operation_code: str | None = None
+    season_code: str | None = None
+    daytype_code: str | None = None
+    dailytimebracket_code: str | None = None
+    storage_set_code: str | None = None
+    udc_set_code: str | None = None
+    year: int | None = None
     new_value: float
 
 

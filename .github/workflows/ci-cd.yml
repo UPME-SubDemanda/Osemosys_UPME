@@ -23,6 +23,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
 
       - name: Prepare env files
         run: cp .env.example .env
@@ -51,6 +54,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Enforce Clean Deploy Revision
+        run: |
+          git fetch --force --prune --tags origin
+          git checkout --force "${GITHUB_SHA}"
+          git clean -ffdx
+
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          if [ "${ACTUAL_SHA}" != "${GITHUB_SHA}" ]; then
+            echo "::error::Deploy checkout mismatch: expected ${GITHUB_SHA}, got ${ACTUAL_SHA}"
+            exit 1
+          fi
+
+          echo "Deploying commit ${ACTUAL_SHA}"
+          git status --short
 
       - name: Validate Required Secret
         env:

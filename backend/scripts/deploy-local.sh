@@ -62,6 +62,24 @@ log() {
   printf "\n[%s] %s\n" "$(date +'%H:%M:%S')" "$*"
 }
 
+log_git_revision() {
+  if ! command -v git >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local revision branch
+  revision="$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || true)"
+  branch="$(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+
+  if [[ -n "${revision}" ]]; then
+    log "Desplegando revisión git ${revision} (${branch:-detached})"
+  fi
+}
+
 copy_env_template_if_missing() {
   local target_file="$1"
   shift
@@ -227,6 +245,7 @@ fi
 
 cd "$APP_ROOT"
 
+log_git_revision
 log "Preparando archivo .env"
 copy_env_template_if_missing .env .env.example .env.local.example
 

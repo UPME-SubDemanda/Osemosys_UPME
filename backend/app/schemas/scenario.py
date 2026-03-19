@@ -125,6 +125,29 @@ class ScenarioExcelUpdateResponse(BaseModel):
     warnings: list[str]
 
 
+class SandContribution(BaseModel):
+    """Resumen de aportes de un archivo SAND en la integración."""
+
+    archivo: str
+    total_cambios: int
+    n_nuevas: int
+    n_eliminadas: int
+    n_modificadas: int
+    parametros: list[str]
+    tecnologias: list[str]
+    fuels: list[str]
+
+
+class SandIntegrationResponse(BaseModel):
+    """Resumen de resultado de la integración de múltiples archivos SAND."""
+
+    total_filas: int
+    contribuciones: list[SandContribution]
+    conflictos_count: int
+    resumen: str
+    warnings: list[str]
+
+
 class ExcelUpdatePreviewRow(BaseModel):
     """Una fila del preview: puede ser actualización o inserción."""
 

@@ -6,6 +6,7 @@ import desde Excel (create_scenario_from_excel), resumen por año.
 
 from __future__ import annotations
 
+import base64
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -19,6 +20,7 @@ from app.schemas.pagination import PaginatedResponse
 from app.schemas.scenario import (
     ApplyExcelChangesRequest,
     OsemosysValuesPage,
+    SandIntegrationResponse,
     ScenarioClone,
     ScenarioCreate,
     ScenarioExcelImportResponse,
@@ -39,6 +41,7 @@ from app.schemas.scenario_operation import (
     ScenarioOperationLogPublic,
 )
 from app.services.scenario_operation_service import ScenarioOperationService
+from app.services.integrate_sand_service import IntegrateSandService
 from app.services.official_import_service import OfficialImportService
 from app.services.scenario_export_service import export_scenario_raw_to_excel, export_scenario_to_excel
 from app.services.scenario_service import ScenarioService
@@ -221,6 +224,63 @@ def create_scenario_from_excel(
         },
         "import_result": import_dict,
     }
+
+
+@router.post("/concatenate-sand")
+def concatenate_sand_files(
+    base_file: UploadFile = File(...),
+    new_files: list[UploadFile] = File(...),
+    drop_techs: str | None = Form(default=None),
+    drop_fuels: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Concatena/integra múltiples archivos SAND y devuelve un Excel integrado."""
+    _ = db
+    _ = current_user
+
+    base_filename = base_file.filename or "base.xlsx"
+    base_content = base_file.file.read()
+
+    collected_new_files: list[tuple[str, bytes]] = []
+    for upload in new_files:
+        filename = upload.filename or "nuevo.xlsx"
+        content = upload.file.read()
+        collected_new_files.append((filename, content))
+
+    try:
+        result = IntegrateSandService.integrate_sand_files(
+            base_filename=base_filename,
+            base_content=base_content,
+            new_files=collected_new_files,
+            drop_techs_csv=drop_techs,
+            drop_fuels_csv=drop_fuels,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    summary_obj = SandIntegrationResponse.model_validate(
+        {
+            "total_filas": result["total_filas"],
+            "contribuciones": result["contribuciones"],
+            "conflictos_count": result["conflictos_count"],
+            "resumen": result["resumen"],
+            "warnings": result["warnings"],
+        }
+    )
+    summary_json = summary_obj.model_dump_json()
+    summary_header = base64.urlsafe_b64encode(summary_json.encode("utf-8")).decode("ascii")
+    output_filename = result["output_filename"]
+
+    return StreamingResponse(
+        BytesIO(result["output_content"]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{output_filename}"',
+            "X-Sand-Integration-Summary": summary_header,
+            "X-Sand-Integration-Summary-Format": "base64-json",
+        },
+    )
 
 
 @router.get("/{scenario_id}", response_model=ScenarioPublic)

@@ -1,0 +1,73 @@
+.section {
+  display: grid;
+  gap: 14px;
+}
+
+.headerTitle {
+  margin: 0;
+}
+
+.headerDesc {
+  margin: 6px 0 0;
+  opacity: 0.75;
+}
+
+.formWrap {
+  display: grid;
+  gap: 10px;
+  max-width: 620px;
+}
+
+.fieldGroup {
+  display: grid;
+  gap: 6px;
+}
+
+.actionsRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.resultBox {
+  display: grid;
+  gap: 8px;
+}
+
+.resultTitle {
+  margin: 0;
+}
+
+.warningsBox {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.warningItem {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.warningMore {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.preprocessOk {
+  color: var(--color-success, #22c55e);
+  font-size: 14px;
+}
+
+.preprocessStats {
+  font-weight: normal;
+  opacity: 0.9;
+}
+
+.preprocessError {
+  color: var(--color-warning, #eab308);
+  font-size: 14px;
+  padding: 8px;
+  background: rgba(234, 179, 8, 0.1);
+  border-radius: 6px;
+}

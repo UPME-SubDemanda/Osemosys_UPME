@@ -1,0 +1,135 @@
+# ──────────────────────────────────────────────
+# OS
+# ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# ──────────────────────────────────────────────
+# IDEs / Editors
+# ──────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ──────────────────────────────────────────────
+# Python
+# ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.venv/
+venv/
+ENV/
+
+# ──────────────────────────────────────────────
+# Node / Frontend
+# ──────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ──────────────────────────────────────────────
+# Environment & Secrets
+# ──────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ──────────────────────────────────────────────
+# Docker (volumes locales)
+# ──────────────────────────────────────────────
+postgres_data/
+redis_data/
+
+# ──────────────────────────────────────────────
+# Logs & temporales
+# ──────────────────────────────────────────────
+*.log
+*.pid
+celerybeat-schedule
+tmp/
+temp/
+
+# ──────────────────────────────────────────────
+# SQLite / archivos de BD local
+# ──────────────────────────────────────────────
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# ──────────────────────────────────────────────
+# Solver / Optimización (archivos generados)
+# ──────────────────────────────────────────────
+*.lp
+*.mps
+*.sol
+*.glp
+
+# ──────────────────────────────────────────────
+# Notebooks y artefactos de extracción
+# ──────────────────────────────────────────────
+*.ipynb_checkpoints/
+notebook_extract.txt
+extract_notebook.py
+NOTEBOOK_OSEMOSYS_EXTRACCION_COMPLETA.md
+
+# ──────────────────────────────────────────────
+# Scripts de debug / verificación one-off
+# ──────────────────────────────────────────────
+backend/scripts/check_*.py
+backend/scripts/debug_*.py
+backend/scripts/inspect_*.py
+backend/scripts/quick_check.py
+backend/scripts/reimport_*.py
+backend/scripts/trace_*.py
+backend/scripts/verify_*.py
+backend/scripts/validate_*.py
+!backend/scripts/validate_simulation_parity.py
+backend/scripts/find_*.py
+backend/scripts/extract_*.py
+backend/scripts/parity_test.py
+backend/scripts/run_direct_*.py
+backend/scripts/run_multi_*.py
+
+# ──────────────────────────────────────────────
+# Artefactos locales de paridad/simulación
+# ──────────────────────────────────────────────
+backend/resultados/
+**/resultados/
+**/simulation-results/
+**/comparison_csvs/
+**/parity/
+**/parity-docker/
+**/simulation_result.json
+**/simulation_kpis.csv
+**/simulation_events.csv
+**/parity_sample.xlsx
+
+# ──────────────────────────────────────────────
+# Imágenes de documentación local
+# ──────────────────────────────────────────────
+image/

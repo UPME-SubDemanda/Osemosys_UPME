@@ -1,0 +1,10 @@
+/var/log/osemosys/disk_audit.csv /var/log/osemosys/disk_alerts.log {
+  daily
+  rotate 14
+  compress
+  delaycompress
+  missingok
+  notifempty
+  copytruncate
+  create 0640 root adm
+}

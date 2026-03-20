@@ -1,0 +1,10 @@
+[Unit]
+Description=Run OSeMOSYS disk audit every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:00:00
+Persistent=true
+Unit=osemosys-disk-audit.service
+
+[Install]
+WantedBy=timers.target

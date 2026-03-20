@@ -1,34 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Despliegue rápido local/LAN para OSeMOSYS usando Docker Compose.
-# - Expone frontend por puerto 80 (o el que indiques en FRONTEND_PORT)
+# Despliegue del monorepo OSeMOSYS usando Docker Compose.
+# - Expone el frontend por el puerto configurado
+# - Mantiene API/DB/Redis locales por defecto
 # - Ejecuta migraciones y seed
 # - Crea/actualiza usuarios de aplicación
-#
-# Uso:
-#   chmod +x scripts/deploy-local.sh
-#   ./scripts/deploy-local.sh
-#
-# Variables opcionales:
-#   FRONTEND_PORT=80
-#   API_PORT=8010
-#   API_WORKERS=3
-#   REDIS_PORT=6379
-#   POSTGRES_PORT=5432 (si está ocupado, el script usa 5433 por defecto)
-#   APP_USERS="lcardona,jchavez,dbedoya"
-#   APP_PASSWORD="Cambio123!"
-#   APP_ADMIN_USERS="lcardona,jchavez,dbedoya" (por defecto usa APP_USERS)
-#   BACKUP_BEFORE_MIGRATIONS=1 (1=habilitado, 0=deshabilitado)
-#   BACKUP_DIR=/ruta/backups
-#   BACKUP_RETENTION_DAYS=7
-#   RUN_SEED=1 (1=ejecuta seed, 0=omite seed)
-#   SIM_WORKER_REPLICAS=2
-#   SIM_MAX_CONCURRENCY=2
-#   SIM_USER_ACTIVE_LIMIT=4
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_NAME="${COMPOSE_PROJECT_NAME:-osemosys}"
+export COMPOSE_PROJECT_NAME="${PROJECT_NAME}"
+
 LAST_BACKUP_FILE=""
 PREV_API_IMAGE_ID=""
 PREV_WORKER_IMAGE_ID=""
@@ -46,15 +29,33 @@ rollback_previous_images() {
   fi
 
   log "Intentando rollback operativo a imágenes previas"
-  [[ -n "${PREV_API_IMAGE_ID}" ]] && docker image tag "${PREV_API_IMAGE_ID}" osemosys-api || true
-  [[ -n "${PREV_WORKER_IMAGE_ID}" ]] && docker image tag "${PREV_WORKER_IMAGE_ID}" osemosys-simulation-worker || true
-  [[ -n "${PREV_FRONTEND_IMAGE_ID}" ]] && docker image tag "${PREV_FRONTEND_IMAGE_ID}" osemosys-frontend || true
+  [[ -n "${PREV_API_IMAGE_ID}" ]] && docker image tag "${PREV_API_IMAGE_ID}" "${PROJECT_NAME}-api" || true
+  [[ -n "${PREV_WORKER_IMAGE_ID}" ]] && docker image tag "${PREV_WORKER_IMAGE_ID}" "${PROJECT_NAME}-simulation-worker" || true
+  [[ -n "${PREV_FRONTEND_IMAGE_ID}" ]] && docker image tag "${PREV_FRONTEND_IMAGE_ID}" "${PROJECT_NAME}-frontend" || true
 
   docker compose up -d --no-build --scale "simulation-worker=${SIM_WORKER_REPLICAS:-2}" || true
 }
 
 log() {
   printf "\n[%s] %s\n" "$(date +'%H:%M:%S')" "$*"
+}
+
+log_git_revision() {
+  if ! command -v git >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local revision branch
+  revision="$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || true)"
+  branch="$(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+
+  if [[ -n "${revision}" ]]; then
+    log "Desplegando revisión git ${revision} (${branch:-detached})"
+  fi
 }
 
 copy_env_template_if_missing() {
@@ -79,12 +80,16 @@ copy_env_template_if_missing() {
 
 on_error() {
   local exit_code=$?
+  local api_container_id=""
   echo
   echo "ERROR: despliegue falló (exit=${exit_code})."
   echo "Logs recientes de API:"
   docker compose logs --tail=200 api || true
   echo "Estado de healthcheck de API:"
-  docker inspect --format='{{json .State.Health}}' osemosys-api-1 2>/dev/null || true
+  api_container_id="$(docker compose ps -q api 2>/dev/null || true)"
+  if [[ -n "${api_container_id}" ]]; then
+    docker inspect --format='{{json .State.Health}}' "${api_container_id}" 2>/dev/null || true
+  fi
   rollback_previous_images
   docker compose ps || true
   if [[ -n "${LAST_BACKUP_FILE}" ]]; then
@@ -100,6 +105,20 @@ trap on_error ERR
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Falta comando requerido: $1" >&2
+    exit 1
+  fi
+}
+
+require_non_default_secret_key() {
+  local secret_key="$1"
+
+  if [[ -z "${secret_key}" ]]; then
+    echo "SECRET_KEY es obligatorio para despliegue." >&2
+    exit 1
+  fi
+
+  if [[ "${secret_key}" == "change-me" || "${secret_key}" == "change-me-local" || "${secret_key}" == "replace-me-before-deploy" ]]; then
+    echo "SECRET_KEY no puede usar el valor por defecto del ejemplo." >&2
     exit 1
   fi
 }
@@ -127,6 +146,20 @@ wait_http_ok() {
   local sleep_seconds="$3"
   for _ in $(seq 1 "${retries}"); do
     if curl -fsS "${url}" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "${sleep_seconds}"
+  done
+  return 1
+}
+
+wait_celery_ping() {
+  local retries="$1"
+  local sleep_seconds="$2"
+
+  for _ in $(seq 1 "${retries}"); do
+    if docker compose exec -T simulation-worker sh -lc \
+      'celery -A app.simulation.celery_app:celery_app inspect ping --timeout=5 >/dev/null 2>&1'; then
       return 0
     fi
     sleep "${sleep_seconds}"
@@ -188,8 +221,9 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 1
 fi
 
-cd "$REPO_ROOT"
+cd "${REPO_ROOT}"
 
+log_git_revision
 log "Preparando archivos .env"
 copy_env_template_if_missing .env .env.example
 copy_env_template_if_missing backend/.env backend/.env.example backend/.env.local.example
@@ -199,22 +233,27 @@ API_PORT="${API_PORT:-8010}"
 API_WORKERS="${API_WORKERS:-3}"
 REDIS_PORT="${REDIS_PORT:-6379}"
 POSTGRES_PORT="${POSTGRES_PORT:-}"
-API_BIND_HOST="${API_BIND_HOST:-0.0.0.0}"
+API_BIND_HOST="${API_BIND_HOST:-127.0.0.1}"
 FRONTEND_BIND_HOST="${FRONTEND_BIND_HOST:-0.0.0.0}"
-POSTGRES_BIND_HOST="${POSTGRES_BIND_HOST:-0.0.0.0}"
-REDIS_BIND_HOST="${REDIS_BIND_HOST:-0.0.0.0}"
+POSTGRES_BIND_HOST="${POSTGRES_BIND_HOST:-127.0.0.1}"
+REDIS_BIND_HOST="${REDIS_BIND_HOST:-127.0.0.1}"
 BACKEND_BRIDGE_NETWORK="${BACKEND_BRIDGE_NETWORK:-osemosys_api_bridge}"
 FRONTEND_API_UPSTREAM="${FRONTEND_API_UPSTREAM:-api:8000}"
 APP_USERS="${APP_USERS:-lcardona,jchavez,dbedoya}"
 APP_PASSWORD="${APP_PASSWORD:-Cambio123!}"
+SECRET_KEY="${SECRET_KEY:-}"
 APP_ADMIN_USERS="${APP_ADMIN_USERS:-$APP_USERS}"
 BACKUP_BEFORE_MIGRATIONS="${BACKUP_BEFORE_MIGRATIONS:-1}"
 BACKUP_DIR="${BACKUP_DIR:-${REPO_ROOT}/backups}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-7}"
 RUN_SEED="${RUN_SEED:-1}"
+SYNC_APP_USERS="${SYNC_APP_USERS:-1}"
 SIM_WORKER_REPLICAS="${SIM_WORKER_REPLICAS:-2}"
 SIM_MAX_CONCURRENCY="${SIM_MAX_CONCURRENCY:-2}"
 SIM_USER_ACTIVE_LIMIT="${SIM_USER_ACTIVE_LIMIT:-4}"
+VITE_API_BASE_URL="${VITE_API_BASE_URL:-/api/v1}"
+VITE_APP_ENV="${VITE_APP_ENV:-production}"
+VITE_SIMULATION_MODE="${VITE_SIMULATION_MODE:-api}"
 
 if [[ -z "${POSTGRES_PORT}" ]]; then
   if is_port_in_use 5432; then
@@ -223,6 +262,9 @@ if [[ -z "${POSTGRES_PORT}" ]]; then
     POSTGRES_PORT=5432
   fi
 fi
+
+require_non_default_secret_key "${SECRET_KEY}"
+ensure_external_network "${BACKEND_BRIDGE_NETWORK}"
 
 upsert_env_key .env FRONTEND_PORT "${FRONTEND_PORT}"
 upsert_env_key .env API_PORT "${API_PORT}"
@@ -238,12 +280,15 @@ upsert_env_key .env FRONTEND_API_UPSTREAM "${FRONTEND_API_UPSTREAM}"
 upsert_env_key .env SIM_WORKER_REPLICAS "${SIM_WORKER_REPLICAS}"
 upsert_env_key .env SIM_MAX_CONCURRENCY "${SIM_MAX_CONCURRENCY}"
 upsert_env_key .env SIM_USER_ACTIVE_LIMIT "${SIM_USER_ACTIVE_LIMIT}"
+upsert_env_key .env VITE_API_BASE_URL "${VITE_API_BASE_URL}"
+upsert_env_key .env VITE_APP_ENV "${VITE_APP_ENV}"
+upsert_env_key .env VITE_SIMULATION_MODE "${VITE_SIMULATION_MODE}"
+upsert_env_key backend/.env SECRET_KEY "${SECRET_KEY}"
 upsert_env_key backend/.env SIM_WORKER_REPLICAS "${SIM_WORKER_REPLICAS}"
 upsert_env_key backend/.env SIM_MAX_CONCURRENCY "${SIM_MAX_CONCURRENCY}"
 upsert_env_key backend/.env SIM_USER_ACTIVE_LIMIT "${SIM_USER_ACTIVE_LIMIT}"
 
 capture_previous_images
-ensure_external_network "${BACKEND_BRIDGE_NETWORK}"
 
 log "Levantando stack con Docker Compose (build + up, workers=${SIM_WORKER_REPLICAS})"
 docker compose up -d --build --scale "simulation-worker=${SIM_WORKER_REPLICAS}"
@@ -271,12 +316,13 @@ if [[ "${RUN_SEED}" == "1" ]]; then
   docker compose exec -T api python scripts/seed.py
 fi
 
-log "Creando/actualizando usuarios de aplicación"
-docker compose exec -T \
-  -e APP_USERS="$APP_USERS" \
-  -e APP_PASSWORD="$APP_PASSWORD" \
-  -e APP_ADMIN_USERS="$APP_ADMIN_USERS" \
-  api python - <<'PY'
+if [[ "${SYNC_APP_USERS}" == "1" ]]; then
+  log "Creando/actualizando usuarios de aplicación"
+  docker compose exec -T \
+    -e APP_USERS="${APP_USERS}" \
+    -e APP_PASSWORD="${APP_PASSWORD}" \
+    -e APP_ADMIN_USERS="${APP_ADMIN_USERS}" \
+    api python - <<'PY'
 import os
 from sqlalchemy import select
 from app.db.session import SessionLocal
@@ -316,7 +362,6 @@ with SessionLocal() as s:
             user.can_manage_users = is_admin
             print(f"actualizado: {username} (admin={is_admin})")
 
-    # Permite promover admins que ya existan aunque no estén en APP_USERS.
     for username in sorted(admin_set - set(users)):
         user = s.execute(select(User).where(User.username == username)).scalar_one_or_none()
         if user is None:
@@ -329,9 +374,12 @@ with SessionLocal() as s:
         print(f"admin_promovido: {username}")
     s.commit()
 
-print(f"password_default={password}")
+print("password_default=configured via secure variable")
 print(f"admin_users={','.join(admin_users) if admin_users else '(ninguno)'}")
 PY
+else
+  log "Omitiendo sincronización de usuarios de aplicación (SYNC_APP_USERS=0)"
+fi
 
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 if [[ -z "${HOST_IP}" ]]; then
@@ -354,8 +402,7 @@ if ! wait_http_ok "http://127.0.0.1:${FRONTEND_PORT}/api/v1/health/ready" 30 2; 
 fi
 
 log "Smoke test de conectividad Celery"
-if ! docker compose exec -T simulation-worker sh -lc \
-  'celery -A app.simulation.celery_app:celery_app inspect ping -d "simulation-worker@$(hostname)" >/dev/null 2>&1'; then
+if ! wait_celery_ping 30 2; then
   echo "Smoke test falló: celery inspect ping no respondió." >&2
   exit 1
 fi
@@ -365,10 +412,9 @@ echo "Despliegue listo."
 echo "Frontend LAN: http://${HOST_IP:-<IP_MAQUINA>}:${FRONTEND_PORT}"
 echo "Health API via frontend: http://${HOST_IP:-<IP_MAQUINA>}:${FRONTEND_PORT}/api/v1/health"
 echo "Readiness API via frontend: http://${HOST_IP:-<IP_MAQUINA>}:${FRONTEND_PORT}/api/v1/health/ready"
-echo "Swagger directo API: http://${HOST_IP:-<IP_MAQUINA>}:${API_PORT}/docs"
+echo "Swagger local API: http://127.0.0.1:${API_PORT}/docs"
 echo "Usuarios: ${APP_USERS}"
 echo "Usuarios admin: ${APP_ADMIN_USERS}"
-echo "Password inicial: ${APP_PASSWORD}"
 echo "Workers simulación: ${SIM_WORKER_REPLICAS} (concurrency=${SIM_MAX_CONCURRENCY})"
 echo
-echo "Si usas firewall, permite puerto ${FRONTEND_PORT}/tcp (ej: sudo ufw allow ${FRONTEND_PORT}/tcp)."
+echo "Si usas firewall para staging, habilita solo ${FRONTEND_PORT}/tcp."

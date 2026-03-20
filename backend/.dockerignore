@@ -1,0 +1,13 @@
+.env*
+.git
+.gitignore
+.venv
+__pycache__
+.pytest_cache
+tmp
+resultados
+CSV
+SAND
+*.db
+*.db-shm
+*.db-wal

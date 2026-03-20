@@ -17,7 +17,7 @@ services:
     ports:
       # Host/puerto explícitos para exponer Postgres a LAN/VPN.
       # Usa POSTGRES_BIND_HOST=127.0.0.1 para dejarlo solo local.
-      - "${POSTGRES_BIND_HOST:-0.0.0.0}:${POSTGRES_PORT:-55432}:5432"
+      - "${POSTGRES_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-55432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     ports:
-      - "${REDIS_BIND_HOST:-0.0.0.0}:${REDIS_PORT:-6379}:6379"
+      - "${REDIS_BIND_HOST:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -65,7 +65,7 @@ services:
       OPENBLAS_NUM_THREADS: ${OPENBLAS_NUM_THREADS:-1}
       MKL_NUM_THREADS: ${MKL_NUM_THREADS:-1}
     ports:
-      - "${API_BIND_HOST:-0.0.0.0}:${API_PORT:-8010}:8000"
+      - "${API_BIND_HOST:-127.0.0.1}:${API_PORT:-8010}:8000"
     volumes:
       - simulation_artifacts:/app/tmp
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -130,6 +130,10 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+        VITE_APP_ENV: ${VITE_APP_ENV:-production}
+        VITE_SIMULATION_MODE: ${VITE_SIMULATION_MODE:-api}
     restart: unless-stopped
     environment:
       API_UPSTREAM: ${FRONTEND_API_UPSTREAM:-api:8000}

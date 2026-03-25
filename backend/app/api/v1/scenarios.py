@@ -266,6 +266,7 @@ def concatenate_sand_files(
             "conflictos_count": result["conflictos_count"],
             "resumen": result["resumen"],
             "warnings": result["warnings"],
+            "errors": result.get("errors", []),
         }
     )
     summary_json = summary_obj.model_dump_json()

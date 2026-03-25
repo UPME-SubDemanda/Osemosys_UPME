@@ -84,6 +84,7 @@ export type SandIntegrationSummary = {
   conflictos_count: number;
   resumen: string;
   warnings: string[];
+  errors: string[];
 };
 
 export type ExcelUpdatePreviewRow = {
@@ -272,6 +273,7 @@ export const scenariosApi = {
         conflictos_count: 0,
         resumen: "",
         warnings: [],
+        errors: [],
       },
     );
 

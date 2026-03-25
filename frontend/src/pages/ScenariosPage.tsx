@@ -387,6 +387,9 @@ export function ScenariosPage() {
       if (summary.warnings.length) {
         push(`La integración reportó ${summary.warnings.length} advertencia(s).`, "info");
       }
+      if (summary.errors.length) {
+        push(`La integración reportó ${summary.errors.length} error(es) de validación.`, "error");
+      }
 
       setTimeout(() => {
         void handleCloseConcatSand();

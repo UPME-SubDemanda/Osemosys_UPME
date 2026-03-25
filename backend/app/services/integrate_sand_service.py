@@ -57,6 +57,24 @@ def _read_parameters_from_bytes(content: bytes) -> pd.DataFrame:
     return df.dropna(how="all").reset_index(drop=True)
 
 
+def _detect_duplicates(df: pd.DataFrame, filename: str) -> list[str]:
+    """Detecta duplicados por KEY_COLS y retorna mensajes legibles."""
+    key_cols = [c for c in KEY_COLS if c in df.columns]
+    if not key_cols:
+        return [f"{filename}: no se encontraron columnas clave para validar duplicados."]
+    dupes = df[df.duplicated(subset=key_cols, keep=False)]
+    if dupes.empty:
+        return []
+    messages: list[str] = []
+    for keys, grp in dupes.groupby(key_cols):
+        key_tuple = keys if isinstance(keys, tuple) else (keys,)
+        key_desc = ", ".join(f"{k}={v}" for k, v in zip(key_cols, key_tuple))
+        excel_rows = (grp.index + 2).tolist()
+        messages.append(
+            f"{filename}: {len(grp)} duplicados para [{key_desc}] en filas Excel {excel_rows}"
+        )
+    return messages
+
 def _detect_diffs(df_base: pd.DataFrame, df_new: pd.DataFrame) -> pd.DataFrame:
     val_cols = [c for c in VALUE_COLS if c in df_base.columns]
     base_idx = df_base.set_index(KEY_COLS)

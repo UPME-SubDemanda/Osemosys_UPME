@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import defaultdict
 from io import BytesIO
 from pathlib import Path
+import traceback
 
 import numpy as np
 import pandas as pd
@@ -30,11 +31,11 @@ KEY_COLS = [
 VALUE_COLS = ["Time indipendent variables"] + [str(y) for y in range(2022, 2056)]
 RTOL = 1e-6
 _SENTINEL = -999999.123456789
+ALLOWED_EXCEL_EXTENSIONS = {".xlsx", ".xlsm", ".xls", ".xlsb", ".xltx", ".xltm"}
 
 
 def _is_allowed_excel(filename: str) -> bool:
-    lower = filename.lower()
-    return lower.endswith(".xlsm") or lower.endswith(".xlsx")
+    return Path(filename).suffix.lower() in ALLOWED_EXCEL_EXTENSIONS
 
 
 def _clean_csv_values(value: str | None) -> list[str]:
@@ -267,19 +268,48 @@ def _apply_diffs(df_acum: pd.DataFrame, df_new: pd.DataFrame, df_diffs: pd.DataF
     return df_acum.reset_index(drop=True)
 
 
-def _validate_apply(df_result: pd.DataFrame, df_diffs_applied: pd.DataFrame, filename: str) -> list[str]:
+def _validate_apply(
+    df_result: pd.DataFrame,
+    df_diffs_applied: pd.DataFrame,
+    filename: str,
+) -> list[dict]:
     if df_diffs_applied.empty:
         return []
 
     key_cols = [c for c in KEY_COLS if c in df_result.columns]
+    if not key_cols:
+        return [
+            {
+                "archivo": filename,
+                "tipo": "VALIDACION",
+                "Parameter": "",
+                "TECHNOLOGY": "",
+                "FUEL": "",
+                "columna": "—",
+                "valor_esperado": "KEY_COLS presentes",
+                "valor_actual": "no disponibles en resultado",
+            }
+        ]
+
     result_idx = df_result.set_index(key_cols)
-    warnings: list[str] = []
+    unapplied: list[dict] = []
 
     nuevas = df_diffs_applied[df_diffs_applied["tipo_cambio"] == "NUEVA"]
     for _, row in nuevas.iterrows():
         key = tuple(row[k] for k in key_cols)
         if key not in result_idx.index:
-            warnings.append(f"{filename}: fila NUEVA no aplicada para Parameter={row.get('Parameter', '')}")
+            unapplied.append(
+                {
+                    "archivo": filename,
+                    "tipo": "NUEVA",
+                    "Parameter": row.get("Parameter", ""),
+                    "TECHNOLOGY": row.get("TECHNOLOGY", ""),
+                    "FUEL": row.get("FUEL", ""),
+                    "columna": "—",
+                    "valor_esperado": "fila completa",
+                    "valor_actual": "no existe",
+                }
+            )
 
     mods = df_diffs_applied[df_diffs_applied["tipo_cambio"] == "MODIFICADA"]
     for _, row in mods.iterrows():
@@ -287,8 +317,17 @@ def _validate_apply(df_result: pd.DataFrame, df_diffs_applied: pd.DataFrame, fil
         col = row["columna"]
         expected = row["valor_nuevo"]
         if key not in result_idx.index or col not in result_idx.columns:
-            warnings.append(
-                f"{filename}: celda MODIFICADA no aplicable ({row.get('Parameter', '')}, col={col})"
+            unapplied.append(
+                {
+                    "archivo": filename,
+                    "tipo": "MODIFICADA",
+                    "Parameter": row.get("Parameter", ""),
+                    "TECHNOLOGY": row.get("TECHNOLOGY", ""),
+                    "FUEL": row.get("FUEL", ""),
+                    "columna": col,
+                    "valor_esperado": expected,
+                    "valor_actual": "fila/col no existe",
+                }
             )
             continue
         actual = result_idx.loc[key, col]
@@ -297,11 +336,45 @@ def _validate_apply(df_result: pd.DataFrame, df_diffs_applied: pd.DataFrame, fil
         if pd.isna(expected) and pd.isna(actual):
             continue
         if pd.isna(expected) != pd.isna(actual):
-            warnings.append(f"{filename}: celda MODIFICADA distinta ({row.get('Parameter', '')}, col={col})")
+            unapplied.append(
+                {
+                    "archivo": filename,
+                    "tipo": "MODIFICADA",
+                    "Parameter": row.get("Parameter", ""),
+                    "TECHNOLOGY": row.get("TECHNOLOGY", ""),
+                    "FUEL": row.get("FUEL", ""),
+                    "columna": col,
+                    "valor_esperado": expected,
+                    "valor_actual": actual,
+                }
+            )
             continue
         if not np.isclose(float(expected), float(actual), rtol=RTOL, atol=0):
-            warnings.append(f"{filename}: celda MODIFICADA distinta ({row.get('Parameter', '')}, col={col})")
-    return warnings
+            unapplied.append(
+                {
+                    "archivo": filename,
+                    "tipo": "MODIFICADA",
+                    "Parameter": row.get("Parameter", ""),
+                    "TECHNOLOGY": row.get("TECHNOLOGY", ""),
+                    "FUEL": row.get("FUEL", ""),
+                    "columna": col,
+                    "valor_esperado": expected,
+                    "valor_actual": actual,
+                }
+            )
+    return unapplied
+
+
+def _format_unapplied_warning(detail: dict) -> str:
+    return (
+        f"{detail.get('archivo', '')}: {detail.get('tipo', '')} "
+        f"Parameter={detail.get('Parameter', '')} "
+        f"TECHNOLOGY={detail.get('TECHNOLOGY', '')} "
+        f"FUEL={detail.get('FUEL', '')} "
+        f"col={detail.get('columna', '')} "
+        f"esperado={detail.get('valor_esperado', '')} "
+        f"actual={detail.get('valor_actual', '')}"
+    )
 
 
 def _extract_contribution(df_diffs: pd.DataFrame, archivo: str) -> dict:
@@ -360,7 +433,10 @@ class IntegrateSandService:
         output_filename: str = "SAND_integrado.xlsx",
     ) -> dict:
         if not _is_allowed_excel(base_filename):
-            raise ValueError("El archivo base debe ser .xlsm o .xlsx.")
+            raise ValueError(
+                "El archivo base debe ser un Excel válido "
+                f"({', '.join(sorted(ALLOWED_EXCEL_EXTENSIONS))})."
+            )
         if not base_content:
             raise ValueError("El archivo base está vacío.")
         if not new_files:
@@ -370,53 +446,114 @@ class IntegrateSandService:
         for filename, content in new_files:
             if not _is_allowed_excel(filename):
                 continue
-            lower = filename.lower()
-            if lower.startswith("sand_integrado") or filename.startswith("~$"):
+            if filename.startswith("~$"):
                 continue
             if content:
                 valid_new_files.append((filename, content))
         if not valid_new_files:
-            raise ValueError("No se encontraron archivos nuevos válidos (.xlsm/.xlsx).")
+            raise ValueError(
+                "No se encontraron archivos nuevos válidos "
+                f"({', '.join(sorted(ALLOWED_EXCEL_EXTENSIONS))})."
+            )
 
-        df_base = _read_parameters_from_bytes(base_content)
-        dfs_new = [_read_parameters_from_bytes(content) for _, content in valid_new_files]
-        names_new = [name for name, _ in valid_new_files]
-
-        diffs_vs_base = [_detect_diffs(df_base, df_n) for df_n in dfs_new]
-        conflicts = _detect_conflicts(df_base, names_new, dfs_new, diffs_vs_base)
-
-        df_acum = df_base.copy()
-        contributions: list[dict] = []
         warnings: list[str] = []
-
-        for (filename, _), df_new, diffs_base in zip(valid_new_files, dfs_new, diffs_vs_base):
-            contributions.append(_extract_contribution(diffs_base, filename))
-            if not diffs_base.empty:
-                df_acum = _apply_diffs(df_acum, df_new, diffs_base)
-            warnings.extend(_validate_apply(df_acum, diffs_base, filename))
-
-        drop_techs = _clean_csv_values(drop_techs_csv)
-        drop_fuels = _clean_csv_values(drop_fuels_csv)
+        errors: list[str] = []
+        contributions: list[dict] = []
+        conflicts: list[dict] = []
+        df_acum: pd.DataFrame | None = None
         dropped_tech_rows = 0
         dropped_fuel_rows = 0
-        if drop_techs or drop_fuels:
-            df_acum, dropped_tech_rows, dropped_fuel_rows = _drop_keys(df_acum, drop_techs, drop_fuels)
+
+        try:
+            df_base = _read_parameters_from_bytes(base_content)
+            df_acum = df_base.copy()
+
+            warnings.extend(_detect_duplicates(df_base, Path(base_filename).name))
+
+            readable_new_files: list[tuple[str, bytes]] = []
+            dfs_new: list[pd.DataFrame] = []
+            for filename, content in valid_new_files:
+                try:
+                    df_new = _read_parameters_from_bytes(content)
+                except Exception as exc:
+                    errors.append(f"{filename}: no se pudo leer hoja Parameters ({type(exc).__name__}: {exc})")
+                    continue
+                readable_new_files.append((filename, content))
+                dfs_new.append(df_new)
+                warnings.extend(_detect_duplicates(df_new, filename))
+
+            if not readable_new_files:
+                raise ValueError("No se pudo leer ningún archivo nuevo válido para integrar.")
+
+            names_new = [name for name, _ in readable_new_files]
+            diffs_vs_base = [_detect_diffs(df_base, df_n) for df_n in dfs_new]
+            conflicts = _detect_conflicts(df_base, names_new, dfs_new, diffs_vs_base)
+
+            unapplied_all: list[dict] = []
+            for (filename, _), df_new, diffs_base in zip(readable_new_files, dfs_new, diffs_vs_base):
+                contributions.append(_extract_contribution(diffs_base, filename))
+                if not diffs_base.empty:
+                    df_acum = _apply_diffs(df_acum, df_new, diffs_base)
+                unapplied_all.extend(_validate_apply(df_acum, diffs_base, filename))
+
+            if unapplied_all:
+                warnings.append(f"TOTAL CAMBIOS NO APLICADOS: {len(unapplied_all)}")
+                for detail in unapplied_all[:20]:
+                    warnings.append(_format_unapplied_warning(detail))
+                if len(unapplied_all) > 20:
+                    warnings.append(f"... y {len(unapplied_all) - 20} cambios no aplicados adicionales")
+            else:
+                warnings.append("Todos los cambios se aplicaron correctamente.")
+
+            drop_techs = _clean_csv_values(drop_techs_csv)
+            drop_fuels = _clean_csv_values(drop_fuels_csv)
+            if drop_techs or drop_fuels:
+                df_acum, dropped_tech_rows, dropped_fuel_rows = _drop_keys(df_acum, drop_techs, drop_fuels)
+
+            summary_lines = [
+                "INTEGRACION MULTIPLE SAND",
+                f"Base: {Path(base_filename).name}",
+                f"Archivos nuevos recibidos: {len(valid_new_files)}",
+                f"Archivos nuevos procesados: {len(readable_new_files)}",
+                f"Conflictos: {len(conflicts)}",
+                f"Filas finales: {len(df_acum)}",
+            ]
+            if drop_techs or drop_fuels:
+                summary_lines.append(
+                    f"Filas removidas (tech/fuel): {dropped_tech_rows}/{dropped_fuel_rows}"
+                )
+
+        except Exception as exc:
+            errors.append(f"ERROR FATAL: {type(exc).__name__}: {exc}")
+            if isinstance(exc, KeyError):
+                errors.append(
+                    "Causa probable: algún archivo no tiene la columna esperada en KEY_COLS."
+                )
+            elif isinstance(exc, ValueError) and "broadcast" in str(exc).lower():
+                errors.append(
+                    "Causa probable: hay filas duplicadas en los keys de algún archivo."
+                )
+            elif isinstance(exc, FileNotFoundError):
+                errors.append("Causa probable: verificar rutas de los archivos.")
+            elif isinstance(exc, TypeError) and "dtype" in str(exc).lower():
+                errors.append(
+                    "Causa probable: columnas de año con tipo mixto (texto + número)."
+                )
+            errors.append(traceback.format_exc())
+            warnings.append("La integración finalizó con errores; se devuelve un resultado parcial.")
+            if df_acum is None:
+                df_acum = pd.DataFrame()
+            summary_lines = [
+                "INTEGRACION MULTIPLE SAND",
+                "ESTADO: ERROR",
+                f"Base: {Path(base_filename).name}",
+                f"Conflictos detectados hasta el error: {len(conflicts)}",
+                f"Filas parciales: {len(df_acum)}",
+            ]
 
         output_buffer = BytesIO()
         df_acum.to_excel(output_buffer, sheet_name="Parameters", index=False, engine="openpyxl")
         output_content = output_buffer.getvalue()
-
-        summary_lines = [
-            "INTEGRACION MULTIPLE SAND",
-            f"Base: {Path(base_filename).name}",
-            f"Archivos nuevos: {len(valid_new_files)}",
-            f"Conflictos: {len(conflicts)}",
-            f"Filas finales: {len(df_acum)}",
-        ]
-        if drop_techs or drop_fuels:
-            summary_lines.append(
-                f"Filas removidas (tech/fuel): {dropped_tech_rows}/{dropped_fuel_rows}"
-            )
 
         return {
             "output_filename": output_filename,
@@ -426,4 +563,5 @@ class IntegrateSandService:
             "conflictos_count": len(conflicts),
             "resumen": "\n".join(summary_lines),
             "warnings": warnings,
+            "errors": errors,
         }

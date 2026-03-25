@@ -258,6 +258,11 @@ def concatenate_sand_files(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Ocurrió un error inesperado durante la integración SAND.",
+        ) from exc
 
     summary_obj = SandIntegrationResponse.model_validate(
         {

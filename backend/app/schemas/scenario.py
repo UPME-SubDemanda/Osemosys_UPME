@@ -146,6 +146,7 @@ class SandIntegrationResponse(BaseModel):
     conflictos_count: int
     resumen: str
     warnings: list[str]
+    errors: list[str] = []
 
 
 class ExcelUpdatePreviewRow(BaseModel):

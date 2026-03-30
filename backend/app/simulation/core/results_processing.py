@@ -527,7 +527,7 @@ def process_results(
     )
     timings["intermediate_vars_seconds"] = perf_counter() - t
 
-    return {
+    result = {
         "objective_value": solver_result["objective_value"],
         "solver_name": solver_result["solver_name"],
         "solver_status": solver_result["solver_status"],
@@ -543,3 +543,6 @@ def process_results(
         "intermediate_variables": intermediate_variables,
         "model_timings": timings,
     }
+    if solver_result.get("infeasibility_diagnostics"):
+        result["infeasibility_diagnostics"] = solver_result["infeasibility_diagnostics"]
+    return result

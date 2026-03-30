@@ -7,7 +7,12 @@ Todos requieren usuario autenticado; delegan a SimulationService.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import shutil
+import tempfile
+import zipfile
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -17,14 +22,49 @@ from app.models import User
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.simulation import (
     SimulationJobPublic,
+    SimulationFromCsvResult,
     SimulationLogPublic,
     SimulationOverviewPublic,
     SimulationResultPublic,
     SimulationSubmit,
 )
 from app.services.simulation_service import SimulationService
+from app.simulation.osemosys_core import run_osemosys_from_csv_dir
 
 router = APIRouter(prefix="/simulations")
+
+
+def _find_csv_root(extract_root: Path) -> Path | None:
+    required = {"YEAR.csv", "REGION.csv", "TECHNOLOGY.csv"}
+    candidates = [extract_root, *[path for path in extract_root.rglob("*") if path.is_dir()]]
+    for candidate in candidates:
+        csv_names = {path.name for path in candidate.glob("*.csv")}
+        if required.issubset(csv_names):
+            return candidate
+    return None
+
+
+def _extract_zip_to_dir(upload: UploadFile, target_dir: Path) -> None:
+    try:
+        with zipfile.ZipFile(upload.file) as zf:
+            for member in zf.infolist():
+                member_path = Path(member.filename)
+                if member_path.is_absolute() or ".." in member_path.parts:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="El ZIP contiene rutas no válidas.",
+                    )
+                if member.is_dir():
+                    continue
+                out_path = target_dir / member_path
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(member) as src, out_path.open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo cargado no es un ZIP válido.",
+        ) from exc
 
 
 @router.post("", response_model=SimulationJobPublic, status_code=201)
@@ -61,6 +101,58 @@ def submit_simulation(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/from-csv", response_model=SimulationFromCsvResult)
+async def submit_simulation_from_csv(
+    csv_zip: UploadFile = File(...),
+    solver_name: str = Form("highs"),
+    _current_user: User = Depends(get_current_user),
+) -> dict:
+    """Ejecuta una simulación directamente desde un ZIP con CSV procesados."""
+    if solver_name not in {"highs", "glpk"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solver inválido. Usa 'highs' o 'glpk'.",
+        )
+    if not csv_zip.filename or not csv_zip.filename.lower().endswith(".zip"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debes cargar un archivo ZIP con los CSV de entrada.",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="osemosys_csv_upload_") as tmp_dir:
+        extract_root = Path(tmp_dir)
+        _extract_zip_to_dir(csv_zip, extract_root)
+        csv_root = _find_csv_root(extract_root)
+        if csv_root is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "No se encontró un directorio válido con CSV de entrada. "
+                    "El ZIP debe contener al menos YEAR.csv, REGION.csv y TECHNOLOGY.csv."
+                ),
+            )
+
+        result = run_osemosys_from_csv_dir(csv_root, solver_name=solver_name)
+        return {
+            "solver_name": result.get("solver_name", solver_name),
+            "objective_value": result.get("objective_value", 0.0),
+            "solver_status": result.get("solver_status", "unknown"),
+            "coverage_ratio": result.get("coverage_ratio", 0.0),
+            "total_demand": result.get("total_demand", 0.0),
+            "total_dispatch": result.get("total_dispatch", 0.0),
+            "total_unmet": result.get("total_unmet", 0.0),
+            "dispatch": result.get("dispatch", []),
+            "unmet_demand": result.get("unmet_demand", []),
+            "new_capacity": result.get("new_capacity", []),
+            "annual_emissions": result.get("annual_emissions", []),
+            "stage_times": {},
+            "model_timings": result.get("model_timings", {}),
+            "sol": result.get("sol", {}),
+            "intermediate_variables": result.get("intermediate_variables", {}),
+            "infeasibility_diagnostics": result.get("infeasibility_diagnostics"),
+        }
 
 
 @router.get("", response_model=PaginatedResponse[SimulationJobPublic])

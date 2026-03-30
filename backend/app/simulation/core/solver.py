@@ -55,7 +55,7 @@ def write_lp_file(
     return lp_path
 
 
-def _run_infeasibility_diagnostics(instance: pyo.ConcreteModel) -> None:
+def _run_infeasibility_diagnostics(instance: pyo.ConcreteModel) -> dict:
     """Analiza restricciones violadas y variable bounds conflictivos.
 
     Replica la lógica de diagnósticos de infactibilidad de la celda 28
@@ -63,6 +63,7 @@ def _run_infeasibility_diagnostics(instance: pyo.ConcreteModel) -> None:
     - Recorre restricciones activas: si body < lower o body > upper (con tol 1e-6), registra violación.
     - Recorre variables: si lb > ub, registra conflicto de bounds.
     - Escribe en log las peores 10 y recomendaciones de debugging.
+    - Retorna dict con listas estructuradas para persistencia y exportación.
     """
     tol = 1e-6
 
@@ -70,7 +71,7 @@ def _run_infeasibility_diagnostics(instance: pyo.ConcreteModel) -> None:
     logger.warning("MODELO INFACTIBLE - ANÁLISIS DIAGNÓSTICO")
     logger.warning("=" * 70)
 
-    constraint_violations: list[tuple[str, float, float | None, float | None, str, float]] = []
+    constraint_violations_raw: list[tuple[str, float, float | None, float | None, str, float]] = []
     for con in instance.component_data_objects(Constraint, active=True):
         body_val = value(con.body, exception=False)
         if body_val is None:
@@ -89,17 +90,18 @@ def _run_infeasibility_diagnostics(instance: pyo.ConcreteModel) -> None:
             bound_side = "UB"
 
         if violation > tol:
-            constraint_violations.append(
+            constraint_violations_raw.append(
                 (con.name, body_val, lb, ub, bound_side, violation)
             )
 
-    if constraint_violations:
-        constraint_violations.sort(key=lambda x: -x[5])
+    constraint_violations_raw.sort(key=lambda x: -x[5])
+
+    if constraint_violations_raw:
         logger.warning(
-            "Encontradas %d restricciones violadas", len(constraint_violations),
+            "Encontradas %d restricciones violadas", len(constraint_violations_raw),
         )
         for idx, (name, body_val, lb, ub, side, vio) in enumerate(
-            constraint_violations[:10]
+            constraint_violations_raw[:10]
         ):
             lb_txt = f"{lb:.2e}" if lb is not None else "-inf"
             ub_txt = f"{ub:.2e}" if ub is not None else "+inf"
@@ -113,20 +115,21 @@ def _run_infeasibility_diagnostics(instance: pyo.ConcreteModel) -> None:
             "la infactibilidad puede deberse a bounds conflictivos de variables"
         )
 
-    var_bound_conflicts: list[tuple[str, float, float, float]] = []
+    var_bound_conflicts_raw: list[tuple[str, float, float, float]] = []
     for var in instance.component_data_objects(Var, active=True):
         lb = value(var.lb, exception=False) if var.has_lb() else None
         ub = value(var.ub, exception=False) if var.has_ub() else None
         if lb is not None and ub is not None and lb > ub + tol:
-            var_bound_conflicts.append((var.name, lb, ub, lb - ub))
+            var_bound_conflicts_raw.append((var.name, lb, ub, lb - ub))
 
-    if var_bound_conflicts:
-        var_bound_conflicts.sort(key=lambda x: -x[3])
+    var_bound_conflicts_raw.sort(key=lambda x: -x[3])
+
+    if var_bound_conflicts_raw:
         logger.warning(
             "Encontradas %d variables con bounds infactibles (LB > UB):",
-            len(var_bound_conflicts),
+            len(var_bound_conflicts_raw),
         )
-        for idx, (name, lb, ub, gap) in enumerate(var_bound_conflicts[:10]):
+        for idx, (name, lb, ub, gap) in enumerate(var_bound_conflicts_raw[:10]):
             logger.warning(
                 "  %d. %s: LB=%.2e, UB=%.2e, Gap=%.2e",
                 idx + 1, name, lb, ub, gap,
@@ -143,6 +146,24 @@ def _run_infeasibility_diagnostics(instance: pyo.ConcreteModel) -> None:
     logger.warning("  6. Verificar datos de matrices (CapacityFactor, ActivityRatios)")
     logger.warning("=" * 70)
 
+    return {
+        "constraint_violations": [
+            {
+                "name": name,
+                "body": body_val,
+                "lower": lb,
+                "upper": ub,
+                "side": side,
+                "violation": vio,
+            }
+            for name, body_val, lb, ub, side, vio in constraint_violations_raw
+        ],
+        "var_bound_conflicts": [
+            {"name": name, "lb": lb, "ub": ub, "gap": gap}
+            for name, lb, ub, gap in var_bound_conflicts_raw
+        ],
+    }
+
 
 def solve_model(
     instance: pyo.ConcreteModel,
@@ -156,7 +177,8 @@ def solve_model(
     - Si lp_path no es None, escribe el .lp antes de resolver.
     - Prueba primero el solver solicitado; si no está disponible, prueba el otro (highs/glpk).
     - Si el status es infactible, ejecuta _run_infeasibility_diagnostics.
-    - Retorna dict con solver_name, solver_status, objective_value.
+    - Retorna dict con solver_name, solver_status, objective_value y,
+      si infactible, infeasibility_diagnostics.
     """
     if lp_path is not None:
         write_lp_file(instance, lp_path)
@@ -188,8 +210,9 @@ def solve_model(
 
         logger.info("Solver %s terminó: status=%s, objective=%.4f", candidate, status, obj)
 
+        diagnostics: dict | None = None
         if "infeasible" in status.lower():
-            _run_infeasibility_diagnostics(instance)
+            diagnostics = _run_infeasibility_diagnostics(instance)
         elif "optimal" in status.lower():
             logger.info("SOLUCIÓN ÓPTIMA ENCONTRADA - Objetivo: %.2f", obj)
 
@@ -197,6 +220,7 @@ def solve_model(
             "solver_name": candidate,
             "solver_status": status,
             "objective_value": obj,
+            "infeasibility_diagnostics": diagnostics,
         }
 
     # Ningún solver estaba disponible.

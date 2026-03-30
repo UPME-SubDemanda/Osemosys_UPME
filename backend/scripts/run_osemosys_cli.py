@@ -120,6 +120,32 @@ def _main() -> int:
     print(f"Solver: {result['solver_name']}  Status: {result['solver_status']}")
     print(f"Objetivo: {result.get('objective_value', 0):,.2f}")
 
+    diag = result.get("infeasibility_diagnostics")
+    if diag:
+        cv = diag.get("constraint_violations", [])
+        vbc = diag.get("var_bound_conflicts", [])
+        print()
+        print("=" * 70)
+        print("DIAGNÓSTICO DE INFACTIBILIDAD")
+        print("=" * 70)
+        if cv:
+            print(f"\n{len(cv)} restricciones violadas (top 10):")
+            print(f"  {'#':>3}  {'Restricción':<50}  {'Body':>12}  {'Lower':>12}  {'Upper':>12}  {'Side':>4}  {'Violación':>12}")
+            print(f"  {'---':>3}  {'-'*50}  {'-'*12}  {'-'*12}  {'-'*12}  {'----':>4}  {'-'*12}")
+            for i, c in enumerate(cv[:10]):
+                lb_t = f"{c['lower']:.2e}" if c["lower"] is not None else "-inf"
+                ub_t = f"{c['upper']:.2e}" if c["upper"] is not None else "+inf"
+                print(f"  {i+1:>3}  {c['name']:<50}  {c['body']:>12.6e}  {lb_t:>12}  {ub_t:>12}  {c['side']:>4}  {c['violation']:>12.2e}")
+        if vbc:
+            print(f"\n{len(vbc)} variables con bounds infactibles (LB > UB, top 10):")
+            print(f"  {'#':>3}  {'Variable':<50}  {'LB':>12}  {'UB':>12}  {'Gap':>12}")
+            print(f"  {'---':>3}  {'-'*50}  {'-'*12}  {'-'*12}  {'-'*12}")
+            for i, v in enumerate(vbc[:10]):
+                print(f"  {i+1:>3}  {v['name']:<50}  {v['lb']:>12.2e}  {v['ub']:>12.2e}  {v['gap']:>12.2e}")
+        if not cv and not vbc:
+            print("  No se detectaron violaciones explícitas; revisar logs del solver.")
+        print("=" * 70)
+
     output_dir = getattr(args, "output_dir", None)
     if output_dir is not None:
         from app.simulation.export_results import export_solution_to_folder

@@ -25,7 +25,14 @@ import { DataTable } from "@/shared/components/DataTable";
 import { Modal } from "@/shared/components/Modal";
 import { TextField } from "@/shared/components/TextField";
 import { paths } from "@/routes/paths";
-import type { Scenario, SimulationLog, SimulationOverview, SimulationRun, SimulationSolver } from "@/types/domain";
+import type {
+  CsvSimulationResult,
+  Scenario,
+  SimulationLog,
+  SimulationOverview,
+  SimulationRun,
+  SimulationSolver,
+} from "@/types/domain";
 
 const ACTIVE_STATUSES = new Set(["QUEUED", "RUNNING"]);
 
@@ -46,6 +53,10 @@ export function SimulationPage() {
   const [statusFilter, setStatusFilter] = useState<SimulationRun["status"] | "ALL">("ALL");
   const [usernameFilter, setUsernameFilter] = useState("");
   const [solverName, setSolverName] = useState<SimulationSolver>("highs");
+  const [csvSolverName, setCsvSolverName] = useState<SimulationSolver>("highs");
+  const [csvZipFile, setCsvZipFile] = useState<File | null>(null);
+  const [csvSubmitting, setCsvSubmitting] = useState(false);
+  const [csvResult, setCsvResult] = useState<CsvSimulationResult | null>(null);
   const [cancellingJobId, setCancellingJobId] = useState<number | null>(null);
 
   const [udcConfig, setUdcConfig] = useState<UdcConfig | null>(null);
@@ -192,6 +203,42 @@ export function SimulationPage() {
     }
   }
 
+  async function runCsvSimulation() {
+    if (!csvZipFile) {
+      push("Selecciona un archivo ZIP con los CSV antes de ejecutar.", "error");
+      return;
+    }
+    setCsvSubmitting(true);
+    setCsvResult(null);
+    try {
+      const result = await simulationApi.submitFromCsv(csvZipFile, csvSolverName);
+      setCsvResult(result);
+      const statusLower = result.solver_status.toLowerCase();
+      push(
+        statusLower.includes("optimal")
+          ? "Simulación desde CSV completada."
+          : `Simulación desde CSV finalizada con estado ${result.solver_status}.`,
+        statusLower.includes("optimal") ? "success" : "info",
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Error ejecutando simulación desde CSV.";
+      push(detail, "error");
+    } finally {
+      setCsvSubmitting(false);
+    }
+  }
+
+  function downloadCsvResultJson() {
+    if (!csvResult) return;
+    const blob = new Blob([JSON.stringify(csvResult, null, 2)], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "simulation_from_csv_result.json";
+    link.click();
+    window.URL.revokeObjectURL(url);
+  }
+
   // Filtrado por estado seleccionado (ALL = sin filtrar)
   const filteredRuns = useMemo(() => {
     if (statusFilter === "ALL") return runs;
@@ -249,6 +296,162 @@ export function SimulationPage() {
             Refrescar estado
           </Button>
         </div>
+      </article>
+
+      <article className="pageSection" style={{ display: "grid", gap: 12 }}>
+        <div style={{ display: "grid", gap: 4 }}>
+          <h2 style={{ margin: 0 }}>Simulación desde CSV</h2>
+          <small style={{ opacity: 0.78 }}>
+            Sube un ZIP con CSV ya procesados (`YEAR.csv`, `REGION.csv`, `TECHNOLOGY.csv`, etc.) para ejecutar una corrida directa sin escenario en base de datos.
+          </small>
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gap: 10,
+            gridTemplateColumns: "minmax(280px, 1fr) minmax(180px, 240px) auto",
+            alignItems: "end",
+          }}
+        >
+          <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">ZIP de CSV</span>
+            <input
+              className="field__input"
+              type="file"
+              accept=".zip,application/zip"
+              onChange={(e) => setCsvZipFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">Solver</span>
+            <select
+              className="field__input"
+              value={csvSolverName}
+              onChange={(e) => setCsvSolverName(e.target.value as SimulationSolver)}
+            >
+              <option value="highs">HiGHS</option>
+              <option value="glpk">GLPK</option>
+            </select>
+          </label>
+          <Button variant="primary" onClick={runCsvSimulation} disabled={csvSubmitting || !csvZipFile}>
+            {csvSubmitting ? "Ejecutando..." : "Ejecutar desde CSV"}
+          </Button>
+        </div>
+        {csvZipFile ? (
+          <small style={{ opacity: 0.78 }}>
+            Archivo seleccionado: <strong>{csvZipFile.name}</strong>
+          </small>
+        ) : null}
+
+        {csvResult ? (
+          <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <Badge
+                variant={
+                  csvResult.solver_status.toLowerCase().includes("optimal")
+                    ? "success"
+                    : csvResult.solver_status.toLowerCase().includes("infeasible")
+                      ? "danger"
+                      : "warning"
+                }
+              >
+                {csvResult.solver_status}
+              </Badge>
+              <span>Solver: {csvResult.solver_name === "highs" ? "HiGHS" : "GLPK"}</span>
+              <Button variant="ghost" onClick={downloadCsvResultJson}>
+                Descargar JSON
+              </Button>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gap: 10,
+                gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+              }}
+            >
+              {[
+                { label: "Objetivo", value: csvResult.objective_value.toLocaleString() },
+                { label: "Cobertura", value: `${(csvResult.coverage_ratio * 100).toFixed(2)}%` },
+                { label: "Demanda total", value: csvResult.total_demand.toLocaleString() },
+                { label: "Dispatch total", value: csvResult.total_dispatch.toLocaleString() },
+                { label: "Unmet total", value: csvResult.total_unmet.toLocaleString() },
+              ].map((item) => (
+                <div key={item.label} style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 14 }}>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>{item.label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700 }}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {csvResult.infeasibility_diagnostics ? (
+              <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
+                  <h3 style={{ margin: 0 }}>Diagnóstico de infactibilidad</h3>
+                  {csvResult.infeasibility_diagnostics.constraint_violations.length ? (
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <strong>Restricciones violadas</strong>
+                      <div style={{ overflow: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Restricción</th>
+                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Body</th>
+                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Lower</th>
+                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Upper</th>
+                              <th style={{ textAlign: "center", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Lado</th>
+                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Violación</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {csvResult.infeasibility_diagnostics.constraint_violations.slice(0, 10).map((item) => (
+                              <tr key={`${item.name}-${item.side}`}>
+                                <td style={{ padding: "4px 8px" }}>{item.name}</td>
+                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.body.toExponential(3)}</td>
+                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.lower === null ? "—" : item.lower.toExponential(3)}</td>
+                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.upper === null ? "—" : item.upper.toExponential(3)}</td>
+                                <td style={{ padding: "4px 8px", textAlign: "center" }}>{item.side}</td>
+                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.violation.toExponential(3)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {csvResult.infeasibility_diagnostics.var_bound_conflicts.length ? (
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <strong>Bounds conflictivos</strong>
+                      <div style={{ overflow: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Variable</th>
+                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>LB</th>
+                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>UB</th>
+                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Gap</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {csvResult.infeasibility_diagnostics.var_bound_conflicts.slice(0, 10).map((item) => (
+                              <tr key={item.name}>
+                                <td style={{ padding: "4px 8px" }}>{item.name}</td>
+                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.lb.toExponential(3)}</td>
+                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.ub.toExponential(3)}</td>
+                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.gap.toExponential(3)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </article>
 
       {selectedScenario && udcConfig ? (

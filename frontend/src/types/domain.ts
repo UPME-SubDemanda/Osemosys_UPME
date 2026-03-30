@@ -115,6 +115,27 @@ export type SimulationOverview = {
   services_memory_total_bytes: number;
 };
 
+export type ConstraintViolation = {
+  name: string;
+  body: number;
+  lower: number | null;
+  upper: number | null;
+  side: string;
+  violation: number;
+};
+
+export type VarBoundConflict = {
+  name: string;
+  lb: number;
+  ub: number;
+  gap: number;
+};
+
+export type InfeasibilityDiagnostics = {
+  constraint_violations: ConstraintViolation[];
+  var_bound_conflicts: VarBoundConflict[];
+};
+
 export type RunResult = {
   job_id: number;
   scenario_id: number;
@@ -165,6 +186,7 @@ export type RunResult = {
   sol?: Record<string, Array<{ index: (string | number)[]; value: number }>>;
   /** Variables intermedias: ProductionByTechnology, UseByTechnology, etc. */
   intermediate_variables?: Record<string, Array<{ index: (string | number)[]; value: number }>>;
+  infeasibility_diagnostics?: InfeasibilityDiagnostics | null;
 };
 
 export type SimulationLog = {
@@ -174,6 +196,25 @@ export type SimulationLog = {
   message: string | null;
   progress: number | null;
   created_at: string;
+};
+
+export type CsvSimulationResult = {
+  solver_name: SimulationSolver;
+  objective_value: number;
+  solver_status: string;
+  coverage_ratio: number;
+  total_demand: number;
+  total_dispatch: number;
+  total_unmet: number;
+  dispatch: Array<Record<string, unknown>>;
+  unmet_demand: Array<Record<string, unknown>>;
+  new_capacity: Array<Record<string, unknown>>;
+  annual_emissions: Array<Record<string, unknown>>;
+  stage_times: Record<string, number | string>;
+  model_timings: Record<string, number | string>;
+  sol?: Record<string, Array<{ index: (string | number)[]; value: number }>>;
+  intermediate_variables?: Record<string, Array<{ index: (string | number)[]; value: number }>>;
+  infeasibility_diagnostics?: InfeasibilityDiagnostics | null;
 };
 
 export type ScenarioOperationType = "CLONE_SCENARIO" | "APPLY_EXCEL_CHANGES";

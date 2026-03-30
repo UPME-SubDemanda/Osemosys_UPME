@@ -5,6 +5,7 @@
 import { httpClient } from "@/shared/api/httpClient";
 import type { PaginatedResponse } from "@/shared/api/pagination";
 import type { 
+  CsvSimulationResult,
   ChartCatalogItem, 
   ChartDataResponse, 
   CompareChartFacetResponse, 
@@ -32,6 +33,17 @@ export const simulationApi = {
     const { data } = await httpClient.post<SimulationRun>("/simulations", {
       scenario_id: scenarioId,
       solver_name: solverName,
+    });
+    return data;
+  },
+
+  async submitFromCsv(file: File, solverName: SimulationSolver) {
+    const formData = new FormData();
+    formData.append("csv_zip", file);
+    formData.append("solver_name", solverName);
+    const { data } = await httpClient.post<CsvSimulationResult>("/simulations/from-csv", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 10 * 60 * 1000,
     });
     return data;
   },

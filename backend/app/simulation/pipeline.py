@@ -267,6 +267,40 @@ def run_pipeline(db: Session, *, job_id: int) -> None:
         ),
         progress=job.progress,
     )
+
+    diag = solution.get("infeasibility_diagnostics")
+    if diag:
+        lines: list[str] = []
+        cv = diag.get("constraint_violations", [])
+        vbc = diag.get("var_bound_conflicts", [])
+        if cv:
+            lines.append(f"{len(cv)} restricciones violadas (top 10):")
+            for i, c in enumerate(cv[:10]):
+                lb_t = f"{c['lower']:.2e}" if c["lower"] is not None else "-inf"
+                ub_t = f"{c['upper']:.2e}" if c["upper"] is not None else "+inf"
+                lines.append(
+                    f"  {i+1}. {c['name']}: Body={c['body']:.6e}, "
+                    f"Bounds=[{lb_t}, {ub_t}], Side={c['side']}, "
+                    f"Violation={c['violation']:.2e}"
+                )
+        if vbc:
+            lines.append(f"{len(vbc)} variables con bounds infactibles (top 10):")
+            for i, v in enumerate(vbc[:10]):
+                lines.append(
+                    f"  {i+1}. {v['name']}: LB={v['lb']:.2e}, "
+                    f"UB={v['ub']:.2e}, Gap={v['gap']:.2e}"
+                )
+        if lines:
+            msg = "\n".join(lines)[:4000]
+            SimulationRepository.add_event(
+                db,
+                job_id=job_id,
+                event_type="WARNING",
+                stage="infeasibility",
+                message=msg,
+                progress=job.progress,
+            )
+
     db.commit()
     stage_times[f"{STAGE_SOLVE}_seconds"] = perf_counter() - t2
 

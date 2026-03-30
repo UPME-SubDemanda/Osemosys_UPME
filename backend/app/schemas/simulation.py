@@ -59,6 +59,33 @@ class SimulationLogPublic(BaseModel):
     created_at: datetime
 
 
+class ConstraintViolationPublic(BaseModel):
+    """Restricción violada detectada durante un diagnóstico de infactibilidad."""
+
+    name: str
+    body: float
+    lower: float | None = None
+    upper: float | None = None
+    side: str
+    violation: float
+
+
+class VarBoundConflictPublic(BaseModel):
+    """Variable con bounds incompatibles (LB > UB)."""
+
+    name: str
+    lb: float
+    ub: float
+    gap: float
+
+
+class InfeasibilityDiagnosticsPublic(BaseModel):
+    """Diagnóstico estructurado de infactibilidad del solver."""
+
+    constraint_violations: list[ConstraintViolationPublic] = Field(default_factory=list)
+    var_bound_conflicts: list[VarBoundConflictPublic] = Field(default_factory=list)
+
+
 class SimulationResultPublic(BaseModel):
     """Contrato del artefacto final de resultados de simulación."""
 
@@ -84,6 +111,28 @@ class SimulationResultPublic(BaseModel):
     sol: dict[str, list[dict]] = Field(default_factory=dict)
     # Variables intermedias tipo GLPK: ProductionByTechnology, UseByTechnology, etc.
     intermediate_variables: dict[str, list[dict]] = Field(default_factory=dict)
+    infeasibility_diagnostics: InfeasibilityDiagnosticsPublic | None = None
+
+
+class SimulationFromCsvResult(BaseModel):
+    """Resultado síncrono de simulación ejecutada directamente desde CSV."""
+
+    solver_name: SimulationSolver
+    objective_value: float
+    solver_status: str
+    coverage_ratio: float
+    total_demand: float
+    total_dispatch: float
+    total_unmet: float
+    dispatch: list[dict]
+    unmet_demand: list[dict]
+    new_capacity: list[dict]
+    annual_emissions: list[dict]
+    stage_times: dict = Field(default_factory=dict)
+    model_timings: dict = Field(default_factory=dict)
+    sol: dict[str, list[dict]] = Field(default_factory=dict)
+    intermediate_variables: dict[str, list[dict]] = Field(default_factory=dict)
+    infeasibility_diagnostics: InfeasibilityDiagnosticsPublic | None = None
 
 
 # ============================================================================

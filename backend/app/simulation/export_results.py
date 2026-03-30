@@ -114,6 +114,24 @@ def export_solution_to_folder(
     ]
     _write_csv(out / "summary.csv", summary, ["metric", "value"])
 
+    # Diagnósticos de infactibilidad (CSV + inclusión en JSON)
+    diag = result.get("infeasibility_diagnostics")
+    if diag:
+        cv = diag.get("constraint_violations", [])
+        if cv:
+            _write_csv(
+                out / "infeasibility_diagnostics.csv",
+                cv,
+                ["name", "body", "lower", "upper", "side", "violation"],
+            )
+        vbc = diag.get("var_bound_conflicts", [])
+        if vbc:
+            _write_csv(
+                out / "infeasibility_var_bounds.csv",
+                vbc,
+                ["name", "lb", "ub", "gap"],
+            )
+
     if write_json:
         # simulation_result.json (estructura esperada por generate_simulation_charts)
         json_path = out / "simulation_result.json"
@@ -132,6 +150,8 @@ def export_solution_to_folder(
             "sol": result.get("sol", {}),
             "model_timings": result.get("model_timings", {}),
         }
+        if diag:
+            payload["infeasibility_diagnostics"] = diag
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)
 

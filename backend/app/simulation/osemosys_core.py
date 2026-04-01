@@ -22,9 +22,12 @@ from time import perf_counter
 from sqlalchemy.orm import Session
 
 from app.simulation.core.data_processing import (
+    eliminar_valores_fuera_de_indices,
     get_processing_result_from_csv_dir,
+    reorder_activity_ratio_csvs_for_dataportal,
     run_data_processing,
     run_data_processing_from_excel,
+    strip_whitespace_in_set_csvs,
 )
 from app.simulation.core.instance_builder import build_instance
 from app.simulation.core.model_definition import create_abstract_model
@@ -220,6 +223,10 @@ def run_osemosys_from_csv_dir(
             "sol": {},
             "intermediate_variables": {},
         }
+
+    reorder_activity_ratio_csvs_for_dataportal(csv_dir)
+    strip_whitespace_in_set_csvs(csv_dir)
+    eliminar_valores_fuera_de_indices(csv_dir)
 
     if on_stage:
         on_stage("data_loaded", 40.0)

@@ -12,6 +12,7 @@ Uso: recibe la instancia concreta de instance_builder.build_instance();
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import pyomo.environ as pyo
@@ -23,6 +24,18 @@ logger = logging.getLogger(__name__)
 
 # Alias usado en solve_model -> nombre del factory Pyomo (appsi_highs, glpk).
 SOLVER_FACTORIES: dict[str, str] = {"highs": "appsi_highs", "glpk": "glpk"}
+
+
+def normalize_solver_status_display(status: str) -> str:
+    """Convierte términos en inglés del solver a etiquetas en español para la API/UI.
+
+    Pyomo/HiGHS/GLPK devuelven ``infeasible``; en la aplicación se muestra ``infactible``.
+    La detección interna sigue usando el valor bruto de Pyomo antes de normalizar.
+    """
+    s = str(status)
+    if "infeasible" not in s.lower():
+        return s
+    return re.sub("infeasible", "infactible", s, flags=re.IGNORECASE)
 
 
 def get_solver_availability() -> dict[str, bool]:
@@ -209,26 +222,33 @@ def solve_model(
             load_solutions=False,
         )
 
-        status = str(results.solver.termination_condition)
+        raw_status = str(results.solver.termination_condition)
+        status_display = normalize_solver_status_display(raw_status)
         obj = 0.0
-        if "optimal" in status.lower():
+        if "optimal" in raw_status.lower():
             instance.solutions.load_from(results)
             try:
                 obj = float(pyo.value(instance.OBJ))
             except Exception:
                 pass
 
-        logger.info("Solver %s terminó: status=%s, objective=%.4f", candidate, status, obj)
+        logger.info(
+            "Solver %s terminó: status=%s (raw=%s), objective=%.4f",
+            candidate,
+            status_display,
+            raw_status,
+            obj,
+        )
 
         diagnostics: dict | None = None
-        if "infeasible" in status.lower():
+        if "infeasible" in raw_status.lower():
             diagnostics = _run_infeasibility_diagnostics(instance)
-        elif "optimal" in status.lower():
+        elif "optimal" in raw_status.lower():
             logger.info("SOLUCIÓN ÓPTIMA ENCONTRADA - Objetivo: %.2f", obj)
 
         return {
             "solver_name": candidate,
-            "solver_status": status,
+            "solver_status": status_display,
             "objective_value": obj,
             "infeasibility_diagnostics": diagnostics,
         }

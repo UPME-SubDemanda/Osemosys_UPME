@@ -990,6 +990,64 @@ def apply_udc_config(db: Session, scenario_id: int, csv_dir: str) -> None:
             logger.warning("No se pudo actualizar UDCTag: %s", e)
 
 
+def reorder_activity_ratio_csvs_for_dataportal(csv_dir: str) -> None:
+    """Reordena columnas de Input/OutputActivityRatio al orden que espera DataPortal.
+
+    Coincide con el paso 7 de ``run_data_processing``. Algunos CSV (p. ej. export
+    notebook) traen MODE_OF_OPERATION antes que FUEL; Pyomo indexa el parámetro
+    como REGION, TECHNOLOGY, FUEL, MODE_OF_OPERATION, YEAR.
+    """
+    for ratio_file in ("InputActivityRatio.csv", "OutputActivityRatio.csv"):
+        ratio_path = os.path.join(csv_dir, ratio_file)
+        if os.path.exists(ratio_path):
+            df = pd.read_csv(ratio_path)
+            expected_cols = ["REGION", "TECHNOLOGY", "FUEL", "MODE_OF_OPERATION", "YEAR", "VALUE"]
+            if all(c in df.columns for c in expected_cols):
+                df[expected_cols].to_csv(ratio_path, index=False)
+
+
+def strip_whitespace_in_set_csvs(csv_dir: str) -> None:
+    """Normaliza la columna VALUE de los CSV de sets (espacios y saltos de línea).
+
+    Exportaciones mal formadas pueden dejar nombres de tecnología con ``\\n`` en
+    TECHNOLOGY.csv; eso rompe la coincidencia con columnas de parámetros.
+    """
+    set_files = [
+        "REGION", "TECHNOLOGY", "FUEL", "EMISSION", "YEAR",
+        "TIMESLICE", "MODE_OF_OPERATION",
+        "STORAGE", "SEASON", "DAYTYPE", "DAILYTIMEBRACKET", "UDC",
+    ]
+    for name in set_files:
+        fpath = os.path.join(csv_dir, f"{name}.csv")
+        if not os.path.exists(fpath):
+            continue
+        df = pd.read_csv(fpath)
+        if df.empty or "VALUE" not in df.columns:
+            continue
+        if name == "YEAR":
+
+            def _year_cell(v):
+                if pd.isna(v):
+                    return v
+                s = str(v).strip()
+                return int(float(s)) if s else v
+
+            df["VALUE"] = df["VALUE"].map(_year_cell)
+        elif name == "MODE_OF_OPERATION":
+
+            def _moo_cell(v):
+                if pd.isna(v):
+                    return v
+                return float(str(v).strip())
+
+            df["VALUE"] = df["VALUE"].map(_moo_cell)
+        else:
+            df["VALUE"] = df["VALUE"].map(
+                lambda x: str(x).strip() if pd.notna(x) else x,
+            )
+        df.to_csv(fpath, index=False)
+
+
 # ========================================================================
 #  Pipeline desde Excel (sin BD)
 # ========================================================================
@@ -1138,13 +1196,7 @@ def run_data_processing_from_excel(
         logger.debug("No se pudo actualizar UDCTag por defecto")
 
     # 7. Reordenar columnas de ActivityRatio para DataPortal
-    for ratio_file in ["InputActivityRatio.csv", "OutputActivityRatio.csv"]:
-        ratio_path = os.path.join(csv_dir, ratio_file)
-        if os.path.exists(ratio_path):
-            df = pd.read_csv(ratio_path)
-            expected_cols = ["REGION", "TECHNOLOGY", "FUEL", "MODE_OF_OPERATION", "YEAR", "VALUE"]
-            if all(c in df.columns for c in expected_cols):
-                df[expected_cols].to_csv(ratio_path, index=False)
+    reorder_activity_ratio_csvs_for_dataportal(csv_dir)
 
     result = _build_processing_result_from_csv_dir(csv_dir)
     logger.info("Procesamiento desde Excel completado: %d sets, has_storage=%s, has_udc=%s",
@@ -1229,13 +1281,7 @@ def run_data_processing(
     apply_udc_config(db, scenario_id, csv_dir)
 
     # 7. Reordenar columnas de ActivityRatio para compatibilidad con DataPortal
-    for ratio_file in ["InputActivityRatio.csv", "OutputActivityRatio.csv"]:
-        ratio_path = os.path.join(csv_dir, ratio_file)
-        if os.path.exists(ratio_path):
-            df = pd.read_csv(ratio_path)
-            expected_cols = ["REGION", "TECHNOLOGY", "FUEL", "MODE_OF_OPERATION", "YEAR", "VALUE"]
-            if all(c in df.columns for c in expected_cols):
-                df[expected_cols].to_csv(ratio_path, index=False)
+    reorder_activity_ratio_csvs_for_dataportal(csv_dir)
 
     logger.info("Procesamiento de datos completado")
     return result

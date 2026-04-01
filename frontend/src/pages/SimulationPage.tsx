@@ -43,7 +43,7 @@ const CSV_PREVIEW_LIMIT = 50;
 function getSolverStatusVariant(status: string) {
   const normalized = status.toLowerCase();
   if (normalized.includes("optimal")) return "success" as const;
-  if (normalized.includes("infeasible")) return "danger" as const;
+  if (normalized.includes("infeasible") || normalized.includes("infactible")) return "danger" as const;
   return "warning" as const;
 }
 

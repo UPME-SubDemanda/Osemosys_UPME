@@ -560,6 +560,8 @@ def run_pipeline_from_csv(db: Session, *, job_id: int) -> None:
         ),
         progress=job.progress,
     )
+    # Misma secuencia que run_pipeline: evento WARNING de diagnóstico + commit +
+    # metadata crítica antes de la persistencia masiva de filas.
     _persist_infeasibility_event(
         db,
         job_id=job_id,

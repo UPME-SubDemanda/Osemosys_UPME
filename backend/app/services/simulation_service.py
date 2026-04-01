@@ -29,7 +29,7 @@ class SimulationService:
         if not isinstance(mt, dict):
             mt = {}
         ss = str(mt.get("solver_status") or "").lower()
-        if "infeasible" in ss:
+        if "infeasible" in ss or "infactible" in ss:
             return True
         sid = job.infeasibility_diagnostics_json
         if isinstance(sid, dict):

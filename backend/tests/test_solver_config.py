@@ -26,6 +26,11 @@ class _FakeInstance:
         self.solutions = SimpleNamespace(load_from=lambda _results: None)
 
 
+def test_normalize_solver_status_display_maps_infeasible_to_spanish() -> None:
+    assert solver_module.normalize_solver_status_display("infeasible") == "infactible"
+    assert solver_module.normalize_solver_status_display("optimal") == "optimal"
+
+
 def test_solve_model_uses_settings_for_tee_and_keepfiles(monkeypatch) -> None:
     fake_solver = _FakeSolver(status="optimal")
     monkeypatch.setattr(

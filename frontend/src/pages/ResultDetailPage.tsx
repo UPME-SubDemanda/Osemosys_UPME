@@ -1,19 +1,27 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { simulationApi } from '../features/simulation/api/simulationApi';
+import { scenariosApi } from '../features/scenarios/api/scenariosApi';
 import type {
   ResultSummaryResponse,
   ChartDataResponse,
   CompareChartResponse,
   CompareChartFacetResponse,
   CompareMode,
+  RunResult,
+  SimulationRun,
 } from '../types/domain';
+import {
+  InfeasibilityDiagnosticsPanel,
+  type ScenarioParamsForDiagnostics,
+} from '../features/simulation/components/InfeasibilityDiagnosticsPanel';
 import { ChartSelector, type ChartSelection } from '../shared/charts/ChartSelector';
 import { ScenarioComparer, type CompareViewMode } from '../shared/charts/ScenarioComparer';
 import { HighchartsChart } from '../shared/charts/HighchartsChart';
 import { CompareChart } from '../shared/charts/CompareChart';
 import { CompareChartFacet } from '../shared/charts/CompareChartFacet';
 import { Button } from '../shared/components/Button';
+import { Modal } from '../shared/components/Modal';
 
 export function ResultDetailPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -23,6 +31,10 @@ export function ResultDetailPage() {
   const [summary, setSummary] = useState<ResultSummaryResponse | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [runMeta, setRunMeta] = useState<SimulationRun | null>(null);
+  const [scenarioParamsForDiagnostics, setScenarioParamsForDiagnostics] =
+    useState<ScenarioParamsForDiagnostics>({ state: 'none' });
 
   // All summaries for comparison table
   const [allSummaries, setAllSummaries] = useState<ResultSummaryResponse[]>([]);
@@ -57,7 +69,15 @@ export function ResultDetailPage() {
   // Export state: 'svg' | 'excel' mientras se descarga, null si no
   const [exportingType, setExportingType] = useState<'svg' | 'excel' | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showInfeasibilityModal, setShowInfeasibilityModal] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const hasInfeasibilityDetails = Boolean(runResult?.infeasibility_diagnostics);
+  const normalizedSolverStatus = (
+    summary?.solver_status ?? runResult?.solver_status ?? ''
+  ).toLowerCase();
+  const isOptimal = normalizedSolverStatus.includes('optimal');
+  const isNonOptimal = Boolean(summary || runResult) && !isOptimal;
+  const failureMessage = runMeta?.error_message?.trim() || null;
 
   // 1. Fetch current run summary
   useEffect(() => {
@@ -71,6 +91,59 @@ export function ResultDetailPage() {
       )
       .finally(() => setLoadingSummary(false));
   }, [currentRunId]);
+
+  useEffect(() => {
+    if (!currentRunId) return;
+    simulationApi
+      .getResult(currentRunId)
+      .then(setRunResult)
+      .catch((err: unknown) => {
+        console.error('Error loading full result', err);
+        setRunResult(null);
+      });
+  }, [currentRunId]);
+
+  useEffect(() => {
+    if (!currentRunId) return;
+    simulationApi
+      .getRun(currentRunId)
+      .then(setRunMeta)
+      .catch((err: unknown) => {
+        console.error('Error loading run metadata', err);
+        setRunMeta(null);
+      });
+  }, [currentRunId]);
+
+  useEffect(() => {
+    const sid = runResult?.scenario_id;
+    if (sid == null || Number.isNaN(Number(sid))) {
+      setScenarioParamsForDiagnostics({ state: 'none' });
+      return;
+    }
+    let cancelled = false;
+    setScenarioParamsForDiagnostics({ state: 'loading' });
+    scenariosApi
+      .getScenarioById(sid)
+      .then((s) => {
+        if (!cancelled) {
+          setScenarioParamsForDiagnostics({
+            state: 'loaded',
+            names: s.changed_param_names ?? [],
+          });
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setScenarioParamsForDiagnostics({
+            state: 'error',
+            message: err instanceof Error ? err.message : 'Error al cargar el escenario',
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runResult?.scenario_id]);
 
   // 2. Fetch all summaries for comparison table
   useEffect(() => {
@@ -302,59 +375,61 @@ export function ResultDetailPage() {
           </p>
         </div>
         <div className="flex gap-3 items-center flex-wrap">
-          <div ref={exportMenuRef} className="relative">
-            <button
-              type="button"
-              onClick={() => setShowExportMenu((v) => !v)}
-              disabled={exportingType !== null}
-              className="btn btn--primary inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {exportingType ? (
-                <>
-                  <div className="w-4 h-4 rounded-full border-2 border-current/30 border-t-current animate-spin" />
-                  {exportingType === 'svg' ? 'Generando ZIP...' : 'Generando Excel...'}
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Exportar
-                  <svg className={`w-4 h-4 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </>
+          {isOptimal ? (
+            <div ref={exportMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setShowExportMenu((v) => !v)}
+                disabled={exportingType !== null}
+                className="btn btn--primary inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {exportingType ? (
+                  <>
+                    <div className="w-4 h-4 rounded-full border-2 border-current/30 border-t-current animate-spin" />
+                    {exportingType === 'svg' ? 'Generando ZIP...' : 'Generando Excel...'}
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Exportar
+                    <svg className={`w-4 h-4 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </>
+                )}
+              </button>
+              {showExportMenu && (
+                <div className="absolute right-0 top-full mt-2 flex flex-col gap-1.5 min-w-[240px] p-2 rounded-xl bg-[#1e293b]/95 border border-[rgba(255,255,255,0.1)] shadow-xl backdrop-blur-sm z-50">
+                  <button
+                    type="button"
+                    onClick={handleExportSvg}
+                    className="btn btn--ghost justify-start gap-3 px-4 py-3 text-sm w-full"
+                  >
+                    <span className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-500/15 text-emerald-400 shrink-0 border border-emerald-500/20">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                    </span>
+                    <span>Graficos y Resultados (SVG/ZIP)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportExcel}
+                    className="btn btn--ghost justify-start gap-3 px-4 py-3 text-sm w-full"
+                  >
+                    <span className="w-8 h-8 rounded-lg flex items-center justify-center bg-blue-500/15 text-blue-400 shrink-0 border border-blue-500/20">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </span>
+                    <span>Datos crudos (Excel)</span>
+                  </button>
+                </div>
               )}
-            </button>
-            {showExportMenu && (
-              <div className="absolute right-0 top-full mt-2 flex flex-col gap-1.5 min-w-[240px] p-2 rounded-xl bg-[#1e293b]/95 border border-[rgba(255,255,255,0.1)] shadow-xl backdrop-blur-sm z-50">
-                <button
-                  type="button"
-                  onClick={handleExportSvg}
-                  className="btn btn--ghost justify-start gap-3 px-4 py-3 text-sm w-full"
-                >
-                  <span className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-500/15 text-emerald-400 shrink-0 border border-emerald-500/20">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                  </span>
-                  <span>Graficos y Resultados (SVG/ZIP)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleExportExcel}
-                  className="btn btn--ghost justify-start gap-3 px-4 py-3 text-sm w-full"
-                >
-                  <span className="w-8 h-8 rounded-lg flex items-center justify-center bg-blue-500/15 text-blue-400 shrink-0 border border-blue-500/20">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </span>
-                  <span>Datos crudos (Excel)</span>
-                </button>
-              </div>
-            )}
-          </div>
+            </div>
+          ) : null}
 
           <Link to="/app/results">
             <Button
@@ -410,6 +485,61 @@ export function ResultDetailPage() {
           />
         </div>
       ) : null}
+
+      {isNonOptimal ? (
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="grid gap-1 text-sm text-red-100">
+            <strong className="text-red-50">
+              {hasInfeasibilityDetails
+                ? 'Esta simulación reporta infactibilidad o un estado no óptimo.'
+                : 'Esta simulación no terminó con una solución óptima.'}
+            </strong>
+            <span>
+              Estado del solver:{' '}
+              <span className="font-semibold uppercase">
+                {summary?.solver_name?.toUpperCase() ?? runResult?.solver_name?.toUpperCase() ?? 'SOLVER'}{' '}
+                {(summary?.solver_status ?? runResult?.solver_status ?? 'unknown').toUpperCase()}
+              </span>
+            </span>
+            {failureMessage ? <span>Detalle: {failureMessage}</span> : null}
+            {!hasInfeasibilityDetails ? (
+              <span>
+                No se pudieron recopilar diagnósticos detallados. Esto suele pasar cuando el worker se
+                termina de forma abrupta antes de persistir la infactibilidad.
+              </span>
+            ) : (
+              <span>
+                Puedes abrir el diagnóstico detallado para revisar restricciones violadas y conflictos
+                de bounds.
+              </span>
+            )}
+          </div>
+          {hasInfeasibilityDetails ? (
+            <Button
+              type="button"
+              onClick={() => setShowInfeasibilityModal(true)}
+              className="bg-red-600 hover:bg-red-500 text-white border border-red-500"
+            >
+              Ver diagnóstico de infactibilidad
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Modal
+        open={showInfeasibilityModal}
+        onClose={() => setShowInfeasibilityModal(false)}
+        title="Diagnóstico de infactibilidad"
+        wide
+      >
+        {hasInfeasibilityDetails && runResult ? (
+          <InfeasibilityDiagnosticsPanel
+            result={runResult}
+            scenarioParams={scenarioParamsForDiagnostics}
+            scenarioId={runResult.scenario_id ?? null}
+          />
+        ) : null}
+      </Modal>
 
       {/* ─── COMPARISON TABLE ─── */}
       {!loadingSummaries && allSummaries.length > 0 && (
@@ -498,63 +628,67 @@ export function ResultDetailPage() {
         </div>
       )}
 
-      {/* ─── CHART ─── */}
-      <div className="bg-[#1e293b] p-4 rounded-xl border border-slate-700/50 relative">
-        {loadingChart && (
-          <div className="absolute inset-0 z-10 bg-[#1e293b]/80 backdrop-blur-sm flex items-center justify-center rounded-xl">
-            <div className="flex flex-col items-center">
-              <div className="w-7 h-7 rounded-full border-4 border-slate-600 border-t-blue-500 animate-spin mb-3" />
-              <span className="text-blue-400 text-sm font-medium">Renderizando grafica...</span>
-            </div>
-          </div>
-        )}
+      {isOptimal ? (
+        <>
+          {/* ─── CHART ─── */}
+          <div className="bg-[#1e293b] p-4 rounded-xl border border-slate-700/50 relative">
+            {loadingChart && (
+              <div className="absolute inset-0 z-10 bg-[#1e293b]/80 backdrop-blur-sm flex items-center justify-center rounded-xl">
+                <div className="flex flex-col items-center">
+                  <div className="w-7 h-7 rounded-full border-4 border-slate-600 border-t-blue-500 animate-spin mb-3" />
+                  <span className="text-blue-400 text-sm font-medium">Renderizando grafica...</span>
+                </div>
+              </div>
+            )}
 
-        {compareState.mode === 'facet' && compareState.jobIds.length > 1 && compareFacetData ? (
-          <CompareChartFacet data={compareFacetData} />
-        ) : compareState.mode === 'by-year' && compareState.jobIds.length > 1 && compareChartData ? (
-          <CompareChart data={compareChartData} />
-        ) : singleChartData ? (
-          <HighchartsChart data={singleChartData} />
-        ) : !loadingChart ? (
-          <div className="h-[400px] flex flex-col items-center justify-center text-slate-500 text-center px-4">
-            <div className="w-16 h-16 mb-3 rounded-full bg-slate-800 flex items-center justify-center">
-              <svg
-                className="w-8 h-8 text-slate-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                />
-              </svg>
-            </div>
-            <h3 className="text-base font-medium text-slate-400 mb-1">No hay datos para mostrar</h3>
-            <p className="text-sm">Selecciona una grafica en el panel inferior.</p>
+            {compareState.mode === 'facet' && compareState.jobIds.length > 1 && compareFacetData ? (
+              <CompareChartFacet data={compareFacetData} />
+            ) : compareState.mode === 'by-year' && compareState.jobIds.length > 1 && compareChartData ? (
+              <CompareChart data={compareChartData} />
+            ) : singleChartData ? (
+              <HighchartsChart data={singleChartData} />
+            ) : !loadingChart ? (
+              <div className="h-[400px] flex flex-col items-center justify-center text-slate-500 text-center px-4">
+                <div className="w-16 h-16 mb-3 rounded-full bg-slate-800 flex items-center justify-center">
+                  <svg
+                    className="w-8 h-8 text-slate-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                    />
+                  </svg>
+                </div>
+                <h3 className="text-base font-medium text-slate-400 mb-1">No hay datos para mostrar</h3>
+                <p className="text-sm">Selecciona una grafica en el panel inferior.</p>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
 
-      {/* ─── CONFIGURATION ─── */}
-      <div className="bg-[#1e293b] p-4 rounded-xl border border-slate-700/50">
-        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">
-          Configuracion de Grafica
-        </h3>
-        <ChartSelector value={chartSelection} onChange={setChartSelection} />
-        {/* ─── COMPARE TOGGLE + SCENARIO COMPARER ─── */}
-        <ScenarioComparer
-          currentRunId={currentRunId}
-          selectedJobIds={compareState.jobIds}
-          selectedYears={compareState.yearsToPlot}
-          compareViewMode={compareState.mode === 'by-year' ? 'by-year' : 'facet'}
-          enabled={compareState.mode !== 'off'}
-          onToggle={handleToggleCompare}
-          onChange={handleCompareChange}
-        />
-      </div>
+          {/* ─── CONFIGURATION ─── */}
+          <div className="bg-[#1e293b] p-4 rounded-xl border border-slate-700/50">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">
+              Configuracion de Grafica
+            </h3>
+            <ChartSelector value={chartSelection} onChange={setChartSelection} />
+            {/* ─── COMPARE TOGGLE + SCENARIO COMPARER ─── */}
+            <ScenarioComparer
+              currentRunId={currentRunId}
+              selectedJobIds={compareState.jobIds}
+              selectedYears={compareState.yearsToPlot}
+              compareViewMode={compareState.mode === 'by-year' ? 'by-year' : 'facet'}
+              enabled={compareState.mode !== 'off'}
+              onToggle={handleToggleCompare}
+              onChange={handleCompareChange}
+            />
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

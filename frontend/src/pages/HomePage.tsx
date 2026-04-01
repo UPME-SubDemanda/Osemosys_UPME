@@ -16,6 +16,7 @@ import { Link } from "react-router-dom";
 import { useCurrentUser } from "@/app/providers/useCurrentUser";
 import { scenariosApi } from "@/features/scenarios/api/scenariosApi";
 import { simulationApi } from "@/features/simulation/api/simulationApi";
+import { getSimulationRunStatusDisplay } from "@/features/simulation/simulationRunStatus";
 import { paths } from "@/routes/paths";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
@@ -108,7 +109,9 @@ export function HomePage() {
             <p style={{ opacity: 0.7, margin: 0 }}>No hay simulaciones aún.</p>
           ) : (
             <div style={{ display: "grid", gap: 6 }}>
-              {recentRuns.map((r) => (
+              {recentRuns.map((r) => {
+                const status = getSimulationRunStatusDisplay(r);
+                return (
                 <Link
                   key={r.id}
                   to={paths.resultsDetail(r.id)}
@@ -126,32 +129,14 @@ export function HomePage() {
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontWeight: 600, fontSize: 14 }}>Job #{r.id}</span>
-                    {/* Badge de estado: success=exitosa, danger=fallida/cancelada, warning=en cola/ejecución */}
-                    <Badge
-                      variant={
-                        r.status === "SUCCEEDED"
-                          ? "success"
-                          : r.status === "FAILED" || r.status === "CANCELLED"
-                            ? "danger"
-                            : "warning"
-                      }
-                    >
-                      {r.status === "QUEUED"
-                        ? "En cola"
-                        : r.status === "RUNNING"
-                          ? "En ejecución"
-                          : r.status === "SUCCEEDED"
-                            ? "Exitosa"
-                            : r.status === "FAILED"
-                              ? "Fallida"
-                              : "Cancelada"}
-                    </Badge>
+                    <Badge variant={status.variant}>{status.label}</Badge>
                   </div>
                   <small style={{ opacity: 0.5, whiteSpace: "nowrap" }}>
                     {new Date(r.queued_at).toLocaleDateString()}
                   </small>
                 </Link>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

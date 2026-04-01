@@ -130,15 +130,29 @@ def _main() -> int:
         print("=" * 70)
         if cv:
             print(f"\n{len(cv)} restricciones violadas (top 10):")
-            print(f"  {'#':>3}  {'Restricción':<50}  {'Body':>12}  {'Lower':>12}  {'Upper':>12}  {'Side':>4}  {'Violación':>12}")
-            print(f"  {'---':>3}  {'-'*50}  {'-'*12}  {'-'*12}  {'-'*12}  {'----':>4}  {'-'*12}")
+            print(
+                f"  {'#':>3}  {'Restricción (modelo)':<50}  {'Valor expr.':>12}  "
+                f"{'Cota inf.':>12}  {'Cota sup.':>12}  {'Límite':>9}  {'Incumpl.':>12}"
+            )
+            print(f"  {'---':>3}  {'-'*50}  {'-'*12}  {'-'*12}  {'-'*12}  {'-'*9}  {'-'*12}")
             for i, c in enumerate(cv[:10]):
                 lb_t = f"{c['lower']:.2e}" if c["lower"] is not None else "-inf"
                 ub_t = f"{c['upper']:.2e}" if c["upper"] is not None else "+inf"
-                print(f"  {i+1:>3}  {c['name']:<50}  {c['body']:>12.6e}  {lb_t:>12}  {ub_t:>12}  {c['side']:>4}  {c['violation']:>12.2e}")
+                side_t = c["side"]
+                if side_t == "UB":
+                    side_t = "UB (sup.)"
+                elif side_t == "LB":
+                    side_t = "LB (inf.)"
+                print(
+                    f"  {i+1:>3}  {c['name']:<50}  {c['body']:>12.6e}  {lb_t:>12}  {ub_t:>12}  "
+                    f"{side_t:>9}  {c['violation']:>12.2e}"
+                )
         if vbc:
-            print(f"\n{len(vbc)} variables con bounds infactibles (LB > UB, top 10):")
-            print(f"  {'#':>3}  {'Variable':<50}  {'LB':>12}  {'UB':>12}  {'Gap':>12}")
+            print(f"\n{len(vbc)} variables con límites incompatibles (inferior > superior, top 10):")
+            print(
+                f"  {'#':>3}  {'Variable (modelo)':<50}  {'Límite inf.':>12}  "
+                f"{'Límite sup.':>12}  {'Brecha':>12}"
+            )
             print(f"  {'---':>3}  {'-'*50}  {'-'*12}  {'-'*12}  {'-'*12}")
             for i, v in enumerate(vbc[:10]):
                 print(f"  {i+1:>3}  {v['name']:<50}  {v['lb']:>12.2e}  {v['ub']:>12.2e}  {v['gap']:>12.2e}")

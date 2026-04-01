@@ -8,7 +8,7 @@ Todos requieren usuario autenticado; delegan a SimulationService.
 from __future__ import annotations
 
 import shutil
-import tempfile
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -16,20 +16,19 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.config import get_settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.db.session import get_db
 from app.models import User
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.simulation import (
     SimulationJobPublic,
-    SimulationFromCsvResult,
     SimulationLogPublic,
     SimulationOverviewPublic,
     SimulationResultPublic,
     SimulationSubmit,
 )
 from app.services.simulation_service import SimulationService
-from app.simulation.osemosys_core import run_osemosys_from_csv_dir
 
 router = APIRouter(prefix="/simulations")
 
@@ -103,13 +102,14 @@ def submit_simulation(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
-@router.post("/from-csv", response_model=SimulationFromCsvResult)
+@router.post("/from-csv", response_model=SimulationJobPublic, status_code=201)
 async def submit_simulation_from_csv(
     csv_zip: UploadFile = File(...),
     solver_name: str = Form("highs"),
-    _current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Ejecuta una simulación directamente desde un ZIP con CSV procesados."""
+    """Encola una simulación desde un ZIP con CSV procesados."""
     if solver_name not in {"highs", "glpk"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -121,11 +121,15 @@ async def submit_simulation_from_csv(
             detail="Debes cargar un archivo ZIP con los CSV de entrada.",
         )
 
-    with tempfile.TemporaryDirectory(prefix="osemosys_csv_upload_") as tmp_dir:
-        extract_root = Path(tmp_dir)
-        _extract_zip_to_dir(csv_zip, extract_root)
-        csv_root = _find_csv_root(extract_root)
+    settings = get_settings()
+    artifact_root = Path(settings.simulation_artifacts_dir).resolve() / "csv_upload_jobs" / str(uuid.uuid4())
+
+    try:
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        _extract_zip_to_dir(csv_zip, artifact_root)
+        csv_root = _find_csv_root(artifact_root)
         if csv_root is None:
+            shutil.rmtree(artifact_root, ignore_errors=True)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
@@ -133,26 +137,22 @@ async def submit_simulation_from_csv(
                     "El ZIP debe contener al menos YEAR.csv, REGION.csv y TECHNOLOGY.csv."
                 ),
             )
-
-        result = run_osemosys_from_csv_dir(csv_root, solver_name=solver_name)
-        return {
-            "solver_name": result.get("solver_name", solver_name),
-            "objective_value": result.get("objective_value", 0.0),
-            "solver_status": result.get("solver_status", "unknown"),
-            "coverage_ratio": result.get("coverage_ratio", 0.0),
-            "total_demand": result.get("total_demand", 0.0),
-            "total_dispatch": result.get("total_dispatch", 0.0),
-            "total_unmet": result.get("total_unmet", 0.0),
-            "dispatch": result.get("dispatch", []),
-            "unmet_demand": result.get("unmet_demand", []),
-            "new_capacity": result.get("new_capacity", []),
-            "annual_emissions": result.get("annual_emissions", []),
-            "stage_times": {},
-            "model_timings": result.get("model_timings", {}),
-            "sol": result.get("sol", {}),
-            "intermediate_variables": result.get("intermediate_variables", {}),
-            "infeasibility_diagnostics": result.get("infeasibility_diagnostics"),
-        }
+        return SimulationService.submit_from_csv(
+            db,
+            current_user=current_user,
+            solver_name=solver_name,
+            input_name=csv_zip.filename,
+            input_ref=str(csv_root),
+        )
+    except HTTPException:
+        shutil.rmtree(artifact_root, ignore_errors=True)
+        raise
+    except ConflictError as e:
+        shutil.rmtree(artifact_root, ignore_errors=True)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except Exception:
+        shutil.rmtree(artifact_root, ignore_errors=True)
+        raise
 
 
 @router.get("", response_model=PaginatedResponse[SimulationJobPublic])

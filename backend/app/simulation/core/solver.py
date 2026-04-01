@@ -17,6 +17,8 @@ from pathlib import Path
 import pyomo.environ as pyo
 from pyomo.core import Constraint, Var, value
 
+from app.core.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 # Alias usado en solve_model -> nombre del factory Pyomo (appsi_highs, glpk).
@@ -55,10 +57,10 @@ def write_lp_file(
     return lp_path
 
 
-def _run_infeasibility_diagnostics(instance: pyo.ConcreteModel) -> dict:
+def _run_infeasibility_diagnostics(instance: pyo.ConcreteModel) -> None:
     """Analiza restricciones violadas y variable bounds conflictivos.
 
-    Replica la lógica de diagnósticos de infactibilidad de la celda 28
+    Replica la lógica de diagnósticos de infactibilidad
     del notebook OPT_YA_20260220.
     - Recorre restricciones activas: si body < lower o body > upper (con tol 1e-6), registra violación.
     - Recorre variables: si lb > ub, registra conflicto de bounds.
@@ -180,6 +182,7 @@ def solve_model(
     - Retorna dict con solver_name, solver_status, objective_value y,
       si infactible, infeasibility_diagnostics.
     """
+    settings = get_settings()
     if lp_path is not None:
         write_lp_file(instance, lp_path)
 
@@ -199,14 +202,21 @@ def solve_model(
 
         logger.info("Resolviendo con %s (SolverFactory('%s'))...", candidate, factory_name)
         solver = pyo.SolverFactory(factory_name)
-        results = solver.solve(instance, tee=True, keepfiles=True)
+        results = solver.solve(
+            instance,
+            tee=settings.sim_solver_tee,
+            keepfiles=settings.sim_solver_keepfiles,
+            load_solutions=False,
+        )
 
         status = str(results.solver.termination_condition)
         obj = 0.0
-        try:
-            obj = float(pyo.value(instance.OBJ))
-        except Exception:
-            pass
+        if "optimal" in status.lower():
+            instance.solutions.load_from(results)
+            try:
+                obj = float(pyo.value(instance.OBJ))
+            except Exception:
+                pass
 
         logger.info("Solver %s terminó: status=%s, objective=%.4f", candidate, status, obj)
 

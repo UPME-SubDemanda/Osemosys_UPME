@@ -19,6 +19,8 @@ import { useToast } from "@/app/providers/useToast";
 import { scenariosApi } from "@/features/scenarios/api/scenariosApi";
 import type { UdcConfig, UdcMultiplierEntry } from "@/features/scenarios/api/scenariosApi";
 import { simulationApi } from "@/features/simulation/api/simulationApi";
+import { InfeasibilityDiagnosticsPanel } from "@/features/simulation/components/InfeasibilityDiagnosticsPanel";
+import { getSimulationRunStatusDisplay } from "@/features/simulation/simulationRunStatus";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { DataTable } from "@/shared/components/DataTable";
@@ -27,6 +29,7 @@ import { TextField } from "@/shared/components/TextField";
 import { paths } from "@/routes/paths";
 import type {
   CsvSimulationResult,
+  RunResult,
   Scenario,
   SimulationLog,
   SimulationOverview,
@@ -35,6 +38,218 @@ import type {
 } from "@/types/domain";
 
 const ACTIVE_STATUSES = new Set(["QUEUED", "RUNNING"]);
+const CSV_PREVIEW_LIMIT = 50;
+
+function getSolverStatusVariant(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized.includes("optimal")) return "success" as const;
+  if (normalized.includes("infeasible")) return "danger" as const;
+  return "warning" as const;
+}
+
+function getSolverLabel(solverName: SimulationSolver) {
+  return solverName === "highs" ? "HiGHS" : "GLPK";
+}
+
+function formatCsvValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "number") {
+    return value.toLocaleString(undefined, {
+      maximumFractionDigits: Number.isInteger(value) ? 0 : 4,
+    });
+  }
+  if (typeof value === "boolean") return value ? "Sí" : "No";
+  if (Array.isArray(value) || typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function toCsvSimulationResult(result: RunResult): CsvSimulationResult {
+  const base: CsvSimulationResult = {
+    solver_name: result.solver_name,
+    objective_value: result.objective_value,
+    solver_status: result.solver_status,
+    coverage_ratio: result.coverage_ratio,
+    total_demand: result.total_demand,
+    total_dispatch: result.total_dispatch,
+    total_unmet: result.total_unmet,
+    dispatch: result.dispatch,
+    unmet_demand: result.unmet_demand,
+    new_capacity: result.new_capacity,
+    annual_emissions: result.annual_emissions,
+    stage_times: result.stage_times,
+    model_timings: result.model_timings,
+  };
+  return {
+    ...base,
+    ...(result.sol ? { sol: result.sol } : {}),
+    ...(result.intermediate_variables ? { intermediate_variables: result.intermediate_variables } : {}),
+    ...(result.infeasibility_diagnostics ? { infeasibility_diagnostics: result.infeasibility_diagnostics } : {}),
+  };
+}
+
+function getCsvColumns(rows: Array<Record<string, unknown>>, preferredColumns: string[]) {
+  const presentPreferred = preferredColumns.filter((column) =>
+    rows.some((row) => Object.prototype.hasOwnProperty.call(row, column)),
+  );
+  const extraColumns = Array.from(
+    new Set(rows.flatMap((row) => Object.keys(row)).filter((column) => !presentPreferred.includes(column))),
+  );
+  return [...presentPreferred, ...extraColumns];
+}
+
+function CsvMetricCard({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "danger" | "success" }) {
+  return (
+    <div
+      style={{
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 12,
+        padding: 14,
+        background:
+          tone === "danger"
+            ? "rgba(127,29,29,0.18)"
+            : tone === "success"
+              ? "rgba(20,83,45,0.18)"
+              : "rgba(255,255,255,0.02)",
+      }}
+    >
+      <div style={{ fontSize: 12, opacity: 0.7 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700 }}>{value}</div>
+    </div>
+  );
+}
+
+function TablePagination({
+  page,
+  totalPages,
+  onPrevious,
+  onNext,
+}: {
+  page: number;
+  totalPages: number;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  if (totalPages <= 1) return null;
+
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <small style={{ opacity: 0.78 }}>
+        Página {page} de {totalPages}
+      </small>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Button variant="ghost" onClick={onPrevious} disabled={page <= 1} type="button">
+          Anterior
+        </Button>
+        <Button variant="ghost" onClick={onNext} disabled={page >= totalPages} type="button">
+          Siguiente
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CsvResultTableSection({
+  title,
+  rows,
+  preferredColumns,
+  emptyMessage,
+  defaultOpen = false,
+}: {
+  title: string;
+  rows: Array<Record<string, unknown>>;
+  preferredColumns: string[];
+  emptyMessage: string;
+  defaultOpen?: boolean;
+}) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / CSV_PREVIEW_LIMIT));
+  const pageStart = (page - 1) * CSV_PREVIEW_LIMIT;
+  const visibleRows = rows.slice(pageStart, pageStart + CSV_PREVIEW_LIMIT);
+  const columns = getCsvColumns(visibleRows, preferredColumns);
+
+  useEffect(() => {
+    setPage(1);
+  }, [rows.length, title]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  return (
+    <details
+      open={defaultOpen}
+      style={{
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 12,
+        padding: 12,
+        background: "rgba(255,255,255,0.02)",
+      }}
+    >
+      <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+        {title} ({rows.length})
+      </summary>
+      <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+        {rows.length ? (
+          <>
+            <small style={{ opacity: 0.78 }}>
+              Mostrando {pageStart + 1} a {pageStart + visibleRows.length} de {rows.length} filas.
+            </small>
+            <TablePagination
+              page={page}
+              totalPages={totalPages}
+              onPrevious={() => setPage((current) => Math.max(1, current - 1))}
+              onNext={() => setPage((current) => Math.min(totalPages, current + 1))}
+            />
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    {columns.map((column) => (
+                      <th
+                        key={column}
+                        style={{
+                          textAlign: "left",
+                          padding: "6px 8px",
+                          borderBottom: "1px solid rgba(255,255,255,0.2)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {column}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.map((row, rowIndex) => (
+                    <tr key={`${title}-${rowIndex}`}>
+                      {columns.map((column) => (
+                        <td
+                          key={column}
+                          style={{
+                            padding: "6px 8px",
+                            borderBottom: "1px solid rgba(255,255,255,0.08)",
+                            verticalAlign: "top",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {formatCsvValue(row[column])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <small style={{ opacity: 0.78 }}>{emptyMessage}</small>
+        )}
+      </div>
+    </details>
+  );
+}
 
 export function SimulationPage() {
   const { user } = useCurrentUser();
@@ -57,6 +272,10 @@ export function SimulationPage() {
   const [csvZipFile, setCsvZipFile] = useState<File | null>(null);
   const [csvSubmitting, setCsvSubmitting] = useState(false);
   const [csvResult, setCsvResult] = useState<CsvSimulationResult | null>(null);
+  const [csvResultOpen, setCsvResultOpen] = useState(false);
+  const [csvTrackedJobId, setCsvTrackedJobId] = useState<number | null>(null);
+  const [csvResultSourceJobId, setCsvResultSourceJobId] = useState<number | null>(null);
+  const [csvLoadingResultForJobId, setCsvLoadingResultForJobId] = useState<number | null>(null);
   const [cancellingJobId, setCancellingJobId] = useState<number | null>(null);
 
   const [udcConfig, setUdcConfig] = useState<UdcConfig | null>(null);
@@ -150,6 +369,53 @@ export function SimulationPage() {
     void refreshRuns();
   }, [refreshRuns, user]);
 
+  useEffect(() => {
+    if (!csvTrackedJobId) return;
+    const trackedRun = runs.find((run) => run.id === csvTrackedJobId);
+    if (!trackedRun) return;
+
+    if (trackedRun.status === "SUCCEEDED") {
+      if (csvLoadingResultForJobId === csvTrackedJobId || csvResultSourceJobId === csvTrackedJobId) {
+        return;
+      }
+      setCsvLoadingResultForJobId(csvTrackedJobId);
+      void simulationApi
+        .getResult(csvTrackedJobId)
+        .then((result) => {
+          setCsvResult(toCsvSimulationResult(result));
+          setCsvResultSourceJobId(csvTrackedJobId);
+          setCsvResultOpen(true);
+          push(`Resultados del job CSV ${csvTrackedJobId} disponibles.`, "success");
+        })
+        .catch((error) => {
+          const detail =
+            error instanceof Error ? error.message : "No se pudieron cargar los resultados del job CSV.";
+          push(detail, "error");
+        })
+        .finally(() => {
+          setCsvLoadingResultForJobId(null);
+          setCsvTrackedJobId(null);
+        });
+      return;
+    }
+
+    if (trackedRun.status === "FAILED") {
+      push(
+        trackedRun.error_message
+          ? `La simulación CSV falló: ${trackedRun.error_message}`
+          : "La simulación CSV falló.",
+        "error",
+      );
+      setCsvTrackedJobId(null);
+      return;
+    }
+
+    if (trackedRun.status === "CANCELLED") {
+      push("La simulación CSV fue cancelada.", "info");
+      setCsvTrackedJobId(null);
+    }
+  }, [csvLoadingResultForJobId, csvResultSourceJobId, csvTrackedJobId, push, runs]);
+
   /** Encola una simulación para el escenario y solver seleccionados */
   async function runSimulation() {
     const scenarioId = Number(selectedScenario);
@@ -209,17 +475,16 @@ export function SimulationPage() {
       return;
     }
     setCsvSubmitting(true);
+    setCsvResultOpen(false);
     setCsvResult(null);
+    setCsvResultSourceJobId(null);
+    setCsvTrackedJobId(null);
     try {
-      const result = await simulationApi.submitFromCsv(csvZipFile, csvSolverName);
-      setCsvResult(result);
-      const statusLower = result.solver_status.toLowerCase();
-      push(
-        statusLower.includes("optimal")
-          ? "Simulación desde CSV completada."
-          : `Simulación desde CSV finalizada con estado ${result.solver_status}.`,
-        statusLower.includes("optimal") ? "success" : "info",
-      );
+      const job = await simulationApi.submitFromCsv(csvZipFile, csvSolverName);
+      setCsvTrackedJobId(job.id);
+      setRuns((prev) => [job, ...prev.filter((run) => run.id !== job.id)]);
+      push(`Simulación desde CSV encolada como job ${job.id}.`, "success");
+      await refreshRuns();
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Error ejecutando simulación desde CSV.";
       push(detail, "error");
@@ -302,7 +567,7 @@ export function SimulationPage() {
         <div style={{ display: "grid", gap: 4 }}>
           <h2 style={{ margin: 0 }}>Simulación desde CSV</h2>
           <small style={{ opacity: 0.78 }}>
-            Sube un ZIP con CSV ya procesados (`YEAR.csv`, `REGION.csv`, `TECHNOLOGY.csv`, etc.) para ejecutar una corrida directa sin escenario en base de datos.
+            Sube un ZIP con CSV ya procesados (`YEAR.csv`, `REGION.csv`, `TECHNOLOGY.csv`, etc.) para encolar una corrida persistida y consultarla luego en el historial.
           </small>
         </div>
         <div
@@ -334,7 +599,7 @@ export function SimulationPage() {
             </select>
           </label>
           <Button variant="primary" onClick={runCsvSimulation} disabled={csvSubmitting || !csvZipFile}>
-            {csvSubmitting ? "Ejecutando..." : "Ejecutar desde CSV"}
+            {csvSubmitting ? "Encolando..." : "Ejecutar desde CSV"}
           </Button>
         </div>
         {csvZipFile ? (
@@ -342,115 +607,17 @@ export function SimulationPage() {
             Archivo seleccionado: <strong>{csvZipFile.name}</strong>
           </small>
         ) : null}
-
         {csvResult ? (
-          <div style={{ display: "grid", gap: 12 }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <Badge
-                variant={
-                  csvResult.solver_status.toLowerCase().includes("optimal")
-                    ? "success"
-                    : csvResult.solver_status.toLowerCase().includes("infeasible")
-                      ? "danger"
-                      : "warning"
-                }
-              >
-                {csvResult.solver_status}
-              </Badge>
-              <span>Solver: {csvResult.solver_name === "highs" ? "HiGHS" : "GLPK"}</span>
-              <Button variant="ghost" onClick={downloadCsvResultJson}>
-                Descargar JSON
-              </Button>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gap: 10,
-                gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-              }}
-            >
-              {[
-                { label: "Objetivo", value: csvResult.objective_value.toLocaleString() },
-                { label: "Cobertura", value: `${(csvResult.coverage_ratio * 100).toFixed(2)}%` },
-                { label: "Demanda total", value: csvResult.total_demand.toLocaleString() },
-                { label: "Dispatch total", value: csvResult.total_dispatch.toLocaleString() },
-                { label: "Unmet total", value: csvResult.total_unmet.toLocaleString() },
-              ].map((item) => (
-                <div key={item.label} style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 14 }}>
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>{item.label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 700 }}>{item.value}</div>
-                </div>
-              ))}
-            </div>
-
-            {csvResult.infeasibility_diagnostics ? (
-              <div style={{ display: "grid", gap: 12 }}>
-                <div style={{ border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
-                  <h3 style={{ margin: 0 }}>Diagnóstico de infactibilidad</h3>
-                  {csvResult.infeasibility_diagnostics.constraint_violations.length ? (
-                    <div style={{ display: "grid", gap: 8 }}>
-                      <strong>Restricciones violadas</strong>
-                      <div style={{ overflow: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                          <thead>
-                            <tr>
-                              <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Restricción</th>
-                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Body</th>
-                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Lower</th>
-                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Upper</th>
-                              <th style={{ textAlign: "center", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Lado</th>
-                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Violación</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {csvResult.infeasibility_diagnostics.constraint_violations.slice(0, 10).map((item) => (
-                              <tr key={`${item.name}-${item.side}`}>
-                                <td style={{ padding: "4px 8px" }}>{item.name}</td>
-                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.body.toExponential(3)}</td>
-                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.lower === null ? "—" : item.lower.toExponential(3)}</td>
-                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.upper === null ? "—" : item.upper.toExponential(3)}</td>
-                                <td style={{ padding: "4px 8px", textAlign: "center" }}>{item.side}</td>
-                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.violation.toExponential(3)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {csvResult.infeasibility_diagnostics.var_bound_conflicts.length ? (
-                    <div style={{ display: "grid", gap: 8 }}>
-                      <strong>Bounds conflictivos</strong>
-                      <div style={{ overflow: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                          <thead>
-                            <tr>
-                              <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Variable</th>
-                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>LB</th>
-                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>UB</th>
-                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Gap</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {csvResult.infeasibility_diagnostics.var_bound_conflicts.slice(0, 10).map((item) => (
-                              <tr key={item.name}>
-                                <td style={{ padding: "4px 8px" }}>{item.name}</td>
-                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.lb.toExponential(3)}</td>
-                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.ub.toExponential(3)}</td>
-                                <td style={{ padding: "4px 8px", textAlign: "right" }}>{item.gap.toExponential(3)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <Button variant="ghost" onClick={() => setCsvResultOpen(true)}>
+              Ver últimos resultados
+            </Button>
           </div>
+        ) : null}
+        {csvTrackedJobId ? (
+          <small style={{ opacity: 0.78 }}>
+            Job CSV en seguimiento: <strong>#{csvTrackedJobId}</strong>. Se abrirá automáticamente cuando termine.
+          </small>
         ) : null}
       </article>
 
@@ -693,7 +860,17 @@ export function SimulationPage() {
           rowKey={(r) => String(r.id)}
           columns={[
             { key: "id", header: "ID de ejecución", render: (r) => r.id },
-            { key: "scenario", header: "Escenario", render: (r) => r.scenario_name ?? `#${r.scenario_id}` },
+            {
+              key: "scenario",
+              header: "Escenario",
+              render: (r) =>
+                r.scenario_name ??
+                (r.input_mode === "CSV_UPLOAD"
+                  ? r.input_name ?? "CSV upload"
+                  : r.scenario_id === null
+                    ? "—"
+                    : `#${r.scenario_id}`),
+            },
             { key: "user", header: "Usuario", render: (r) => r.username ?? r.user_id },
             {
               key: "solver",
@@ -703,27 +880,10 @@ export function SimulationPage() {
             {
               key: "status",
               header: "Estado",
-              render: (r) => (
-                <Badge
-                  variant={
-                    r.status === "SUCCEEDED"
-                      ? "success"
-                      : r.status === "FAILED" || r.status === "CANCELLED"
-                        ? "danger"
-                        : "warning"
-                  }
-                >
-                  {r.status === "QUEUED"
-                    ? "En cola"
-                    : r.status === "RUNNING"
-                      ? "En ejecución"
-                      : r.status === "SUCCEEDED"
-                        ? "Exitosa"
-                        : r.status === "FAILED"
-                          ? "Fallida"
-                          : "Cancelada"}
-                </Badge>
-              ),
+              render: (r) => {
+                const { variant, label } = getSimulationRunStatusDisplay(r);
+                return <Badge variant={variant}>{label}</Badge>;
+              },
             },
             { key: "progress", header: "Progreso", render: (r) => `${r.progress}%` },
             {
@@ -790,9 +950,101 @@ export function SimulationPage() {
               ),
             },
           ]}
-          searchableText={(r) => `${r.id} ${r.scenario_name ?? ""} ${r.username ?? ""} ${r.status} ${r.queue_position ?? ""}`}
+          searchableText={(r) => `${r.id} ${r.scenario_name ?? ""} ${r.input_name ?? ""} ${r.username ?? ""} ${r.status} ${r.queue_position ?? ""}`}
         />
       </article>
+
+      <Modal
+        open={csvResultOpen && csvResult !== null}
+        title="Resultados de simulación desde CSV"
+        onClose={() => setCsvResultOpen(false)}
+        wide
+        footer={
+          csvResult ? (
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              <Button variant="ghost" onClick={downloadCsvResultJson}>
+                Descargar JSON completo
+              </Button>
+              <Button variant="primary" onClick={() => setCsvResultOpen(false)}>
+                Cerrar
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
+        {csvResult ? (
+          <div style={{ display: "grid", gap: 16 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <Badge variant={getSolverStatusVariant(csvResult.solver_status)}>{csvResult.solver_status}</Badge>
+                <span>Solver: {getSolverLabel(csvResult.solver_name)}</span>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gap: 10,
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              }}
+            >
+              <CsvMetricCard
+                label="Estado del solver"
+                value={csvResult.solver_status}
+                tone={
+                  getSolverStatusVariant(csvResult.solver_status) === "danger"
+                    ? "danger"
+                    : getSolverStatusVariant(csvResult.solver_status) === "success"
+                      ? "success"
+                      : "default"
+                }
+              />
+              <CsvMetricCard label="Valor objetivo" value={csvResult.objective_value.toLocaleString()} />
+              <CsvMetricCard label="Cobertura" value={`${(csvResult.coverage_ratio * 100).toFixed(2)}%`} />
+              <CsvMetricCard label="Demanda total" value={csvResult.total_demand.toLocaleString()} />
+              <CsvMetricCard label="Unmet total" value={csvResult.total_unmet.toLocaleString()} />
+            </div>
+
+            <div style={{ display: "grid", gap: 12 }}>
+              <CsvResultTableSection
+                title="Dispatch"
+                rows={csvResult.dispatch}
+                preferredColumns={["region", "region_id", "year", "technology_name", "technology_id", "fuel_name", "dispatch", "cost"]}
+                emptyMessage="No se generaron filas de dispatch."
+                defaultOpen
+              />
+              <CsvResultTableSection
+                title="New Capacity"
+                rows={csvResult.new_capacity}
+                preferredColumns={["region", "region_id", "year", "technology_name", "technology_id", "new_capacity"]}
+                emptyMessage="No se generaron filas de nueva capacidad."
+              />
+              <CsvResultTableSection
+                title="Unmet Demand"
+                rows={csvResult.unmet_demand}
+                preferredColumns={["region", "region_id", "year", "unmet_demand"]}
+                emptyMessage="No se registró demanda no atendida."
+              />
+              <CsvResultTableSection
+                title="Annual Emissions"
+                rows={csvResult.annual_emissions}
+                preferredColumns={["region", "region_id", "year", "emission_name", "annual_emissions"]}
+                emptyMessage="No se generaron emisiones anuales."
+              />
+            </div>
+
+            <InfeasibilityDiagnosticsPanel result={csvResult} scenarioParams={{ state: "none" }} />
+          </div>
+        ) : null}
+      </Modal>
 
       <Modal
         open={logsOpenForJob !== null}

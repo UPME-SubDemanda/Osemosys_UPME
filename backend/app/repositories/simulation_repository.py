@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func, select
+from sqlalchemy.orm import aliased
 from sqlalchemy.orm import Session
 
 from app.models import Scenario, SimulationJob, SimulationJobEvent, User
@@ -32,13 +33,23 @@ class SimulationRepository:
 
     @staticmethod
     def create_job(
-        db: Session, *, user_id: uuid.UUID, scenario_id: int, solver_name: str = "highs"
+        db: Session,
+        *,
+        user_id: uuid.UUID,
+        scenario_id: int | None = None,
+        solver_name: str = "highs",
+        input_mode: str = "SCENARIO",
+        input_name: str | None = None,
+        input_ref: str | None = None,
     ) -> SimulationJob:
         """Crea job en estado `QUEUED`."""
         job = SimulationJob(
             user_id=user_id,
             scenario_id=scenario_id,
             solver_name=solver_name,
+            input_mode=input_mode,
+            input_name=input_name,
+            input_ref=input_ref,
             status="QUEUED",
             progress=0.0,
         )
@@ -58,14 +69,15 @@ class SimulationRepository:
         job_id: int,
     ) -> tuple[SimulationJob, str | None, str | None] | None:
         """Obtiene job visible globalmente con username y nombre de escenario."""
+        scenario_alias = aliased(Scenario)
         stmt = (
             select(
                 SimulationJob,
                 User.username.label("username"),
-                Scenario.name.label("scenario_name"),
+                scenario_alias.name.label("scenario_name"),
             )
             .join(User, User.id == SimulationJob.user_id)
-            .join(Scenario, Scenario.id == SimulationJob.scenario_id)
+            .outerjoin(scenario_alias, scenario_alias.id == SimulationJob.scenario_id)
             .where(SimulationJob.id == job_id)
         )
         row = db.execute(stmt).one_or_none()
@@ -124,7 +136,7 @@ class SimulationRepository:
                 Scenario.name.label("scenario_name"),
             )
             .join(User, User.id == SimulationJob.user_id)
-            .join(Scenario, Scenario.id == SimulationJob.scenario_id)
+            .outerjoin(Scenario, Scenario.id == SimulationJob.scenario_id)
         )
 
         filters = []
@@ -146,7 +158,7 @@ class SimulationRepository:
             select(func.count())
             .select_from(SimulationJob)
             .join(User, User.id == SimulationJob.user_id)
-            .join(Scenario, Scenario.id == SimulationJob.scenario_id)
+            .outerjoin(Scenario, Scenario.id == SimulationJob.scenario_id)
         )
         if filters:
             count_stmt = count_stmt.where(and_(*filters))

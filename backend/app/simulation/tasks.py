@@ -6,13 +6,76 @@ Este módulo traduce el estado de infraestructura (task ejecutándose/fallando)
 a estado de dominio (`simulation_job`) persistido en base de datos.
 """
 
+import logging
+
+from celery.signals import task_failure
 from sqlalchemy import func, update
 
 from app.db.session import SessionLocal
 from app.models import SimulationJob
 from app.repositories.simulation_repository import SimulationRepository
 from app.simulation.celery_app import celery_app
-from app.simulation.pipeline import run_pipeline
+from app.simulation.pipeline import run_pipeline, run_pipeline_from_csv
+
+logger = logging.getLogger(__name__)
+
+
+def _is_worker_lost_error(exception: BaseException | None) -> bool:
+    if exception is None:
+        return False
+    text = f"{type(exception).__name__}: {exception}".lower()
+    return (
+        "workerlosterror" in text
+        or "worker exited prematurely" in text
+        or "signal 9" in text
+        or "sigkill" in text
+    )
+
+
+def _fail_running_job(db, *, job: SimulationJob, reason: str) -> None:
+    if job.status != "RUNNING":
+        return
+    job.status = "FAILED"
+    job.finished_at = func.now()
+    job.error_message = reason
+    SimulationRepository.add_event(
+        db,
+        job_id=job.id,
+        event_type="ERROR",
+        stage="run",
+        message=reason,
+        progress=job.progress,
+    )
+    db.commit()
+
+
+def _mark_failed_by_task_or_job_id(
+    *,
+    task_id: str | None,
+    job_id: int | None,
+    reason: str,
+) -> bool:
+    with SessionLocal() as db:
+        job: SimulationJob | None = None
+        if task_id:
+            job = (
+                db.query(SimulationJob)
+                .filter(
+                    SimulationJob.celery_task_id == task_id,
+                    SimulationJob.status == "RUNNING",
+                )
+                .first()
+            )
+        if job is None and job_id is not None:
+            job = (
+                db.query(SimulationJob)
+                .filter(SimulationJob.id == job_id, SimulationJob.status == "RUNNING")
+                .first()
+            )
+        if job is None:
+            return False
+        _fail_running_job(db, job=job, reason=reason)
+        return True
 
 
 @celery_app.task(name="app.simulation.tasks.run_simulation_job", bind=True)
@@ -69,7 +132,13 @@ def run_simulation_job(self, job_id: int) -> None:
 
     try:
         with SessionLocal() as db:
-            run_pipeline(db, job_id=job_id)
+            job = SimulationRepository.get_job_by_id(db, job_id=job_id)
+            if not job:
+                return
+            if getattr(job, "input_mode", "SCENARIO") == "CSV_UPLOAD":
+                run_pipeline_from_csv(db, job_id=job_id)
+            else:
+                run_pipeline(db, job_id=job_id)
             job = SimulationRepository.get_job_by_id(db, job_id=job_id)
             if not job:
                 return
@@ -121,6 +190,41 @@ def run_simulation_job(self, job_id: int) -> None:
                     progress=job.progress,
                 )
                 db.commit()
+
+
+@task_failure.connect
+def handle_worker_lost_failure(
+    sender=None,
+    task_id: str | None = None,
+    exception: BaseException | None = None,
+    args: tuple | None = None,
+    **_: object,
+) -> None:
+    sender_name = getattr(sender, "name", None)
+    if sender_name != run_simulation_job.name:
+        return
+    if not _is_worker_lost_error(exception):
+        return
+
+    job_id: int | None = None
+    if args and len(args) > 0 and isinstance(args[0], int):
+        job_id = args[0]
+
+    reason = (
+        f"WorkerLostError detectado por Celery: {exception}. "
+        "El proceso del worker fue terminado abruptamente."
+    )
+    updated = _mark_failed_by_task_or_job_id(
+        task_id=task_id,
+        job_id=job_id,
+        reason=reason,
+    )
+    if not updated:
+        logger.warning(
+            "No se encontró job RUNNING para task_id=%s job_id=%s tras WorkerLostError",
+            task_id,
+            job_id,
+        )
 
 
 # ============================================================================

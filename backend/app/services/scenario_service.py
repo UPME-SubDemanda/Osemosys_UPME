@@ -31,6 +31,7 @@ from app.models import (
     User,
 )
 from app.repositories.scenario_repository import ScenarioRepository
+from app.services.osemosys_param_audit_service import OsemosysParamAuditService, user_actor
 from app.services.pagination import build_meta, normalize_pagination
 from app.services.user_service import UserService
 
@@ -138,9 +139,7 @@ class ScenarioService:
         *,
         param_names: list[str] | tuple[str, ...] | set[str],
     ) -> None:
-        """Registra nombres de parámetros modificados para escenarios derivados."""
-        if scenario.base_scenario_id is None:
-            return
+        """Registra nombres de parámetros modificados en el escenario."""
         existing = list(scenario.changed_param_names or [])
         seen = {name for name in existing if isinstance(name, str)}
         for raw_name in param_names:
@@ -756,6 +755,7 @@ class ScenarioService:
         scenario_id: int,
         current_user: User,
         param_name: str | None = None,
+        param_name_exact: bool = False,
         year: int | None = None,
         search: str | None = None,
         offset: int = 0,
@@ -787,7 +787,11 @@ class ScenarioService:
         )
 
         if param_name and param_name.strip():
-            query = query.filter(OsemosysParamValue.param_name.ilike(f"%{param_name.strip()}%"))
+            p = param_name.strip()
+            if param_name_exact:
+                query = query.filter(OsemosysParamValue.param_name == p)
+            else:
+                query = query.filter(OsemosysParamValue.param_name.ilike(f"%{p}%"))
         if year is not None:
             query = query.filter(OsemosysParamValue.year == year)
 
@@ -838,6 +842,47 @@ class ScenarioService:
             for r in rows
         ]
 
+        return {"items": items, "total": total, "offset": safe_offset, "limit": safe_limit}
+
+    @staticmethod
+    def list_osemosys_param_audit(
+        db: Session,
+        *,
+        scenario_id: int,
+        current_user: User,
+        param_name: str,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> dict:
+        """Historial de auditoría para un `param_name` concreto (más reciente primero)."""
+        ScenarioService._require_access(db, scenario_id=scenario_id, current_user=current_user)
+        clean = (param_name or "").strip()
+        safe_limit = max(1, min(limit, 500))
+        safe_offset = max(0, offset)
+        rows, total = OsemosysParamAuditService.list_for_param(
+            db,
+            scenario_id=scenario_id,
+            param_name=clean,
+            offset=safe_offset,
+            limit=safe_limit,
+        )
+        items = [
+            {
+                "id": int(r.id),
+                "param_name": str(r.param_name),
+                "id_osemosys_param_value": int(r.id_osemosys_param_value)
+                if r.id_osemosys_param_value is not None
+                else None,
+                "action": str(r.action),
+                "old_value": float(r.old_value) if r.old_value is not None else None,
+                "new_value": float(r.new_value) if r.new_value is not None else None,
+                "dimensions_json": r.dimensions_json,
+                "source": str(r.source),
+                "changed_by": str(r.changed_by),
+                "created_at": r.created_at,
+            }
+            for r in rows
+        ]
         return {"items": items, "total": total, "offset": safe_offset, "limit": safe_limit}
 
     @staticmethod
@@ -1029,6 +1074,17 @@ class ScenarioService:
         }
 
     @staticmethod
+    def _audit_dimensions_from_public(pub: dict) -> dict:
+        return {
+            "region_name": pub.get("region_name"),
+            "technology_name": pub.get("technology_name"),
+            "fuel_name": pub.get("fuel_name"),
+            "emission_name": pub.get("emission_name"),
+            "udc_name": pub.get("udc_name"),
+            "year": pub.get("year"),
+        }
+
+    @staticmethod
     def create_osemosys_value(
         db: Session,
         *,
@@ -1075,8 +1131,22 @@ class ScenarioService:
             value=float(payload.get("value")),
         )
         db.add(obj)
+        db.flush()
         ScenarioService._track_changed_params(
             scenario, param_names=[clean_param_name]
+        )
+        pub_ins = ScenarioService._osemosys_value_to_public(db, value_id=int(obj.id))
+        OsemosysParamAuditService.append(
+            db,
+            scenario_id=scenario_id,
+            param_name=pub_ins["param_name"],
+            id_osemosys_param_value=int(obj.id),
+            action="INSERT",
+            old_value=None,
+            new_value=float(pub_ins["value"]),
+            dimensions_json=ScenarioService._audit_dimensions_from_public(pub_ins),
+            source="API",
+            changed_by=user_actor(current_user),
         )
         try:
             db.commit()
@@ -1102,6 +1172,7 @@ class ScenarioService:
         obj = db.get(OsemosysParamValue, value_id)
         if obj is None or int(obj.id_scenario) != scenario_id:
             raise NotFoundError("Valor OSeMOSYS no encontrado en el escenario.")
+        old_pub = ScenarioService._osemosys_value_to_public(db, value_id=value_id)
         previous_param_name = obj.param_name
         obj.param_name = ScenarioService._ensure_parameter_exists(
             db, param_name=str(payload.get("param_name") or "")
@@ -1133,6 +1204,20 @@ class ScenarioService:
             scenario,
             param_names=[previous_param_name, obj.param_name],
         )
+        db.flush()
+        new_pub = ScenarioService._osemosys_value_to_public(db, value_id=int(obj.id))
+        OsemosysParamAuditService.append(
+            db,
+            scenario_id=scenario_id,
+            param_name=new_pub["param_name"],
+            id_osemosys_param_value=int(obj.id),
+            action="UPDATE",
+            old_value=float(old_pub["value"]),
+            new_value=float(new_pub["value"]),
+            dimensions_json=ScenarioService._audit_dimensions_from_public(new_pub),
+            source="API",
+            changed_by=user_actor(current_user),
+        )
         try:
             db.commit()
         except IntegrityError as e:
@@ -1156,7 +1241,20 @@ class ScenarioService:
         obj = db.get(OsemosysParamValue, value_id)
         if obj is None or int(obj.id_scenario) != scenario_id:
             raise NotFoundError("Valor OSeMOSYS no encontrado en el escenario.")
+        del_pub = ScenarioService._osemosys_value_to_public(db, value_id=value_id)
         ScenarioService._track_changed_params(scenario, param_names=[obj.param_name])
+        OsemosysParamAuditService.append(
+            db,
+            scenario_id=scenario_id,
+            param_name=del_pub["param_name"],
+            id_osemosys_param_value=int(value_id),
+            action="DELETE",
+            old_value=float(del_pub["value"]),
+            new_value=None,
+            dimensions_json=ScenarioService._audit_dimensions_from_public(del_pub),
+            source="API",
+            changed_by=user_actor(current_user),
+        )
         db.delete(obj)
         db.commit()
 

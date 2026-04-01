@@ -93,7 +93,7 @@ class ResultSummaryResponse(BaseModel):
     """Resumen ligero de una corrida exitosa para el header de visualización."""
 
     job_id: int
-    scenario_id: int
+    scenario_id: int | None = None
     scenario_name: str | None = None
     solver_name: str
     solver_status: str

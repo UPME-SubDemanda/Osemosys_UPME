@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     simulation_mode: str = Field(default="async", alias="SIMULATION_MODE")
     sim_max_concurrency: int = Field(default=3, alias="SIM_MAX_CONCURRENCY")
     sim_user_active_limit: int = Field(default=1, alias="SIM_USER_ACTIVE_LIMIT")
+    sim_solver_tee: bool = Field(default=False, alias="SIM_SOLVER_TEE")
+    sim_solver_keepfiles: bool = Field(default=False, alias="SIM_SOLVER_KEEPFILES")
+    simulation_artifacts_dir: str = Field(default="/app/tmp", alias="SIMULATION_ARTIFACTS_DIR")
     docker_socket_path: str = Field(default="/var/run/docker.sock", alias="DOCKER_SOCKET_PATH")
     docker_metrics_services: str = Field(
         default="api,simulation-worker,db,redis,frontend",

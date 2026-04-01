@@ -251,6 +251,37 @@ def test_excel_preview_apply_and_update_change_values(db_session) -> None:
     assert seeded_row.value == 14.0
 
 
+def test_root_scenario_tracks_changed_param_names(db_session) -> None:
+    owner = create_user(db_session, username="root-track-owner")
+    scenario = create_scenario(
+        db_session,
+        name="Raiz con tracking",
+        owner=owner.username,
+        edit_policy="OWNER_ONLY",
+    )
+    region = create_region(db_session, name="Region root")
+
+    created_row = ScenarioService.create_osemosys_value(
+        db_session,
+        scenario_id=scenario.id,
+        current_user=owner,
+        payload={
+            "param_name": "ReserveMargin",
+            "region_name": region.name,
+            "year": 2025,
+            "value": 1.0,
+        },
+    )
+    assert created_row["param_name"] == "ReserveMargin"
+
+    refreshed = ScenarioService.get_public(
+        db_session,
+        scenario_id=scenario.id,
+        current_user=owner,
+    )
+    assert refreshed["changed_param_names"] == ["ReserveMargin"]
+
+
 def test_excel_preview_detects_inserts_and_apply_creates_missing_catalogs(db_session) -> None:
     owner = create_user(db_session, username="excel-insert-owner")
     scenario = create_scenario(

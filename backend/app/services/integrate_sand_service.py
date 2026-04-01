@@ -10,10 +10,17 @@ from __future__ import annotations
 from collections import defaultdict
 from io import BytesIO
 from pathlib import Path
+import time
 import traceback
 
 import numpy as np
 import pandas as pd
+
+from app.services.integrate_sand_log import (
+    build_fatal_error_log,
+    build_integration_sand_log,
+    extract_contribution_with_combinaciones,
+)
 
 
 KEY_COLS = [
@@ -75,6 +82,26 @@ def _detect_duplicates(df: pd.DataFrame, filename: str) -> list[str]:
             f"{filename}: {len(grp)} duplicados para [{key_desc}] en filas Excel {excel_rows}"
         )
     return messages
+
+
+def _detect_duplicates_detail(df: pd.DataFrame, filename: str) -> pd.DataFrame:
+    """Filas con claves KEY_COLS duplicadas dentro de un archivo (como la referencia)."""
+    key_cols = [c for c in KEY_COLS if c in df.columns]
+    if not key_cols:
+        return pd.DataFrame()
+    dupes = df[df.duplicated(subset=key_cols, keep=False)]
+    if dupes.empty:
+        return pd.DataFrame()
+    records: list[dict] = []
+    for keys, grp in dupes.groupby(key_cols):
+        key_tuple = keys if isinstance(keys, tuple) else (keys,)
+        row = dict(zip(key_cols, key_tuple))
+        row["filas_excel"] = ",".join(str(x) for x in (grp.index + 2).tolist())
+        row["archivo"] = filename
+        row["n_duplicados"] = int(len(grp))
+        records.append(row)
+    return pd.DataFrame(records)
+
 
 def _detect_diffs(df_base: pd.DataFrame, df_new: pd.DataFrame) -> pd.DataFrame:
     val_cols = [c for c in VALUE_COLS if c in df_base.columns]
@@ -463,12 +490,27 @@ class IntegrateSandService:
         df_acum: pd.DataFrame | None = None
         dropped_tech_rows = 0
         dropped_fuel_rows = 0
+        log_text = ""
+        read_errors: list[str] = []
+        integration_rows: list[dict] = []
+        contributions_for_log: list[dict] = []
+        duplicate_messages: list[str] = []
+        timing: dict[str, float] = {}
+        t0 = time.time()
+        diffs_vs_base: list[pd.DataFrame] = []
+        names_new: list[str] = []
+        duplicate_detail_frames: list[pd.DataFrame] = []
+        cambios_excel_content = b""
 
         try:
             df_base = _read_parameters_from_bytes(base_content)
             df_acum = df_base.copy()
 
-            warnings.extend(_detect_duplicates(df_base, Path(base_filename).name))
+            duplicate_detail_frames.append(_detect_duplicates_detail(df_base, Path(base_filename).name))
+
+            dup_base = _detect_duplicates(df_base, Path(base_filename).name)
+            duplicate_messages.extend(dup_base)
+            warnings.extend(dup_base)
 
             readable_new_files: list[tuple[str, bytes]] = []
             dfs_new: list[pd.DataFrame] = []
@@ -476,25 +518,58 @@ class IntegrateSandService:
                 try:
                     df_new = _read_parameters_from_bytes(content)
                 except Exception as exc:
-                    errors.append(f"{filename}: no se pudo leer hoja Parameters ({type(exc).__name__}: {exc})")
+                    err_line = f"{filename}: no se pudo leer hoja Parameters ({type(exc).__name__}: {exc})"
+                    errors.append(err_line)
+                    read_errors.append(err_line)
                     continue
                 readable_new_files.append((filename, content))
                 dfs_new.append(df_new)
-                warnings.extend(_detect_duplicates(df_new, filename))
+                duplicate_detail_frames.append(_detect_duplicates_detail(df_new, filename))
+                dup_new = _detect_duplicates(df_new, filename)
+                duplicate_messages.extend(dup_new)
+                warnings.extend(dup_new)
+
+            timing["read"] = time.time() - t0
 
             if not readable_new_files:
                 raise ValueError("No se pudo leer ningún archivo nuevo válido para integrar.")
 
             names_new = [name for name, _ in readable_new_files]
+            new_rows_counts = [len(df) for df in dfs_new]
+
+            t_conf = time.time()
             diffs_vs_base = [_detect_diffs(df_base, df_n) for df_n in dfs_new]
             conflicts = _detect_conflicts(df_base, names_new, dfs_new, diffs_vs_base)
+            timing["conflicts"] = time.time() - t_conf
 
             unapplied_all: list[dict] = []
+            t_int = time.time()
             for (filename, _), df_new, diffs_base in zip(readable_new_files, dfs_new, diffs_vs_base):
+                ti = time.time()
                 contributions.append(_extract_contribution(diffs_base, filename))
+                contributions_for_log.append(extract_contribution_with_combinaciones(diffs_base, filename))
                 if not diffs_base.empty:
                     df_acum = _apply_diffs(df_acum, df_new, diffs_base)
-                unapplied_all.extend(_validate_apply(df_acum, diffs_base, filename))
+                unapplied = _validate_apply(df_acum, diffs_base, filename)
+                unapplied_all.extend(unapplied)
+                counts_s = (
+                    diffs_base["tipo_cambio"].value_counts()
+                    if not diffs_base.empty
+                    else pd.Series(dtype=int)
+                )
+                integration_rows.append(
+                    {
+                        "filename": filename,
+                        "counts": {
+                            "NUEVA": int(counts_s.get("NUEVA", 0)),
+                            "ELIMINADA": int(counts_s.get("ELIMINADA", 0)),
+                            "MODIFICADA": int(counts_s.get("MODIFICADA", 0)),
+                        },
+                        "seconds": time.time() - ti,
+                        "unapplied": unapplied,
+                    }
+                )
+            timing["integrate"] = time.time() - t_int
 
             if unapplied_all:
                 warnings.append(f"TOTAL CAMBIOS NO APLICADOS: {len(unapplied_all)}")
@@ -507,7 +582,9 @@ class IntegrateSandService:
 
             drop_techs = _clean_csv_values(drop_techs_csv)
             drop_fuels = _clean_csv_values(drop_fuels_csv)
-            if drop_techs or drop_fuels:
+            n_rows_before_drop = len(df_acum)
+            had_drop = bool(drop_techs or drop_fuels)
+            if had_drop:
                 df_acum, dropped_tech_rows, dropped_fuel_rows = _drop_keys(df_acum, drop_techs, drop_fuels)
 
             summary_lines = [
@@ -550,10 +627,66 @@ class IntegrateSandService:
                 f"Conflictos detectados hasta el error: {len(conflicts)}",
                 f"Filas parciales: {len(df_acum)}",
             ]
+            log_text = build_fatal_error_log(
+                base_filename,
+                [n for n, _ in valid_new_files],
+                errors,
+            )
 
         output_buffer = BytesIO()
+        t_exp_start = time.time()
         df_acum.to_excel(output_buffer, sheet_name="Parameters", index=False, engine="openpyxl")
         output_content = output_buffer.getvalue()
+        export_dt = time.time() - t_exp_start
+
+        if not log_text:
+            validation_ok_msg = (
+                None if unapplied_all else "Todos los cambios se aplicaron correctamente."
+            )
+            timing["export"] = export_dt
+            timing["total"] = time.time() - t0
+            log_text = build_integration_sand_log(
+                base_filename=base_filename,
+                paths_new=names_new,
+                output_filename=output_filename,
+                drop_techs=drop_techs,
+                drop_fuels=drop_fuels,
+                n_base_rows=len(df_base),
+                new_rows_counts=new_rows_counts,
+                duplicate_messages=duplicate_messages,
+                conflicts=conflicts,
+                integration_rows=integration_rows,
+                contributions_for_log=contributions_for_log,
+                unapplied_all=unapplied_all,
+                warnings_validation_line=validation_ok_msg,
+                drop_tech_rows=dropped_tech_rows,
+                drop_fuel_rows=dropped_fuel_rows,
+                n_rows_before_drop=n_rows_before_drop,
+                n_rows_final=len(df_acum),
+                had_drop=had_drop,
+                timing={
+                    "read": timing["read"],
+                    "conflicts": timing["conflicts"],
+                    "integrate": timing["integrate"],
+                    "export": timing["export"],
+                    "total": timing["total"],
+                },
+                errors=list(errors),
+                read_errors=read_errors,
+            )
+            try:
+                from app.services.integrate_sand_cambios_excel import build_cambios_workbook_bytes
+
+                cambios_excel_content = build_cambios_workbook_bytes(
+                    base_filename=base_filename,
+                    names_new=names_new,
+                    diffs_vs_base=diffs_vs_base,
+                    conflicts=conflicts,
+                    duplicate_detail_frames=duplicate_detail_frames,
+                    unapplied_all=unapplied_all,
+                )
+            except Exception:
+                cambios_excel_content = b""
 
         return {
             "output_filename": output_filename,
@@ -564,4 +697,6 @@ class IntegrateSandService:
             "resumen": "\n".join(summary_lines),
             "warnings": warnings,
             "errors": errors,
+            "log_text": log_text,
+            "cambios_excel_content": cambios_excel_content,
         }

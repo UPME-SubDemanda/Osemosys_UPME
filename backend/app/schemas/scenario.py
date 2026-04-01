@@ -147,6 +147,9 @@ class SandIntegrationResponse(BaseModel):
     resumen: str
     warnings: list[str]
     errors: list[str] = []
+    has_log: bool = False
+    log_line_count: int = 0
+    has_cambios_xlsx: bool = False
 
 
 class ExcelUpdatePreviewRow(BaseModel):
@@ -271,6 +274,30 @@ class OsemosysValuesPage(BaseModel):
     """Respuesta paginada de valores OSeMOSYS."""
 
     items: list[ScenarioOsemosysValuePublic]
+    total: int
+    offset: int
+    limit: int
+
+
+class OsemosysParamAuditEntryPublic(BaseModel):
+    """Evento de auditoría sobre `osemosys_param_value`."""
+
+    id: int
+    param_name: str
+    id_osemosys_param_value: int | None = None
+    action: str
+    old_value: float | None = None
+    new_value: float | None = None
+    dimensions_json: dict | list | None = None
+    source: str
+    changed_by: str
+    created_at: datetime
+
+
+class OsemosysParamAuditPage(BaseModel):
+    """Respuesta paginada de historial de cambios por parámetro."""
+
+    items: list[OsemosysParamAuditEntryPublic]
     total: int
     offset: int
     limit: int

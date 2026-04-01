@@ -11,11 +11,12 @@ type Props = {
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  wide?: boolean;
   /** Si true, el modal solo se cierra con el botón Cerrar (no con clic afuera ni Escape). */
   disableBackdropClose?: boolean;
 };
 
-export function Modal({ open, title, onClose, children, footer, disableBackdropClose }: Props) {
+export function Modal({ open, title, onClose, children, footer, wide = false, disableBackdropClose }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -59,12 +60,12 @@ export function Modal({ open, title, onClose, children, footer, disableBackdropC
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: "min(680px,100%)",
+          width: wide ? "min(1100px,100%)" : "min(680px,100%)",
           background: "rgba(11,18,32,0.98)",
           border: "1px solid rgba(255,255,255,0.1)",
           borderRadius: 14,
           boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
-          maxHeight: "min(760px, calc(100vh - 32px))",
+          maxHeight: wide ? "min(90vh, calc(100vh - 32px))" : "min(760px, calc(100vh - 32px))",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",

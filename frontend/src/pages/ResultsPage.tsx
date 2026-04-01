@@ -18,6 +18,7 @@ import { simulationApi } from "@/features/simulation/api/simulationApi";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { DataTable } from "@/shared/components/DataTable";
+import { getSimulationRunStatusDisplay } from "@/features/simulation/simulationRunStatus";
 import { paths } from "@/routes/paths";
 import type { Scenario, SimulationRun } from "@/types/domain";
 
@@ -140,31 +141,22 @@ export function ResultsPage() {
         rowKey={(r) => String(r.id)}
         columns={[
           { key: "run", header: "ID de ejecución", render: (r) => r.id },
-          { key: "scenario", header: "Escenario", render: (r) => scenarioMap[r.scenario_id]?.name ?? `#${r.scenario_id}` },
+          {
+            key: "scenario",
+            header: "Escenario",
+            render: (r) =>
+              r.scenario_name ??
+              (r.scenario_id === null
+                ? (r.input_name ?? "CSV upload")
+                : (scenarioMap[r.scenario_id]?.name ?? `#${r.scenario_id}`)),
+          },
           {
             key: "status",
             header: "Estado",
-            render: (r) => (
-              <Badge
-                variant={
-                  r.status === "SUCCEEDED"
-                    ? "success"
-                    : r.status === "FAILED" || r.status === "CANCELLED"
-                      ? "danger"
-                      : "warning"
-                }
-              >
-                {r.status === "QUEUED"
-                  ? "En cola"
-                  : r.status === "RUNNING"
-                    ? "En ejecución"
-                    : r.status === "SUCCEEDED"
-                      ? "Exitosa"
-                      : r.status === "FAILED"
-                        ? "Fallida"
-                        : "Cancelada"}
-              </Badge>
-            ),
+            render: (r) => {
+              const { variant, label } = getSimulationRunStatusDisplay(r);
+              return <Badge variant={variant}>{label}</Badge>;
+            },
           },
           {
             key: "date",

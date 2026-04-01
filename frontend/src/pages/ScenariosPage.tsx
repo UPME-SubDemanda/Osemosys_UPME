@@ -81,6 +81,7 @@ export function ScenariosPage() {
   const [concatNewFiles, setConcatNewFiles] = useState<File[]>([]);
   const [concatDropTechs, setConcatDropTechs] = useState("");
   const [concatDropFuels, setConcatDropFuels] = useState("");
+  const [concatIncludeLogTxt, setConcatIncludeLogTxt] = useState(false);
   const [concatingSand, setConcatingSand] = useState(false);
   const [concatUploadPhase, setConcatUploadPhase] = useState<UploadPhase>("idle");
   const [concatUploadPercent, setConcatUploadPercent] = useState(0);
@@ -325,6 +326,7 @@ export function ScenariosPage() {
     setConcatNewFiles([]);
     setConcatDropTechs("");
     setConcatDropFuels("");
+    setConcatIncludeLogTxt(false);
     setConcatUploadPhase("idle");
     setConcatUploadPercent(0);
     setConcatUploadStartedAt(null);
@@ -364,6 +366,7 @@ export function ScenariosPage() {
           newFiles: concatNewFiles,
           dropTechs: concatDropTechs,
           dropFuels: concatDropFuels,
+          includeLogTxt: concatIncludeLogTxt,
         },
         (percent) => {
           setConcatUploadPercent(percent);
@@ -381,7 +384,13 @@ export function ScenariosPage() {
       URL.revokeObjectURL(url);
 
       push(
-        `Integración completada: ${summary.total_filas.toLocaleString()} filas, ${summary.conflictos_count} conflicto(s).`,
+        `Integración completada: ${summary.total_filas.toLocaleString()} filas, ${summary.conflictos_count} conflicto(s).${
+          summary.has_log && summary.log_line_count
+            ? ` ZIP con informe detallado (${summary.log_line_count} líneas en el .txt${
+                summary.has_cambios_xlsx ? ", Excel cambios_integracion.xlsx" : ""
+              }).`
+            : ""
+        }`,
         "success",
       );
       if (summary.warnings.length) {
@@ -841,6 +850,18 @@ export function ScenariosPage() {
             onChange={(e) => setConcatDropFuels(e.target.value)}
             placeholder="Ejemplo: OIL,GAS"
           />
+
+          <label className="field" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={concatIncludeLogTxt}
+              onChange={(e) => setConcatIncludeLogTxt(e.target.checked)}
+            />
+            <span>
+              Incluir informe detallado: la descarga será un ZIP con el Excel integrado, integracion_sand_log.txt y
+              cambios_integracion.xlsx (cambios vs base, conflictos, duplicados, validación)
+            </span>
+          </label>
 
           {concatUploadPhase !== "idle" ? (
             <UploadProgress

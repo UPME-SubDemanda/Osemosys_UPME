@@ -69,3 +69,65 @@ def test_run_simulation_job_is_noop_for_non_queued_status(
     tasks_module.run_simulation_job.run(123)
 
     assert db.commit_calls == 1
+
+
+def test_handle_worker_lost_failure_marks_failed_by_task_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        tasks_module,
+        "_mark_failed_by_task_or_job_id",
+        lambda *, task_id, job_id, reason: captured.update(
+            {"task_id": task_id, "job_id": job_id, "reason": reason}
+        )
+        or True,
+    )
+
+    sender = SimpleNamespace(name=tasks_module.run_simulation_job.name)
+    exc = RuntimeError("Worker exited prematurely: signal 9 (SIGKILL)")
+    tasks_module.handle_worker_lost_failure(
+        sender=sender,
+        task_id="abc-task",
+        exception=exc,
+        args=(777,),
+    )
+
+    assert captured["task_id"] == "abc-task"
+    assert captured["job_id"] == 777
+    assert "WorkerLostError" in str(captured["reason"])
+
+
+def test_handle_worker_lost_failure_ignores_other_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tasks_module,
+        "_mark_failed_by_task_or_job_id",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("must not update")),
+    )
+    sender = SimpleNamespace(name="another.task")
+    tasks_module.handle_worker_lost_failure(
+        sender=sender,
+        task_id="abc-task",
+        exception=RuntimeError("Worker exited prematurely: signal 9 (SIGKILL)"),
+        args=(777,),
+    )
+
+
+def test_handle_worker_lost_failure_ignores_non_workerlost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tasks_module,
+        "_mark_failed_by_task_or_job_id",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("must not update")),
+    )
+    sender = SimpleNamespace(name=tasks_module.run_simulation_job.name)
+    tasks_module.handle_worker_lost_failure(
+        sender=sender,
+        task_id="abc-task",
+        exception=RuntimeError("error funcional"),
+        args=(777,),
+    )

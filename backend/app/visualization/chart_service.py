@@ -525,7 +525,7 @@ def build_comparison_data(
             # Usar el nombre del escenario si está disponible
             from app.models import Scenario
             scenario = db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
-            scenario_names[jid] = scenario.name if scenario else f"Job {jid}"
+            scenario_names[jid] = scenario.name if scenario else (job.input_name or f"Job {jid}")
         else:
             scenario_names[jid] = f"Job {jid}"
 
@@ -688,7 +688,7 @@ def build_comparison_facet_data(
         if not job:
             continue
         scenario = db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
-        scenario_name = scenario.name if scenario else f"Job {jid}"
+        scenario_name = scenario.name if scenario else (job.input_name or f"Job {jid}")
 
         chart = build_chart_data(
             db=db,
@@ -838,7 +838,7 @@ def get_result_summary(
     from app.models import Scenario
 
     scenario = db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
-    scenario_name = scenario.name if scenario else None
+    scenario_name = scenario.name if scenario else job.input_name
 
     solver_status = (job.model_timings_json or {}).get("solver_status", "unknown")
 

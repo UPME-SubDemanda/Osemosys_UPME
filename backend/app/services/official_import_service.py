@@ -3155,6 +3155,13 @@ class OfficialImportService:
         def _flush_updates() -> None:
             if not to_update:
                 return
+            from app.services.osemosys_param_audit_service import OsemosysParamAuditService
+            from app.services.scenario_service import ScenarioService
+
+            ids_batch = [u["_id"] for u in to_update]
+            old_by_id: dict[int, dict] = {}
+            for vid in ids_batch:
+                old_by_id[vid] = ScenarioService._osemosys_value_to_public(db, value_id=vid)
             tbl = OsemosysParamValue.__table__
             stmt = (
                 sa_update(tbl)
@@ -3162,6 +3169,21 @@ class OfficialImportService:
                 .values(value=bindparam("value"))
             )
             db.execute(stmt, to_update)
+            new_by_id = {u["_id"]: float(u["value"]) for u in to_update}
+            for vid in ids_batch:
+                old_pub = old_by_id[vid]
+                OsemosysParamAuditService.append(
+                    db,
+                    scenario_id=scenario_id,
+                    param_name=old_pub["param_name"],
+                    id_osemosys_param_value=vid,
+                    action="UPDATE",
+                    old_value=float(old_pub["value"]),
+                    new_value=new_by_id[vid],
+                    dimensions_json=ScenarioService._audit_dimensions_from_public(old_pub),
+                    source="EXCEL_APPLY",
+                    changed_by="system:excel_apply",
+                )
             to_update.clear()
 
         for ch in changes:
@@ -3284,6 +3306,24 @@ class OfficialImportService:
 
         _flush_updates()
         if to_insert:
+            from app.services.osemosys_param_audit_service import OsemosysParamAuditService
+            from app.services.scenario_service import ScenarioService
+
             db.add_all(to_insert)
+            db.flush()
+            for obj in to_insert:
+                pub_ins = ScenarioService._osemosys_value_to_public(db, value_id=int(obj.id))
+                OsemosysParamAuditService.append(
+                    db,
+                    scenario_id=scenario_id,
+                    param_name=pub_ins["param_name"],
+                    id_osemosys_param_value=int(obj.id),
+                    action="INSERT",
+                    old_value=None,
+                    new_value=float(pub_ins["value"]),
+                    dimensions_json=ScenarioService._audit_dimensions_from_public(pub_ins),
+                    source="EXCEL_APPLY",
+                    changed_by="system:excel_apply",
+                )
         db.commit()
         return {"updated": updated, "inserted": inserted, "skipped": skipped}

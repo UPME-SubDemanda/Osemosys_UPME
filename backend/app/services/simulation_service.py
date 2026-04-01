@@ -21,6 +21,25 @@ class SimulationService:
     """Capa de negocio para gestion de simulaciones."""
 
     @staticmethod
+    def _is_infeasible_succeeded_job(job) -> bool:
+        """Corrida técnicamente exitosa pero con modelo infactible o diagnóstico asociado."""
+        if getattr(job, "status", None) != "SUCCEEDED":
+            return False
+        mt = job.model_timings_json or {}
+        if not isinstance(mt, dict):
+            mt = {}
+        ss = str(mt.get("solver_status") or "").lower()
+        if "infeasible" in ss:
+            return True
+        sid = job.infeasibility_diagnostics_json
+        if isinstance(sid, dict):
+            cv = sid.get("constraint_violations") or []
+            vb = sid.get("var_bound_conflicts") or []
+            if cv or vb:
+                return True
+        return False
+
+    @staticmethod
     def _to_public(
         job,
         *,
@@ -28,13 +47,19 @@ class SimulationService:
         username: str | None = None,
         scenario_name: str | None = None,
     ) -> dict:
+        effective_scenario_name = scenario_name
+        if effective_scenario_name is None and getattr(job, "input_mode", "SCENARIO") == "CSV_UPLOAD":
+            effective_scenario_name = job.input_name or "CSV upload"
+
         return {
             "id": job.id,
             "scenario_id": job.scenario_id,
-            "scenario_name": scenario_name,
+            "scenario_name": effective_scenario_name,
             "user_id": str(job.user_id),
             "username": username,
             "solver_name": job.solver_name,
+            "input_mode": getattr(job, "input_mode", "SCENARIO"),
+            "input_name": getattr(job, "input_name", None),
             "status": job.status,
             "progress": float(job.progress),
             "cancel_requested": bool(job.cancel_requested),
@@ -44,6 +69,7 @@ class SimulationService:
             "queued_at": job.queued_at,
             "started_at": job.started_at,
             "finished_at": job.finished_at,
+            "is_infeasible_result": SimulationService._is_infeasible_succeeded_job(job),
         }
 
     @staticmethod
@@ -76,7 +102,11 @@ class SimulationService:
             raise ConflictError("Solver invalido. Usa 'highs' o 'glpk'.")
 
         job = SimulationRepository.create_job(
-            db, user_id=current_user.id, scenario_id=scenario_id, solver_name=solver_name
+            db,
+            user_id=current_user.id,
+            scenario_id=scenario_id,
+            solver_name=solver_name,
+            input_mode="SCENARIO",
         )
         # Necesario para obtener `job.id` antes de insertar eventos asociados.
         if hasattr(db, "flush"):
@@ -148,6 +178,108 @@ class SimulationService:
             queue_position=SimulationRepository.queue_position(db, job_id=job.id),
             username=current_user.username,
             scenario_name=scenario.name,
+        )
+
+    @staticmethod
+    def submit_from_csv(
+        db: Session,
+        *,
+        current_user: User,
+        solver_name: str = "highs",
+        input_name: str,
+        input_ref: str,
+    ) -> dict:
+        """Encola una simulación cuyo input proviene de un ZIP de CSV."""
+        active_jobs = SimulationRepository.count_user_active_jobs(db, user_id=current_user.id)
+        settings = get_settings()
+        sync_mode = (
+            settings.is_sync_simulation_mode()
+            if hasattr(settings, "is_sync_simulation_mode")
+            else str(getattr(settings, "simulation_mode", "async")).strip().lower() == "sync"
+        )
+        if active_jobs >= settings.sim_user_active_limit:
+            raise ConflictError(
+                f"Ya alcanzaste el maximo de simulaciones activas ({settings.sim_user_active_limit})."
+            )
+
+        if solver_name not in {"highs", "glpk"}:
+            raise ConflictError("Solver invalido. Usa 'highs' o 'glpk'.")
+
+        job = SimulationRepository.create_job(
+            db,
+            user_id=current_user.id,
+            solver_name=solver_name,
+            input_mode="CSV_UPLOAD",
+            input_name=input_name,
+            input_ref=input_ref,
+        )
+        if hasattr(db, "flush"):
+            db.flush()
+        SimulationRepository.add_event(
+            db,
+            job_id=job.id,
+            event_type="INFO",
+            stage="queue",
+            message="Job CSV creado y listo para encolar.",
+            progress=0.0,
+        )
+        db.commit()
+        db.refresh(job)
+
+        if sync_mode:
+            task = run_simulation_job.apply(args=[job.id], throw=False)
+            db.refresh(job)
+            job.celery_task_id = task.id
+            SimulationRepository.add_event(
+                db,
+                job_id=job.id,
+                event_type="INFO",
+                stage="queue",
+                message="Simulacion CSV ejecutada en modo sincrono local.",
+                progress=float(job.progress),
+            )
+            db.commit()
+            db.refresh(job)
+            return SimulationService._to_public(
+                job,
+                queue_position=None,
+                username=current_user.username,
+            )
+
+        try:
+            task = run_simulation_job.delay(job.id)
+        except Exception as exc:  # pragma: no cover - depende de broker externo
+            db.rollback()
+            failed_job = SimulationRepository.get_job_by_id(db, job_id=job.id)
+            if failed_job and failed_job.status == "QUEUED":
+                failed_job.status = "FAILED"
+                failed_job.error_message = f"QUEUE_ENQUEUE_ERROR: {exc}"
+                SimulationRepository.add_event(
+                    db,
+                    job_id=failed_job.id,
+                    event_type="ERROR",
+                    stage="queue",
+                    message=f"No se pudo encolar la simulacion CSV: {exc}",
+                    progress=failed_job.progress,
+                )
+                db.commit()
+            raise ConflictError("No se pudo encolar la simulacion CSV. Intenta nuevamente.") from exc
+
+        job.celery_task_id = task.id
+        SimulationRepository.add_event(
+            db,
+            job_id=job.id,
+            event_type="INFO",
+            stage="queue",
+            message="Simulacion CSV encolada.",
+            progress=0.0,
+        )
+        db.commit()
+        db.refresh(job)
+        return SimulationService._to_public(
+            job,
+            queue_position=SimulationRepository.queue_position(db, job_id=job.id),
+            username=current_user.username,
         )
 
     @staticmethod
@@ -361,6 +493,8 @@ class SimulationService:
                 "value": ae["annual_emissions"],
             })
 
+        infeasibility_diagnostics = job.infeasibility_diagnostics_json
+
         return {
             "job_id": job.id,
             "scenario_id": job.scenario_id,
@@ -382,6 +516,7 @@ class SimulationService:
             "osemosys_inputs_summary": job.inputs_summary_json or [],
             "stage_times": job.stage_times_json or {},
             "model_timings": job.model_timings_json or {},
+            "infeasibility_diagnostics": infeasibility_diagnostics,
         }
 
     @staticmethod

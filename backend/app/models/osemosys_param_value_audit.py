@@ -1,0 +1,64 @@
+"""Auditoría de mutaciones sobre filas OSeMOSYS (`osemosys_param_value`)."""
+
+from __future__ import annotations
+
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    JSON,
+    String,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class OsemosysParamValueAudit(Base):
+    """Trazabilidad de altas, bajas y modificaciones de valores OSeMOSYS por escenario."""
+
+    __tablename__ = "osemosys_param_value_audit"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('INSERT','UPDATE','DELETE')",
+            name="ck_osemosys_param_value_audit_action",
+        ),
+        CheckConstraint(
+            "source IN ('API','EXCEL_APPLY','IMPORT_UPSERT')",
+            name="ck_osemosys_param_value_audit_source",
+        ),
+        Index(
+            "ix_osemosys_param_audit_scenario_param_created",
+            "id_scenario",
+            "param_name",
+            "created_at",
+        ),
+        {"schema": "osemosys"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, Identity(always=False), primary_key=True)
+    id_scenario: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("osemosys.scenario.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    param_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    id_osemosys_param_value: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("osemosys.osemosys_param_value.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    old_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    new_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dimensions_json: Mapped[object | None] = mapped_column(JSON, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    changed_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

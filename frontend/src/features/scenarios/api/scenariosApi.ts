@@ -53,6 +53,26 @@ export type OsemosysValuesPage = {
   limit: number;
 };
 
+export type OsemosysParamAuditEntry = {
+  id: number;
+  param_name: string;
+  id_osemosys_param_value: number | null;
+  action: string;
+  old_value: number | null;
+  new_value: number | null;
+  dimensions_json: Record<string, unknown> | null;
+  source: string;
+  changed_by: string;
+  created_at: string;
+};
+
+export type OsemosysParamAuditPage = {
+  items: OsemosysParamAuditEntry[];
+  total: number;
+  offset: number;
+  limit: number;
+};
+
 export type ScenarioExcelImportResponse = {
   scenario: Scenario;
   import_result: OfficialImportResult;
@@ -85,6 +105,9 @@ export type SandIntegrationSummary = {
   resumen: string;
   warnings: string[];
   errors: string[];
+  has_log?: boolean;
+  log_line_count?: number;
+  has_cambios_xlsx?: boolean;
 };
 
 export type ExcelUpdatePreviewRow = {
@@ -233,7 +256,14 @@ export const scenariosApi = {
   },
 
   async concatenateSand(
-    input: { baseFile: File; newFiles: File[]; dropTechs?: string; dropFuels?: string },
+    input: {
+      baseFile: File;
+      newFiles: File[];
+      dropTechs?: string;
+      dropFuels?: string;
+      /** Si es true, la respuesta es un ZIP con el Excel y `integracion_sand_log.txt`. */
+      includeLogTxt?: boolean;
+    },
     onUploadProgress?: (percent: number) => void,
     signal?: AbortSignal,
   ): Promise<{ blob: Blob; filename: string; summary: SandIntegrationSummary }> {
@@ -244,6 +274,7 @@ export const scenariosApi = {
     }
     if (input.dropTechs?.trim()) form.append("drop_techs", input.dropTechs.trim());
     if (input.dropFuels?.trim()) form.append("drop_fuels", input.dropFuels.trim());
+    if (input.includeLogTxt) form.append("include_log_txt", "true");
 
     const { data, headers } = await httpClient.post("/scenarios/concatenate-sand", form, {
       responseType: "blob",
@@ -274,6 +305,9 @@ export const scenariosApi = {
         resumen: "",
         warnings: [],
         errors: [],
+        has_log: false,
+        log_line_count: 0,
+        has_cambios_xlsx: false,
       },
     );
 
@@ -345,10 +379,27 @@ export const scenariosApi = {
     httpClient.get<OsemosysYearSummary[]>(`/scenarios/${scenarioId}/osemosys-summary`).then((r) => r.data),
   listOsemosysValues: (
     scenarioId: number,
-    params: { param_name?: string; year?: number; search?: string; offset?: number; limit?: number } = {},
+    params: {
+      param_name?: string;
+      param_name_exact?: boolean;
+      year?: number;
+      search?: string;
+      offset?: number;
+      limit?: number;
+    } = {},
   ) =>
     httpClient
       .get<OsemosysValuesPage>(`/scenarios/${scenarioId}/osemosys-values`, { params })
+      .then((r) => r.data),
+  listOsemosysParamAudit: (
+    scenarioId: number,
+    paramName: string,
+    params: { offset?: number; limit?: number } = {},
+  ) =>
+    httpClient
+      .get<OsemosysParamAuditPage>(`/scenarios/${scenarioId}/osemosys-param-audit`, {
+        params: { param_name: paramName, ...params },
+      })
       .then((r) => r.data),
   createOsemosysValue: (
     scenarioId: number,

@@ -10,6 +10,7 @@ from .emission import Emission
 from .fuel import Fuel
 from .mode_of_operation import ModeOfOperation
 from .osemosys_param_value import OsemosysParamValue
+from .osemosys_param_value_audit import OsemosysParamValueAudit
 from .osemosys_output_param_value import OsemosysOutputParamValue
 from .parameter import Parameter
 from .parameter_storage import ParameterStorage
@@ -51,6 +52,7 @@ __all__ = [
     "StorageSet",
     "UdcSet",
     "OsemosysParamValue",
+    "OsemosysParamValueAudit",
     "ParameterValue",
     "ParameterValueAudit",
     "ParameterStorage",

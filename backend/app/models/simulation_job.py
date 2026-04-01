@@ -28,6 +28,10 @@ class SimulationJob(Base):
             "status IN ('QUEUED','RUNNING','SUCCEEDED','FAILED','CANCELLED')",
             name="simulation_job_status",
         ),
+        CheckConstraint(
+            "input_mode IN ('SCENARIO','CSV_UPLOAD')",
+            name="simulation_job_input_mode",
+        ),
         Index("ix_simulation_job_user_status", "user_id", "status"),
         Index("ix_simulation_job_scenario", "scenario_id"),
         {"schema": "osemosys"},
@@ -37,10 +41,13 @@ class SimulationJob(Base):
     user_id: Mapped[object] = mapped_column(
         Uuid, ForeignKey("core.user.id", ondelete="RESTRICT"), nullable=False
     )
-    scenario_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("osemosys.scenario.id", ondelete="RESTRICT"), nullable=False
+    scenario_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("osemosys.scenario.id", ondelete="RESTRICT"), nullable=True
     )
     solver_name: Mapped[str] = mapped_column(String(20), nullable=False, default="highs")
+    input_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="SCENARIO")
+    input_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    input_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="QUEUED")
     progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -62,3 +69,4 @@ class SimulationJob(Base):
     stage_times_json: Mapped[object | None] = mapped_column(JSON, nullable=True)
     model_timings_json: Mapped[object | None] = mapped_column(JSON, nullable=True)
     inputs_summary_json: Mapped[object | None] = mapped_column(JSON, nullable=True)
+    infeasibility_diagnostics_json: Mapped[object | None] = mapped_column(JSON, nullable=True)

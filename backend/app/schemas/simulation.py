@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 SimulationStatus = Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
 SimulationSolver = Literal["highs", "glpk"]
+SimulationInputMode = Literal["SCENARIO", "CSV_UPLOAD"]
 
 
 class SimulationSubmit(BaseModel):
@@ -22,11 +23,13 @@ class SimulationJobPublic(BaseModel):
     """Estado público de un job de simulación."""
 
     id: int
-    scenario_id: int
+    scenario_id: int | None = None
     scenario_name: str | None = None
     user_id: str
     username: str | None = None
     solver_name: SimulationSolver
+    input_mode: SimulationInputMode = "SCENARIO"
+    input_name: str | None = None
     status: SimulationStatus
     progress: float
     cancel_requested: bool
@@ -36,6 +39,8 @@ class SimulationJobPublic(BaseModel):
     queued_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    #: True si el job terminó en SUCCEEDED pero el solver reportó infactibilidad o hay diagnóstico estructurado.
+    is_infeasible_result: bool = False
 
 
 class SimulationOverviewPublic(BaseModel):
@@ -90,7 +95,7 @@ class SimulationResultPublic(BaseModel):
     """Contrato del artefacto final de resultados de simulación."""
 
     job_id: int
-    scenario_id: int
+    scenario_id: int | None = None
     records_used: int
     osemosys_param_records: int
     objective_value: float
@@ -110,27 +115,6 @@ class SimulationResultPublic(BaseModel):
     # Diccionario de solución tipo HiGHS: por variable, lista de {index: [...], value: number}
     sol: dict[str, list[dict]] = Field(default_factory=dict)
     # Variables intermedias tipo GLPK: ProductionByTechnology, UseByTechnology, etc.
-    intermediate_variables: dict[str, list[dict]] = Field(default_factory=dict)
-    infeasibility_diagnostics: InfeasibilityDiagnosticsPublic | None = None
-
-
-class SimulationFromCsvResult(BaseModel):
-    """Resultado síncrono de simulación ejecutada directamente desde CSV."""
-
-    solver_name: SimulationSolver
-    objective_value: float
-    solver_status: str
-    coverage_ratio: float
-    total_demand: float
-    total_dispatch: float
-    total_unmet: float
-    dispatch: list[dict]
-    unmet_demand: list[dict]
-    new_capacity: list[dict]
-    annual_emissions: list[dict]
-    stage_times: dict = Field(default_factory=dict)
-    model_timings: dict = Field(default_factory=dict)
-    sol: dict[str, list[dict]] = Field(default_factory=dict)
     intermediate_variables: dict[str, list[dict]] = Field(default_factory=dict)
     infeasibility_diagnostics: InfeasibilityDiagnosticsPublic | None = None
 

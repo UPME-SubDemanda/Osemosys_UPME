@@ -77,7 +77,7 @@ def test_submit_persists_task_id_after_enqueue(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(
         simulation_service_module.SimulationRepository,
         "create_job",
-        lambda _db, *, user_id, scenario_id, solver_name: job,
+        lambda _db, **kwargs: job,
     )
     monkeypatch.setattr(
         simulation_service_module.SimulationRepository,
@@ -150,7 +150,7 @@ def test_submit_marks_job_failed_when_enqueue_fails(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(
         simulation_service_module.SimulationRepository,
         "create_job",
-        lambda _db, *, user_id, scenario_id, solver_name: job,
+        lambda _db, **kwargs: job,
     )
     monkeypatch.setattr(
         simulation_service_module.SimulationRepository,

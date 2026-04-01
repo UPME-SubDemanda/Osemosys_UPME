@@ -8,6 +8,7 @@ export type ScenarioPermissionScope = "mine" | "readable" | "editable" | "readon
 
 export type RunStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
 export type SimulationSolver = "highs" | "glpk";
+export type SimulationInputMode = "SCENARIO" | "CSV_UPLOAD";
 
 export type CatalogEntity =
   | "parameter"
@@ -91,11 +92,13 @@ export type CatalogItem = {
 
 export type SimulationRun = {
   id: number;
-  scenario_id: number;
+  scenario_id: number | null;
   scenario_name?: string | null;
   user_id: string;
   username?: string | null;
   solver_name: SimulationSolver;
+  input_mode: SimulationInputMode;
+  input_name?: string | null;
   status: RunStatus;
   progress: number;
   cancel_requested: boolean;
@@ -105,6 +108,8 @@ export type SimulationRun = {
   queued_at: string;
   started_at?: string | null;
   finished_at?: string | null;
+  /** true si SUCCEEDED pero el solver reportó infactibilidad o hay diagnóstico en el job. */
+  is_infeasible_result?: boolean;
 };
 
 export type SimulationOverview = {
@@ -138,7 +143,7 @@ export type InfeasibilityDiagnostics = {
 
 export type RunResult = {
   job_id: number;
-  scenario_id: number;
+  scenario_id: number | null;
   solver_name: SimulationSolver;
   records_used: number;
   osemosys_param_records: number;
@@ -302,7 +307,7 @@ export type ChartCatalogItem = {
 
 export type ResultSummaryResponse = {
   job_id: number;
-  scenario_id: number;
+  scenario_id: number | null;
   scenario_name: string | null;
   solver_name: string;
   solver_status: string;

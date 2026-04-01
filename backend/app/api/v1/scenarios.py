@@ -7,9 +7,11 @@ import desde Excel (create_scenario_from_excel), resumen por año.
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+import zipfile
 from io import BytesIO
 
 from app.api.deps import get_current_user
@@ -19,6 +21,7 @@ from app.models import OsemosysParamValue, Scenario, ScenarioPermission, User
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.scenario import (
     ApplyExcelChangesRequest,
+    OsemosysParamAuditPage,
     OsemosysValuesPage,
     SandIntegrationResponse,
     ScenarioClone,
@@ -226,18 +229,27 @@ def create_scenario_from_excel(
     }
 
 
+def _form_bool_flag(value: str | None) -> bool:
+    if value is None or value == "":
+        return False
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
 @router.post("/concatenate-sand")
 def concatenate_sand_files(
     base_file: UploadFile = File(...),
     new_files: list[UploadFile] = File(...),
     drop_techs: str | None = Form(default=None),
     drop_fuels: str | None = Form(default=None),
+    include_log_txt: str | None = Form(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Concatena/integra múltiples archivos SAND y devuelve un Excel integrado."""
+    """Concatena/integra múltiples archivos SAND y devuelve un Excel integrado (o ZIP con Excel + log)."""
     _ = db
     _ = current_user
+
+    want_log_zip = _form_bool_flag(include_log_txt)
 
     base_filename = base_file.filename or "base.xlsx"
     base_content = base_file.file.read()
@@ -264,6 +276,9 @@ def concatenate_sand_files(
             detail="Ocurrió un error inesperado durante la integración SAND.",
         ) from exc
 
+    log_text = result.get("log_text") or ""
+    log_line_count = len(log_text.splitlines()) if log_text else 0
+
     summary_obj = SandIntegrationResponse.model_validate(
         {
             "total_filas": result["total_filas"],
@@ -272,11 +287,35 @@ def concatenate_sand_files(
             "resumen": result["resumen"],
             "warnings": result["warnings"],
             "errors": result.get("errors", []),
+            "has_log": want_log_zip and bool(log_text.strip()),
+            "log_line_count": log_line_count,
+            "has_cambios_xlsx": want_log_zip and bool((result.get("cambios_excel_content") or b"")),
         }
     )
     summary_json = summary_obj.model_dump_json()
     summary_header = base64.urlsafe_b64encode(summary_json.encode("utf-8")).decode("ascii")
     output_filename = result["output_filename"]
+
+    if want_log_zip:
+        zip_buf = BytesIO()
+        stem = Path(output_filename).stem
+        zip_name = f"{stem}_con_log.zip"
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(output_filename, result["output_content"])
+            zf.writestr("integracion_sand_log.txt", log_text.encode("utf-8"))
+            cambios = result.get("cambios_excel_content") or b""
+            if cambios:
+                zf.writestr("cambios_integracion.xlsx", cambios)
+        zip_buf.seek(0)
+        return StreamingResponse(
+            zip_buf,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{zip_name}"',
+                "X-Sand-Integration-Summary": summary_header,
+                "X-Sand-Integration-Summary-Format": "base64-json",
+            },
+        )
 
     return StreamingResponse(
         BytesIO(result["output_content"]),
@@ -677,10 +716,36 @@ def list_osemosys_summary(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
 
 
+@router.get("/{scenario_id}/osemosys-param-audit", response_model=OsemosysParamAuditPage)
+def list_osemosys_param_audit(
+    scenario_id: int,
+    param_name: str = Query(..., min_length=1, max_length=128),
+    offset: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Historial de cambios (auditoría) para un parámetro OSeMOSYS del escenario."""
+    try:
+        return ScenarioService.list_osemosys_param_audit(
+            db,
+            scenario_id=scenario_id,
+            current_user=current_user,
+            param_name=param_name,
+            offset=offset,
+            limit=limit,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+
 @router.get("/{scenario_id}/osemosys-values", response_model=OsemosysValuesPage)
 def list_osemosys_values(
     scenario_id: int,
     param_name: str | None = None,
+    param_name_exact: bool = False,
     year: int | None = None,
     search: str | None = None,
     offset: int = 0,
@@ -695,6 +760,7 @@ def list_osemosys_values(
             scenario_id=scenario_id,
             current_user=current_user,
             param_name=param_name,
+            param_name_exact=param_name_exact,
             year=year,
             search=search,
             offset=offset,

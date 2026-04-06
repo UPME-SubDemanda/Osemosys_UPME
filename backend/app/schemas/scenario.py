@@ -150,6 +150,7 @@ class SandIntegrationResponse(BaseModel):
     has_log: bool = False
     log_line_count: int = 0
     has_cambios_xlsx: bool = False
+    integration_failed: bool = False
 
 
 class ExcelUpdatePreviewRow(BaseModel):

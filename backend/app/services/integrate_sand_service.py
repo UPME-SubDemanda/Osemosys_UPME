@@ -37,6 +37,52 @@ KEY_COLS = [
 
 VALUE_COLS = ["Time indipendent variables"] + [str(y) for y in range(2022, 2056)]
 RTOL = 1e-6
+
+
+def _canonical_year_column_name(name: object) -> str | None:
+    """Si `name` representa un año 2022-2055, devuelve la cadena canónica; si no, None."""
+    y: int | None = None
+    if isinstance(name, bool):
+        return None
+    if isinstance(name, (int, np.integer)):
+        y = int(name)
+    elif isinstance(name, float):
+        if not np.isfinite(name):
+            return None
+        r = round(name)
+        if abs(name - r) > 1e-9:
+            return None
+        y = int(r)
+    elif isinstance(name, str):
+        s = name.strip()
+        if len(s) == 4 and s.isdigit():
+            y = int(s)
+    if y is None or y not in range(2022, 2056):
+        return None
+    return str(y)
+
+
+def _normalize_value_column_names(df: pd.DataFrame) -> pd.DataFrame:
+    """Unifica encabezados de año: Excel a veces guarda años como número (2022) y pandas los usa como int."""
+    rename: dict[object, str] = {}
+    drop_cols: list[object] = []
+
+    for c in df.columns:
+        target = _canonical_year_column_name(c)
+        if target is None:
+            continue
+        if isinstance(c, str) and c.strip() == target:
+            continue
+        if target in df.columns and c != target:
+            if isinstance(c, (int, float, np.integer)) and not isinstance(c, bool):
+                drop_cols.append(c)
+            continue
+        rename[c] = target
+
+    out = df.drop(columns=drop_cols, errors="ignore")
+    if rename:
+        out = out.rename(columns=rename)
+    return out
 _SENTINEL = -999999.123456789
 ALLOWED_EXCEL_EXTENSIONS = {".xlsx", ".xlsm", ".xls", ".xlsb", ".xltx", ".xltm"}
 
@@ -53,6 +99,7 @@ def _clean_csv_values(value: str | None) -> list[str]:
 
 def _read_parameters_from_bytes(content: bytes) -> pd.DataFrame:
     df = pd.read_excel(BytesIO(content), sheet_name="Parameters", engine="calamine")
+    df = _normalize_value_column_names(df)
 
     for col in KEY_COLS:
         if col in df.columns:
@@ -501,6 +548,7 @@ class IntegrateSandService:
         names_new: list[str] = []
         duplicate_detail_frames: list[pd.DataFrame] = []
         cambios_excel_content = b""
+        fatal_integration_error = False
 
         try:
             df_base = _read_parameters_from_bytes(base_content)
@@ -601,6 +649,7 @@ class IntegrateSandService:
                 )
 
         except Exception as exc:
+            fatal_integration_error = True
             errors.append(f"ERROR FATAL: {type(exc).__name__}: {exc}")
             if isinstance(exc, KeyError):
                 errors.append(
@@ -617,15 +666,18 @@ class IntegrateSandService:
                     "Causa probable: columnas de año con tipo mixto (texto + número)."
                 )
             errors.append(traceback.format_exc())
-            warnings.append("La integración finalizó con errores; se devuelve un resultado parcial.")
+            warnings.append(
+                "La integración falló con error fatal. No se generó el archivo Excel integrado; "
+                "use el log adjunto para el detalle."
+            )
             if df_acum is None:
                 df_acum = pd.DataFrame()
             summary_lines = [
                 "INTEGRACION MULTIPLE SAND",
-                "ESTADO: ERROR",
+                "ESTADO: ERROR FATAL",
                 f"Base: {Path(base_filename).name}",
+                "No se generó el Excel integrado (no se devuelve el archivo base como sustituto).",
                 f"Conflictos detectados hasta el error: {len(conflicts)}",
-                f"Filas parciales: {len(df_acum)}",
             ]
             log_text = build_fatal_error_log(
                 base_filename,
@@ -633,11 +685,15 @@ class IntegrateSandService:
                 errors,
             )
 
-        output_buffer = BytesIO()
-        t_exp_start = time.time()
-        df_acum.to_excel(output_buffer, sheet_name="Parameters", index=False, engine="openpyxl")
-        output_content = output_buffer.getvalue()
-        export_dt = time.time() - t_exp_start
+        if fatal_integration_error:
+            output_content = b""
+            export_dt = 0.0
+        else:
+            output_buffer = BytesIO()
+            t_exp_start = time.time()
+            df_acum.to_excel(output_buffer, sheet_name="Parameters", index=False, engine="openpyxl")
+            output_content = output_buffer.getvalue()
+            export_dt = time.time() - t_exp_start
 
         if not log_text:
             validation_ok_msg = (
@@ -691,7 +747,7 @@ class IntegrateSandService:
         return {
             "output_filename": output_filename,
             "output_content": output_content,
-            "total_filas": len(df_acum),
+            "total_filas": 0 if fatal_integration_error else len(df_acum),
             "contribuciones": contributions,
             "conflictos_count": len(conflicts),
             "resumen": "\n".join(summary_lines),
@@ -699,4 +755,5 @@ class IntegrateSandService:
             "errors": errors,
             "log_text": log_text,
             "cambios_excel_content": cambios_excel_content,
+            "integration_failed": fatal_integration_error,
         }

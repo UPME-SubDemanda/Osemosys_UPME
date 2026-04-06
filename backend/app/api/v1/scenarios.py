@@ -278,6 +278,7 @@ def concatenate_sand_files(
 
     log_text = result.get("log_text") or ""
     log_line_count = len(log_text.splitlines()) if log_text else 0
+    integration_failed = bool(result.get("integration_failed"))
 
     summary_obj = SandIntegrationResponse.model_validate(
         {
@@ -287,14 +288,45 @@ def concatenate_sand_files(
             "resumen": result["resumen"],
             "warnings": result["warnings"],
             "errors": result.get("errors", []),
-            "has_log": want_log_zip and bool(log_text.strip()),
+            "has_log": bool(log_text.strip())
+            and (want_log_zip or integration_failed),
             "log_line_count": log_line_count,
-            "has_cambios_xlsx": want_log_zip and bool((result.get("cambios_excel_content") or b"")),
+            "has_cambios_xlsx": want_log_zip
+            and bool((result.get("cambios_excel_content") or b""))
+            and not integration_failed,
+            "integration_failed": integration_failed,
         }
     )
     summary_json = summary_obj.model_dump_json()
     summary_header = base64.urlsafe_b64encode(summary_json.encode("utf-8")).decode("ascii")
     output_filename = result["output_filename"]
+
+    if integration_failed:
+        if want_log_zip:
+            zip_buf = BytesIO()
+            stem = Path(base_filename).stem
+            zip_name = f"{stem}_integracion_error.zip"
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("integracion_sand_log.txt", log_text.encode("utf-8"))
+            zip_buf.seek(0)
+            return StreamingResponse(
+                zip_buf,
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{zip_name}"',
+                    "X-Sand-Integration-Summary": summary_header,
+                    "X-Sand-Integration-Summary-Format": "base64-json",
+                },
+            )
+        return StreamingResponse(
+            BytesIO(log_text.encode("utf-8")),
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="integracion_sand_log.txt"',
+                "X-Sand-Integration-Summary": summary_header,
+                "X-Sand-Integration-Summary-Format": "base64-json",
+            },
+        )
 
     if want_log_zip:
         zip_buf = BytesIO()

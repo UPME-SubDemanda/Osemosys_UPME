@@ -6,6 +6,7 @@ import zipfile
 from io import BytesIO
 
 import pandas as pd
+import pytest
 
 from app.services.integrate_sand_log import (
     append_conflicts_lines,
@@ -13,7 +14,14 @@ from app.services.integrate_sand_log import (
     build_integration_sand_log,
     extract_contribution_with_combinaciones,
 )
-from app.services.integrate_sand_service import KEY_COLS, IntegrateSandService
+import numpy as np
+
+from app.services.integrate_sand_service import (
+    KEY_COLS,
+    IntegrateSandService,
+    _normalize_value_column_names,
+    _read_parameters_from_bytes,
+)
 
 
 def _minimal_sand_excel_bytes(rows: list[dict]) -> bytes:
@@ -92,6 +100,62 @@ def test_build_fatal_error_log() -> None:
     assert "ERROR" in t
     assert "base.xlsm" in t
     assert "Error X" in t
+
+
+def test_normalize_value_column_names_int_and_float_years() -> None:
+    df = pd.DataFrame([[1.0, 2.0, 3.0]], columns=["Parameter", 2022, 2023])
+    out = _normalize_value_column_names(df)
+    assert "2022" in out.columns and "2023" in out.columns
+    assert 2022 not in out.columns and 2023 not in out.columns
+
+    df2 = pd.DataFrame([[1.0]], columns=[2022.0])
+    out2 = _normalize_value_column_names(df2)
+    assert list(out2.columns) == ["2022"]
+
+    df3 = pd.DataFrame([[1.0]], columns=[np.int64(2024)])
+    assert "2024" in list(_normalize_value_column_names(df3).columns)
+
+
+def test_normalize_value_column_names_string_years_unchanged() -> None:
+    df = pd.DataFrame([[1.0, 2.0]], columns=["2022", "2023"])
+    out = _normalize_value_column_names(df)
+    assert list(out.columns) == ["2022", "2023"]
+
+
+def test_normalize_drops_duplicate_int_and_str_same_year() -> None:
+    df = pd.DataFrame([[1.0, 2.0]], columns=[2022, "2022"])
+    out = _normalize_value_column_names(df)
+    assert list(out.columns) == ["2022"]
+    assert float(out.iloc[0, 0]) == 2.0
+
+
+def test_read_parameters_from_bytes_applies_year_normalization() -> None:
+    raw = pd.DataFrame([[1.0, 2.0]], columns=["Parameter", 2025])
+    buf = BytesIO()
+    raw.to_excel(buf, sheet_name="Parameters", index=False, engine="openpyxl")
+    df = _read_parameters_from_bytes(buf.getvalue())
+    assert "2025" in df.columns
+    assert 2025 not in df.columns
+    assert pd.api.types.is_numeric_dtype(df["2025"])
+
+
+def test_integrate_sand_fatal_error_no_excel_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(*_a: object, **_k: object) -> None:
+        raise KeyError("forced")
+
+    monkeypatch.setattr("app.services.integrate_sand_service._detect_diffs", _boom)
+    base_bytes = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="TECH_A")])
+    new_bytes = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="TECH_A")])
+    result = IntegrateSandService.integrate_sand_files(
+        base_filename="base.xlsx",
+        base_content=base_bytes,
+        new_files=[("new.xlsx", new_bytes)],
+    )
+    assert result.get("integration_failed") is True
+    assert result.get("output_content") == b""
+    assert result.get("total_filas") == 0
+    assert result.get("errors")
+    assert "ERROR FATAL" in result["errors"][0]
 
 
 def test_integrate_sand_files_returns_log_text() -> None:

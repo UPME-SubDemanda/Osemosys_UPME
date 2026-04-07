@@ -9,7 +9,8 @@ import { useNavigate } from "react-router-dom";
 import { useCurrentUser } from "@/app/providers/useCurrentUser";
 import { useToast } from "@/app/providers/useToast";
 import { officialImportApi } from "@/features/officialImport/api/officialImportApi";
-import { scenariosApi } from "@/features/scenarios/api/scenariosApi";
+import { scenariosApi, type SandIntegrationSummary } from "@/features/scenarios/api/scenariosApi";
+import { isApiError } from "@/shared/errors/ApiError";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { Modal } from "@/shared/components/Modal";
@@ -31,6 +32,40 @@ const editPolicyLabel: Record<ScenarioEditPolicy, string> = {
 };
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+
+function formatSandIntegrationFailureDetail(summary: SandIntegrationSummary): string {
+  const parts: string[] = [];
+  if (summary.resumen?.trim()) {
+    parts.push(`--- Resumen ---\n${summary.resumen.trim()}`);
+  }
+  if (summary.errors?.length) {
+    parts.push(
+      `--- Errores ---\n${summary.errors.map((line, i) => `${i + 1}. ${line}`).join("\n")}`,
+    );
+  }
+  if (summary.warnings?.length) {
+    parts.push(`--- Advertencias ---\n${summary.warnings.join("\n")}`);
+  }
+  return parts.join("\n\n") || "La integración falló sin mensaje adicional.";
+}
+
+function formatConcatAxiosErrorDetail(err: unknown): string {
+  if (isApiError(err)) {
+    let s = err.message;
+    const details = err.details as { response?: unknown } | undefined;
+    if (details?.response !== undefined && details.response !== null) {
+      const r = details.response;
+      if (typeof r === "object") {
+        s += `\n\n--- Detalle del servidor ---\n${JSON.stringify(r, null, 2)}`;
+      } else if (typeof r === "string") {
+        s += `\n\n--- Detalle ---\n${r}`;
+      }
+    }
+    return s;
+  }
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
 
 function buildCloneName(sourceName: string): string {
   const normalized = sourceName.trim().replace(/(?:\s*\(copia\))+$/i, "").trim();
@@ -86,6 +121,8 @@ export function ScenariosPage() {
   const [concatUploadPhase, setConcatUploadPhase] = useState<UploadPhase>("idle");
   const [concatUploadPercent, setConcatUploadPercent] = useState(0);
   const [concatUploadStartedAt, setConcatUploadStartedAt] = useState<number | null>(null);
+  const [concatErrorDetail, setConcatErrorDetail] = useState<string | null>(null);
+  const [concatErrorExpanded, setConcatErrorExpanded] = useState(false);
 
   const fetchScenarios = useCallback(async () => {
     if (!user) return;
@@ -330,6 +367,8 @@ export function ScenariosPage() {
     setConcatUploadPhase("idle");
     setConcatUploadPercent(0);
     setConcatUploadStartedAt(null);
+    setConcatErrorDetail(null);
+    setConcatErrorExpanded(false);
   }
 
   async function handleCloseConcatSand() {
@@ -358,6 +397,8 @@ export function ScenariosPage() {
     setConcatUploadPhase("uploading");
     setConcatUploadPercent(0);
     setConcatUploadStartedAt(Date.now());
+    setConcatErrorDetail(null);
+    setConcatErrorExpanded(false);
 
     try {
       const { blob, filename, summary } = await scenariosApi.concatenateSand(
@@ -374,6 +415,25 @@ export function ScenariosPage() {
         },
         abortCtrl.signal,
       );
+
+      if (summary.integration_failed) {
+        setConcatUploadPhase("error");
+        setConcatErrorDetail(formatSandIntegrationFailureDetail(summary));
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        push(
+          "La integración falló. Se descargó el informe (log o ZIP con el log). Revisa el detalle con «Ver más».",
+          "error",
+        );
+        return;
+      }
+
       setConcatUploadPhase("done");
 
       const url = URL.createObjectURL(blob);
@@ -406,6 +466,8 @@ export function ScenariosPage() {
     } catch (err) {
       if (abortCtrl.signal.aborted) return;
       setConcatUploadPhase("error");
+      setConcatErrorDetail(formatConcatAxiosErrorDetail(err));
+      setConcatErrorExpanded(false);
       push(err instanceof Error ? err.message : "No se pudo concatenar archivos SAND.", "error");
     } finally {
       setConcatingSand(false);
@@ -870,6 +932,38 @@ export function ScenariosPage() {
               fileSizeBytes={concatBaseFile?.size ?? 0}
               startedAt={concatUploadStartedAt}
             />
+          ) : null}
+
+          {concatUploadPhase === "error" && concatErrorDetail ? (
+            <div style={{ display: "grid", gap: 8 }}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setConcatErrorExpanded((v) => !v)}
+                style={{ justifySelf: "start", paddingLeft: 0 }}
+              >
+                {concatErrorExpanded ? "Ver menos" : "Ver más"}
+              </Button>
+              {concatErrorExpanded ? (
+                <pre
+                  style={{
+                    margin: 0,
+                    padding: 12,
+                    fontSize: 12,
+                    lineHeight: 1.45,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    borderRadius: 8,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(0,0,0,0.25)",
+                    maxHeight: 280,
+                    overflow: "auto",
+                  }}
+                >
+                  {concatErrorDetail}
+                </pre>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </Modal>

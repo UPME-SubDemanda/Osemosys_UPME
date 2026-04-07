@@ -47,6 +47,7 @@ from app.models import (
     UdcSet,
 )
 from app.services.sand_notebook_preprocess import run_notebook_preprocess
+from app.simulation.core.mode_of_operation_normalize import normalize_mode_of_operation_scalar
 
 
 logger = logging.getLogger("excel_performance")
@@ -733,6 +734,8 @@ def _parse_sand_rows(
         emission_name = _dimension_str(_cell("emission"))
         timeslice_code = _dimension_str(_cell("timeslice"))
         mode_code = _dimension_str(_cell("mode_of_operation"))
+        if mode_code is not None:
+            mode_code = normalize_mode_of_operation_scalar(mode_code) or None
         storage_code = _dimension_str(_cell("storage"))
         season_code = _dimension_str(_cell("season"))
         daytype_code = _dimension_str(_cell("daytype"))
@@ -3230,10 +3233,13 @@ class OfficialImportService:
             id_timeslice = _get_or_create_code_id(
                 db, model=Timeslice, code=_dimension_str(ch.get("timeslice_code")), ref_map=timeslice_map
             )
+            _mode_code = _dimension_str(ch.get("mode_of_operation_code"))
+            if _mode_code is not None:
+                _mode_code = normalize_mode_of_operation_scalar(_mode_code) or None
             id_mode = _get_or_create_code_id(
                 db,
                 model=ModeOfOperation,
-                code=_dimension_str(ch.get("mode_of_operation_code")),
+                code=_mode_code,
                 ref_map=mode_map,
             )
             id_season = _get_or_create_code_id(

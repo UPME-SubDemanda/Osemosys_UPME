@@ -108,6 +108,8 @@ export type SandIntegrationSummary = {
   has_log?: boolean;
   log_line_count?: number;
   has_cambios_xlsx?: boolean;
+  /** true cuando el backend no generó Excel integrado (solo log de error). */
+  integration_failed?: boolean;
 };
 
 export type ExcelUpdatePreviewRow = {
@@ -157,12 +159,21 @@ type ScenarioListParams = {
   offset?: number;
 };
 
+/**
+ * Decodifica JSON en Base64 URL-safe. El backend codifica UTF-8; hay que pasar por TextDecoder
+ * para no interpretar bytes UTF-8 como Latin-1 (mojibake: integraciÃ³n → integración).
+ */
 function decodeBase64JsonHeader<T>(rawHeader: string | undefined, fallback: T): T {
   if (!rawHeader) return fallback;
   try {
     const normalized = rawHeader.replace(/-/g, "+").replace(/_/g, "/");
     const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-    const text = atob(padded);
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const text = new TextDecoder("utf-8").decode(bytes);
     return JSON.parse(text) as T;
   } catch {
     return fallback;
@@ -308,6 +319,7 @@ export const scenariosApi = {
         has_log: false,
         log_line_count: 0,
         has_cambios_xlsx: false,
+        integration_failed: false,
       },
     );
 

@@ -39,6 +39,10 @@ from app.models import (
     Timeslice,
     UdcSet,
 )
+from app.simulation.core.mode_of_operation_normalize import (
+    normalize_mode_of_operation_scalar,
+    normalize_mode_of_operation_series,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +123,30 @@ _DIM_COL: dict[str, int] = {
     "TIMESLICE": 4, "MODE_OF_OPERATION": 5, "SEASON": 6, "DAYTYPE": 7,
     "DAILYTIMEBRACKET": 8, "STORAGE": 9, "UDC": 10, "YEAR": 11,
 }
+
+
+def normalize_mode_of_operation_in_csv_dir(csv_dir: str) -> None:
+    """Normaliza MODE_OF_OPERATION en MODE_OF_OPERATION.csv y en parámetros que la incluyen."""
+    moo_path = os.path.join(csv_dir, "MODE_OF_OPERATION.csv")
+    if os.path.exists(moo_path):
+        df = pd.read_csv(moo_path)
+        if not df.empty and "VALUE" in df.columns:
+            df["VALUE"] = normalize_mode_of_operation_series(df["VALUE"])
+            df = df[df["VALUE"] != ""]
+            df = df.drop_duplicates(subset=["VALUE"], keep="first")
+            df.to_csv(moo_path, index=False)
+
+    for pname, cols in PARAM_INDEX.items():
+        if "MODE_OF_OPERATION" not in cols:
+            continue
+        ppath = os.path.join(csv_dir, f"{pname}.csv")
+        if not os.path.exists(ppath):
+            continue
+        df = pd.read_csv(ppath)
+        if df.empty or "MODE_OF_OPERATION" not in df.columns:
+            continue
+        df["MODE_OF_OPERATION"] = normalize_mode_of_operation_series(df["MODE_OF_OPERATION"])
+        df.to_csv(ppath, index=False)
 
 
 def _resolved_query():
@@ -267,6 +295,11 @@ def export_scenario_to_csv(
                     skip_row = True
                     break
                 resolved = int(raw)
+            elif dim == "MODE_OF_OPERATION":
+                resolved = normalize_mode_of_operation_scalar(raw)
+                if resolved == "":
+                    skip_row = True
+                    break
             else:
                 resolved = str(raw) if raw is not None else ""
             record[dim] = resolved
@@ -410,7 +443,7 @@ def export_scenario_to_csv(
     if not sets.get("TIMESLICE"):
         sets["TIMESLICE"]["1"] = None
     if not sets.get("MODE_OF_OPERATION"):
-        sets["MODE_OF_OPERATION"]["1.0"] = None
+        sets["MODE_OF_OPERATION"]["1"] = None
 
     # ------------------------------------------------------------------
     # Excluir años donde YearSplit == 0 (años de cierre sin operación).
@@ -566,11 +599,14 @@ def completar_Matrix_Act_Ratio(path_csv: str, variable: str) -> None:
     Así DataPortal no rellena con 0 sino que usa el default del modelo para índices faltantes.
     """
     df = pd.read_csv(path_csv + variable)
+    df["MODE_OF_OPERATION"] = normalize_mode_of_operation_series(df["MODE_OF_OPERATION"])
 
     regions = df["REGION"].unique()
     technologies = pd.read_csv(path_csv + "TECHNOLOGY.csv", dtype=str)["VALUE"].unique()
     fuels = pd.read_csv(path_csv + "FUEL.csv", dtype=str)["VALUE"].unique()
-    modes = pd.read_csv(path_csv + "MODE_OF_OPERATION.csv")["VALUE"].unique()
+    moo_df = pd.read_csv(path_csv + "MODE_OF_OPERATION.csv")
+    modes = normalize_mode_of_operation_series(moo_df["VALUE"])
+    modes = modes[modes != ""].drop_duplicates().tolist()
     years = pd.read_csv(path_csv + "YEAR.csv")["VALUE"].unique()
 
     all_combinations = pd.DataFrame(itertools.product(
@@ -587,11 +623,14 @@ def completar_Matrix_Act_Ratio(path_csv: str, variable: str) -> None:
 def completar_Matrix_Emission(path_csv: str, variable: str) -> None:
     """Completa la matriz de EmissionActivityRatio (REGION×TECHNOLOGY×EMISSION×MODE×YEAR)."""
     df = pd.read_csv(path_csv + variable)
+    df["MODE_OF_OPERATION"] = normalize_mode_of_operation_series(df["MODE_OF_OPERATION"])
 
     regions = df["REGION"].unique()
     technologies = pd.read_csv(path_csv + "TECHNOLOGY.csv")["VALUE"].unique()
     emission = pd.read_csv(path_csv + "EMISSION.csv")["VALUE"].unique()
-    modes = pd.read_csv(path_csv + "MODE_OF_OPERATION.csv")["VALUE"].unique()
+    moo_df = pd.read_csv(path_csv + "MODE_OF_OPERATION.csv")
+    modes = normalize_mode_of_operation_series(moo_df["VALUE"])
+    modes = modes[modes != ""].drop_duplicates().tolist()
     years = pd.read_csv(path_csv + "YEAR.csv")["VALUE"].unique()
 
     all_combinations = pd.DataFrame(itertools.product(
@@ -608,11 +647,14 @@ def completar_Matrix_Emission(path_csv: str, variable: str) -> None:
 def completar_Matrix_Storage(path_csv: str, variable: str) -> None:
     """Completa TechnologyToStorage o TechnologyFromStorage (REGION×TECHNOLOGY×STORAGE×MODE)."""
     df = pd.read_csv(path_csv + variable)
+    df["MODE_OF_OPERATION"] = normalize_mode_of_operation_series(df["MODE_OF_OPERATION"])
 
     regions = df["REGION"].unique()
     technologies = pd.read_csv(path_csv + "TECHNOLOGY.csv")["VALUE"].unique()
     storage = pd.read_csv(path_csv + "STORAGE.csv")["VALUE"].unique()
-    modes = pd.read_csv(path_csv + "MODE_OF_OPERATION.csv")["VALUE"].unique()
+    moo_df = pd.read_csv(path_csv + "MODE_OF_OPERATION.csv")
+    modes = normalize_mode_of_operation_series(moo_df["VALUE"])
+    modes = modes[modes != ""].drop_duplicates().tolist()
 
     all_combinations = pd.DataFrame(itertools.product(
         regions, technologies, storage, modes),
@@ -628,10 +670,13 @@ def completar_Matrix_Storage(path_csv: str, variable: str) -> None:
 def completar_Matrix_Cost(path_csv: str, variable: str) -> None:
 
     df = pd.read_csv(path_csv + variable)
+    df["MODE_OF_OPERATION"] = normalize_mode_of_operation_series(df["MODE_OF_OPERATION"])
 
     regions = df["REGION"].unique()
     technologies = pd.read_csv(path_csv + "TECHNOLOGY.csv")["VALUE"].unique()
-    modes = pd.read_csv(path_csv + "MODE_OF_OPERATION.csv")["VALUE"].unique()
+    moo_df = pd.read_csv(path_csv + "MODE_OF_OPERATION.csv")
+    modes = normalize_mode_of_operation_series(moo_df["VALUE"])
+    modes = modes[modes != ""].drop_duplicates().tolist()
     years = pd.read_csv(path_csv + "YEAR.csv")["VALUE"].unique()
 
     all_combinations = pd.DataFrame(itertools.product(
@@ -664,6 +709,12 @@ def process_and_save_emission_ratios(emission_activity_path, input_activity_path
     """
     df_emission = pd.read_csv(path_csv + emission_activity_path)
     df_input = pd.read_csv(path_csv + input_activity_path)
+    df_emission["MODE_OF_OPERATION"] = normalize_mode_of_operation_series(
+        df_emission["MODE_OF_OPERATION"]
+    )
+    df_input["MODE_OF_OPERATION"] = normalize_mode_of_operation_series(
+        df_input["MODE_OF_OPERATION"]
+    )
 
     merged = pd.merge(
         df_emission,
@@ -1003,6 +1054,9 @@ def reorder_activity_ratio_csvs_for_dataportal(csv_dir: str) -> None:
             df = pd.read_csv(ratio_path)
             expected_cols = ["REGION", "TECHNOLOGY", "FUEL", "MODE_OF_OPERATION", "YEAR", "VALUE"]
             if all(c in df.columns for c in expected_cols):
+                df["MODE_OF_OPERATION"] = normalize_mode_of_operation_series(
+                    df["MODE_OF_OPERATION"]
+                )
                 df[expected_cols].to_csv(ratio_path, index=False)
 
 
@@ -1034,13 +1088,7 @@ def strip_whitespace_in_set_csvs(csv_dir: str) -> None:
 
             df["VALUE"] = df["VALUE"].map(_year_cell)
         elif name == "MODE_OF_OPERATION":
-
-            def _moo_cell(v):
-                if pd.isna(v):
-                    return v
-                return float(str(v).strip())
-
-            df["VALUE"] = df["VALUE"].map(_moo_cell)
+            df["VALUE"] = normalize_mode_of_operation_series(df["VALUE"])
         else:
             df["VALUE"] = df["VALUE"].map(
                 lambda x: str(x).strip() if pd.notna(x) else x,
@@ -1074,6 +1122,9 @@ def _build_processing_result_from_csv_dir(csv_dir: str) -> ProcessingResult:
             if not text:
                 return None
             return int(float(text))
+        if set_name == "MODE_OF_OPERATION":
+            m = normalize_mode_of_operation_scalar(raw_value)
+            return m if m != "" else None
         return str(raw_value).strip()
 
     for name in set_files:
@@ -1151,6 +1202,8 @@ def run_data_processing_from_excel(
 
     logger.info("Generando CSVs desde Excel %s hacia %s", excel_path, csv_dir)
     generate_csvs_from_excel(excel_path, csv_dir, sheet_name=sheet_name, div=div)
+
+    normalize_mode_of_operation_in_csv_dir(csv_dir)
 
     # 2. Eliminar valores fuera de índices (celda 8)
     eliminar_valores_fuera_de_indices(csv_dir)
@@ -1247,6 +1300,8 @@ def run_data_processing(
     # 1. BD → CSVs base (sets + parámetros)
     result = export_scenario_to_csv(db, scenario_id=scenario_id, csv_dir=csv_dir)
     logger.info("Exportados %d registros de parámetros", result.param_count)
+
+    normalize_mode_of_operation_in_csv_dir(csv_dir)
 
     # 2. Eliminar valores fuera de índices (celda 8)
     eliminar_valores_fuera_de_indices(csv_dir)

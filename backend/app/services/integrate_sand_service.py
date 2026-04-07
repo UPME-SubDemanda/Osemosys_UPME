@@ -21,6 +21,7 @@ from app.services.integrate_sand_log import (
     build_integration_sand_log,
     extract_contribution_with_combinaciones,
 )
+from app.simulation.core.mode_of_operation_normalize import normalize_mode_of_operation_series
 
 
 KEY_COLS = [
@@ -104,6 +105,9 @@ def _read_parameters_from_bytes(content: bytes) -> pd.DataFrame:
     for col in KEY_COLS:
         if col in df.columns:
             df[col] = df[col].fillna("").astype(str).str.strip()
+
+    if "MODE_OF_OPERATION" in df.columns:
+        df["MODE_OF_OPERATION"] = normalize_mode_of_operation_series(df["MODE_OF_OPERATION"])
 
     for col in VALUE_COLS:
         if col in df.columns:
@@ -691,6 +695,11 @@ class IntegrateSandService:
         else:
             output_buffer = BytesIO()
             t_exp_start = time.time()
+            if "MODE_OF_OPERATION" in df_acum.columns:
+                df_acum = df_acum.copy()
+                df_acum["MODE_OF_OPERATION"] = normalize_mode_of_operation_series(
+                    df_acum["MODE_OF_OPERATION"]
+                )
             df_acum.to_excel(output_buffer, sheet_name="Parameters", index=False, engine="openpyxl")
             output_content = output_buffer.getvalue()
             export_dt = time.time() - t_exp_start

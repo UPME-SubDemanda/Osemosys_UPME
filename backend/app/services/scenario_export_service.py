@@ -15,6 +15,7 @@ from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
 from app.simulation.core.data_processing import PARAM_INDEX, _resolved_query
+from app.simulation.core.mode_of_operation_normalize import normalize_mode_of_operation_scalar
 
 # Cabeceras SAND para export (mismo orden que reconoce el importador).
 # _resolved_query devuelve: param_name, region, technology, fuel, emission, timeslice, mode, season, daytype, dailytimebracket, storage, udc, year, value
@@ -57,6 +58,17 @@ def _row_to_str(val) -> str:
     return str(val).strip()
 
 
+# Índice de columna SQL en _resolved_query: row[6] = mode_of_operation (mo.code).
+_ROW_IDX_MODE_OF_OPERATION = 6
+
+
+def _dimension_cell_str(row, i: int) -> str:
+    """Convierte una celda de dimensión a string; MODE_OF_OPERATION con reglas canónicas."""
+    if i == _ROW_IDX_MODE_OF_OPERATION:
+        return normalize_mode_of_operation_scalar(row[i])
+    return _row_to_str(row[i])
+
+
 def export_scenario_to_excel(db: Session, *, scenario_id: int, scenario_name: str) -> bytes:
     """
     Genera un Excel con una hoja "Parameters" en formato SAND a partir de
@@ -84,7 +96,7 @@ def export_scenario_to_excel(db: Session, *, scenario_id: int, scenario_name: st
         if year_val is not None:
             years_used.add(year_val)
 
-        key = (pname,) + tuple(_row_to_str(row[i]) for i in range(1, 12))
+        key = (pname,) + tuple(_dimension_cell_str(row, i) for i in range(1, 12))
         grouped[key][year_val] = value
 
     years_sorted = sorted(years_used) if years_used else []
@@ -160,7 +172,8 @@ def export_scenario_raw_to_excel(db: Session, *, scenario_id: int, scenario_name
     for excel_row, row in enumerate(result_proxy.yield_per(50_000), start=2):
         ws.cell(row=excel_row, column=1, value=_row_to_str(row[0]) or None)
         for idx, col in enumerate(range(1, 12), start=2):
-            ws.cell(row=excel_row, column=idx, value=_row_to_str(row[col]) or None)
+            cell = _dimension_cell_str(row, col) or None
+            ws.cell(row=excel_row, column=idx, value=cell)
         ws.cell(row=excel_row, column=13, value=int(row[12]) if row[12] is not None else None)
         ws.cell(row=excel_row, column=14, value=float(row[13]) if row[13] is not None else None)
 

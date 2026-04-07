@@ -16,9 +16,11 @@ from app.services.integrate_sand_log import (
 )
 import numpy as np
 
+from app.services.integrate_sand_cambios_excel import build_conflictos_workbook_bytes
 from app.services.integrate_sand_service import (
     KEY_COLS,
     IntegrateSandService,
+    _drop_keys,
     _normalize_value_column_names,
     _read_parameters_from_bytes,
 )
@@ -156,6 +158,84 @@ def test_integrate_sand_fatal_error_no_excel_output(monkeypatch: pytest.MonkeyPa
     assert result.get("total_filas") == 0
     assert result.get("errors")
     assert "ERROR FATAL" in result["errors"][0]
+
+
+def test_drop_keys_removed_rows_and_motivo() -> None:
+    df = pd.DataFrame(
+        {
+            "TECHNOLOGY": ["T1", "T1", "T2", "T3"],
+            "FUEL": ["F1", "X", "F2", "F3"],
+            "extra": [1, 2, 3, 4],
+        }
+    )
+    out, n_tech, n_fuel, rem = _drop_keys(df, ["T1"], ["F2"])
+    assert n_tech == 2
+    assert n_fuel == 1
+    assert len(out) == 1
+    assert out.iloc[0]["TECHNOLOGY"] == "T3"
+    assert len(rem) == 3
+    assert set(rem["motivo_eliminacion"].unique()) == {"TECHNOLOGY", "FUEL"}
+    assert (rem[rem["TECHNOLOGY"] == "T1"]["motivo_eliminacion"] == "TECHNOLOGY").all()
+    assert (rem[(rem["TECHNOLOGY"] == "T2")]["motivo_eliminacion"] == "FUEL").all()
+
+
+def test_cambios_excel_omits_eliminada_and_reports_drop_sheet() -> None:
+    """Diffs pueden incluir ELIMINADA (clave en base, ausente en nuevo); no va al Excel de cambios."""
+    base_rows = [
+        _sand_row(Parameter="CapCost", TECHNOLOGY="TECH_A"),
+        _sand_row(Parameter="CapCost", TECHNOLOGY="TECH_B"),
+    ]
+    new_rows = [_sand_row(Parameter="CapCost", TECHNOLOGY="TECH_B")]
+    base_bytes = _minimal_sand_excel_bytes(base_rows)
+    new_bytes = _minimal_sand_excel_bytes(new_rows)
+    result = IntegrateSandService.integrate_sand_files(
+        base_filename="base.xlsx",
+        base_content=base_bytes,
+        new_files=[("new.xlsx", new_bytes)],
+        drop_techs_csv="TECH_A",
+    )
+    assert result.get("integration_failed") is not True
+    cambios = result.get("cambios_excel_content") or b""
+    assert len(cambios) > 100
+    buf = BytesIO(cambios)
+    df_cambios = pd.read_excel(buf, sheet_name="Cambios_vs_base")
+    if "tipo_cambio" in df_cambios.columns:
+        assert (df_cambios["tipo_cambio"] == "ELIMINADA").sum() == 0
+    buf.seek(0)
+    raw_drop = pd.read_excel(buf, sheet_name="Eliminaciones_drop", header=None)
+    flat = [str(x) for x in raw_drop.values.ravel() if pd.notna(x)]
+    joined = " ".join(flat)
+    assert "TECH_A" in joined
+    assert "motivo_eliminacion" in joined
+    assert "TECHNOLOGY" in joined
+
+
+def test_build_conflictos_workbook_bytes_non_empty() -> None:
+    b = build_conflictos_workbook_bytes(
+        [
+            {
+                "tipo": "MODIFICADA",
+                "columna": "2022",
+                "archivos": {"a.xlsm": 1.0, "b.xlsm": 2.0},
+                **{k: "" for k in KEY_COLS},
+            }
+        ]
+    )
+    assert len(b) > 80
+
+
+def test_integrate_two_new_files_conflict_skips_cambios_excel() -> None:
+    """Con disputa entre archivos nuevos no se genera cambios_integracion.xlsx en memoria."""
+    base_bytes = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="T")])
+    new_a = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="T", **{"2022": 2.0})])
+    new_b = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="T", **{"2022": 3.0})])
+    result = IntegrateSandService.integrate_sand_files(
+        base_filename="base.xlsx",
+        base_content=base_bytes,
+        new_files=[("a.xlsx", new_a), ("b.xlsx", new_b)],
+    )
+    assert result["conflictos_count"] >= 1
+    assert (result.get("cambios_excel_content") or b"") == b""
 
 
 def test_integrate_sand_files_returns_log_text() -> None:

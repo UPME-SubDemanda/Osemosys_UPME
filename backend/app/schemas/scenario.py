@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -144,12 +144,14 @@ class SandIntegrationResponse(BaseModel):
     total_filas: int
     contribuciones: list[SandContribution]
     conflictos_count: int
+    conflictos: list[dict[str, Any]] = []
     resumen: str
     warnings: list[str]
     errors: list[str] = []
     has_log: bool = False
     log_line_count: int = 0
     has_cambios_xlsx: bool = False
+    has_conflictos_xlsx: bool = False
     integration_failed: bool = False
 
 

@@ -485,7 +485,9 @@ def _extract_contribution(df_diffs: pd.DataFrame, archivo: str) -> dict:
     }
 
 
-def _drop_keys(df: pd.DataFrame, drop_techs: list[str], drop_fuels: list[str]) -> tuple[pd.DataFrame, int, int]:
+def _drop_keys(
+    df: pd.DataFrame, drop_techs: list[str], drop_fuels: list[str]
+) -> tuple[pd.DataFrame, int, int, pd.DataFrame]:
     mask_tech = pd.Series(False, index=df.index)
     mask_fuel = pd.Series(False, index=df.index)
     if drop_techs and "TECHNOLOGY" in df.columns:
@@ -494,8 +496,13 @@ def _drop_keys(df: pd.DataFrame, drop_techs: list[str], drop_fuels: list[str]) -
         mask_fuel = df["FUEL"].isin(drop_fuels)
     n_tech = int(mask_tech.sum())
     n_fuel = int((mask_fuel & ~mask_tech).sum())
-    df_out = df[~(mask_tech | mask_fuel)].reset_index(drop=True)
-    return df_out, n_tech, n_fuel
+    mask_remove = mask_tech | mask_fuel
+    df_out = df[~mask_remove].reset_index(drop=True)
+    df_removed = df.loc[mask_remove].copy()
+    if not df_removed.empty:
+        mot = np.where(mask_tech[mask_remove].to_numpy(), "TECHNOLOGY", "FUEL")
+        df_removed.insert(0, "motivo_eliminacion", mot)
+    return df_out, n_tech, n_fuel, df_removed
 
 
 class IntegrateSandService:
@@ -553,6 +560,9 @@ class IntegrateSandService:
         duplicate_detail_frames: list[pd.DataFrame] = []
         cambios_excel_content = b""
         fatal_integration_error = False
+        df_drop_removed = pd.DataFrame()
+        drop_techs: list[str] = []
+        drop_fuels: list[str] = []
 
         try:
             df_base = _read_parameters_from_bytes(base_content)
@@ -637,7 +647,9 @@ class IntegrateSandService:
             n_rows_before_drop = len(df_acum)
             had_drop = bool(drop_techs or drop_fuels)
             if had_drop:
-                df_acum, dropped_tech_rows, dropped_fuel_rows = _drop_keys(df_acum, drop_techs, drop_fuels)
+                df_acum, dropped_tech_rows, dropped_fuel_rows, df_drop_removed = _drop_keys(
+                    df_acum, drop_techs, drop_fuels
+                )
 
             summary_lines = [
                 "INTEGRACION MULTIPLE SAND",
@@ -742,14 +754,18 @@ class IntegrateSandService:
             try:
                 from app.services.integrate_sand_cambios_excel import build_cambios_workbook_bytes
 
-                cambios_excel_content = build_cambios_workbook_bytes(
-                    base_filename=base_filename,
-                    names_new=names_new,
-                    diffs_vs_base=diffs_vs_base,
-                    conflicts=conflicts,
-                    duplicate_detail_frames=duplicate_detail_frames,
-                    unapplied_all=unapplied_all,
-                )
+                # Con conflictos entre archivos nuevos no se genera cambios_integracion (el ZIP lleva solo log + conflictos).
+                if not conflicts:
+                    cambios_excel_content = build_cambios_workbook_bytes(
+                        base_filename=base_filename,
+                        names_new=names_new,
+                        diffs_vs_base=diffs_vs_base,
+                        duplicate_detail_frames=duplicate_detail_frames,
+                        unapplied_all=unapplied_all,
+                        drop_techs=drop_techs,
+                        drop_fuels=drop_fuels,
+                        df_drop_removed=df_drop_removed,
+                    )
             except Exception:
                 cambios_excel_content = b""
 
@@ -759,6 +775,7 @@ class IntegrateSandService:
             "total_filas": 0 if fatal_integration_error else len(df_acum),
             "contribuciones": contributions,
             "conflictos_count": len(conflicts),
+            "conflictos": conflicts,
             "resumen": "\n".join(summary_lines),
             "warnings": warnings,
             "errors": errors,

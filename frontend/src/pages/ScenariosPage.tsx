@@ -33,6 +33,63 @@ const editPolicyLabel: Record<ScenarioEditPolicy, string> = {
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
+const SAND_CONFLICT_KEY_DIMS = [
+  "Parameter",
+  "REGION",
+  "TECHNOLOGY",
+  "EMISSION",
+  "MODE_OF_OPERATION",
+  "FUEL",
+  "TIMESLICE",
+  "STORAGE",
+  "REGION2",
+] as const;
+
+function formatArchivosValores(archivos: unknown): string {
+  if (!archivos || typeof archivos !== "object" || Array.isArray(archivos)) {
+    return String(archivos ?? "");
+  }
+  const lines: string[] = [];
+  for (const [nombre, val] of Object.entries(archivos as Record<string, unknown>)) {
+    if (val !== null && typeof val === "object" && !Array.isArray(val)) {
+      lines.push(`  • ${nombre}:\n${JSON.stringify(val, null, 2).split("\n").map((l) => `    ${l}`).join("\n")}`);
+    } else {
+      lines.push(`  • ${nombre}: ${String(val)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/** Texto legible para el panel «Ver más»: conflictos entre archivos nuevos (cabecera API). */
+function formatSandConflictsDetail(
+  conflictos: Record<string, unknown>[] | undefined,
+  conflictosCount: number,
+): string {
+  if (!conflictosCount) {
+    return "No hubo conflictos entre archivos nuevos.";
+  }
+  if (!conflictos?.length) {
+    return `Se indicaron ${conflictosCount} conflicto(s), pero el detalle no vino en el resumen. Revisa el Excel «Conflictos» en cambios_integracion.xlsx si lo descargaste.`;
+  }
+  const blocks = conflictos.map((raw, idx) => {
+    const o = raw;
+    const tipo = o.tipo === "MODIFICADA" ? "Celda modificada en disputa" : o.tipo === "NUEVA" ? "Fila nueva en disputa" : String(o.tipo ?? "?");
+    const dims = SAND_CONFLICT_KEY_DIMS.map((k) => {
+      const v = o[k];
+      if (v === undefined || v === null || v === "") return null;
+      return `${k}: ${String(v)}`;
+    })
+      .filter((x): x is string => Boolean(x))
+      .join(" · ");
+    const columna = o.columna !== undefined && o.columna !== null && o.columna !== "" ? `Columna / ámbito: ${String(o.columna)}` : "";
+    const arch = formatArchivosValores(o.archivos);
+    return [`${idx + 1}. ${tipo}`, dims, columna, arch ? `Valores propuestos por archivo:\n${arch}` : ""]
+      .filter((line) => line.length > 0)
+      .join("\n");
+  });
+  return blocks.join("\n\n—\n\n");
+}
+
 function formatSandIntegrationFailureDetail(summary: SandIntegrationSummary): string {
   const parts: string[] = [];
   if (summary.resumen?.trim()) {
@@ -45,6 +102,11 @@ function formatSandIntegrationFailureDetail(summary: SandIntegrationSummary): st
   }
   if (summary.warnings?.length) {
     parts.push(`--- Advertencias ---\n${summary.warnings.join("\n")}`);
+  }
+  if (summary.conflictos_count > 0) {
+    parts.push(
+      `--- Conflictos entre archivos nuevos ---\n${formatSandConflictsDetail(summary.conflictos, summary.conflictos_count)}`,
+    );
   }
   return parts.join("\n\n") || "La integración falló sin mensaje adicional.";
 }
@@ -123,6 +185,9 @@ export function ScenariosPage() {
   const [concatUploadStartedAt, setConcatUploadStartedAt] = useState<number | null>(null);
   const [concatErrorDetail, setConcatErrorDetail] = useState<string | null>(null);
   const [concatErrorExpanded, setConcatErrorExpanded] = useState(false);
+  const [concatDoneConflictsDetail, setConcatDoneConflictsDetail] = useState<string | null>(null);
+  const [concatDoneConflictsExpanded, setConcatDoneConflictsExpanded] = useState(false);
+  const [concatDoneConflictCount, setConcatDoneConflictCount] = useState(0);
 
   const fetchScenarios = useCallback(async () => {
     if (!user) return;
@@ -369,6 +434,9 @@ export function ScenariosPage() {
     setConcatUploadStartedAt(null);
     setConcatErrorDetail(null);
     setConcatErrorExpanded(false);
+    setConcatDoneConflictsDetail(null);
+    setConcatDoneConflictsExpanded(false);
+    setConcatDoneConflictCount(0);
   }
 
   async function handleCloseConcatSand() {
@@ -399,6 +467,9 @@ export function ScenariosPage() {
     setConcatUploadStartedAt(Date.now());
     setConcatErrorDetail(null);
     setConcatErrorExpanded(false);
+    setConcatDoneConflictsDetail(null);
+    setConcatDoneConflictsExpanded(false);
+    setConcatDoneConflictCount(0);
 
     try {
       const { blob, filename, summary } = await scenariosApi.concatenateSand(
@@ -436,6 +507,17 @@ export function ScenariosPage() {
 
       setConcatUploadPhase("done");
 
+      if (summary.conflictos_count > 0) {
+        setConcatDoneConflictCount(summary.conflictos_count);
+        setConcatDoneConflictsDetail(
+          formatSandConflictsDetail(summary.conflictos ?? [], summary.conflictos_count),
+        );
+        setConcatDoneConflictsExpanded(false);
+      } else {
+        setConcatDoneConflictCount(0);
+        setConcatDoneConflictsDetail(null);
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -443,16 +525,27 @@ export function ScenariosPage() {
       a.click();
       URL.revokeObjectURL(url);
 
-      push(
-        `Integración completada: ${summary.total_filas.toLocaleString()} filas, ${summary.conflictos_count} conflicto(s).${
-          summary.has_log && summary.log_line_count
-            ? ` ZIP con informe detallado (${summary.log_line_count} líneas en el .txt${
-                summary.has_cambios_xlsx ? ", Excel cambios_integracion.xlsx" : ""
-              }).`
-            : ""
-        }`,
-        "success",
-      );
+      if (summary.conflictos_count > 0) {
+        push(
+          `Integración con ${summary.conflictos_count} conflicto(s) entre archivos nuevos. Se descargó un ZIP con ` +
+            `integracion_sand_log.txt y conflictos_integracion.xlsx. No se incluye el Excel integrado ni cambios_integracion.xlsx.` +
+            (summary.log_line_count
+              ? ` El informe de texto tiene ${summary.log_line_count} línea(s).`
+              : ""),
+          "success",
+        );
+      } else {
+        push(
+          `Integración completada: ${summary.total_filas.toLocaleString()} filas, 0 conflictos.${
+            summary.has_log && summary.log_line_count
+              ? ` ZIP con informe detallado (${summary.log_line_count} líneas en el .txt${
+                  summary.has_cambios_xlsx ? ", Excel cambios_integracion.xlsx" : ""
+                }).`
+              : ""
+          }`,
+          "success",
+        );
+      }
       if (summary.warnings.length) {
         push(`La integración reportó ${summary.warnings.length} advertencia(s).`, "info");
       }
@@ -460,9 +553,11 @@ export function ScenariosPage() {
         push(`La integración reportó ${summary.errors.length} error(es) de validación.`, "error");
       }
 
-      setTimeout(() => {
-        void handleCloseConcatSand();
-      }, 800);
+      if (summary.conflictos_count === 0) {
+        setTimeout(() => {
+          void handleCloseConcatSand();
+        }, 800);
+      }
     } catch (err) {
       if (abortCtrl.signal.aborted) return;
       setConcatUploadPhase("error");
@@ -920,8 +1015,9 @@ export function ScenariosPage() {
               onChange={(e) => setConcatIncludeLogTxt(e.target.checked)}
             />
             <span>
-              Incluir informe detallado: la descarga será un ZIP con el Excel integrado, integracion_sand_log.txt y
-              cambios_integracion.xlsx (cambios vs base, conflictos, duplicados, validación)
+              Incluir informe detallado (solo si no hay conflictos entre archivos nuevos): ZIP con el Excel integrado,
+              integracion_sand_log.txt y cambios_integracion.xlsx (cambios vs base, duplicados, validación, drop). Si
+              hay conflictos, la descarga es otro ZIP solo con el .txt y conflictos_integracion.xlsx.
             </span>
           </label>
 
@@ -931,6 +1027,9 @@ export function ScenariosPage() {
               uploadPercent={concatUploadPercent}
               fileSizeBytes={concatBaseFile?.size ?? 0}
               startedAt={concatUploadStartedAt}
+              {...(concatUploadPhase === "done" && concatDoneConflictCount > 0
+                ? { doneLabel: "Conflictos" as const, doneVariant: "conflicts" as const }
+                : {})}
             />
           ) : null}
 
@@ -961,6 +1060,44 @@ export function ScenariosPage() {
                   }}
                 >
                   {concatErrorDetail}
+                </pre>
+              ) : null}
+            </div>
+          ) : null}
+
+          {concatUploadPhase === "done" && concatDoneConflictsDetail ? (
+            <div style={{ display: "grid", gap: 8 }}>
+              <p style={{ margin: 0, fontSize: 13, opacity: 0.9 }}>
+                Hay {concatDoneConflictCount} conflicto(s) entre los archivos nuevos. El ZIP descargado incluye el
+                informe integracion_sand_log.txt y conflictos_integracion.xlsx; no se incluyó el Excel integrado ni el
+                informe amplio de cambios. Los cambios se aplicaron en memoria en orden; revisa qué archivos proponen
+                valores distintos.
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setConcatDoneConflictsExpanded((v) => !v)}
+                style={{ justifySelf: "start", paddingLeft: 0 }}
+              >
+                {concatDoneConflictsExpanded ? "Ver menos" : "Ver más — detalle de conflictos"}
+              </Button>
+              {concatDoneConflictsExpanded ? (
+                <pre
+                  style={{
+                    margin: 0,
+                    padding: 12,
+                    fontSize: 12,
+                    lineHeight: 1.45,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    borderRadius: 8,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(0,0,0,0.25)",
+                    maxHeight: 280,
+                    overflow: "auto",
+                  }}
+                >
+                  {concatDoneConflictsDetail}
                 </pre>
               ) : null}
             </div>

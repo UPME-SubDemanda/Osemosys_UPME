@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import zipfile
@@ -44,6 +45,7 @@ from app.schemas.scenario_operation import (
     ScenarioOperationLogPublic,
 )
 from app.services.scenario_operation_service import ScenarioOperationService
+from app.services.integrate_sand_cambios_excel import build_conflictos_workbook_bytes
 from app.services.integrate_sand_service import IntegrateSandService
 from app.services.official_import_service import OfficialImportService
 from app.services.scenario_export_service import export_scenario_raw_to_excel, export_scenario_to_excel
@@ -279,21 +281,26 @@ def concatenate_sand_files(
     log_text = result.get("log_text") or ""
     log_line_count = len(log_text.splitlines()) if log_text else 0
     integration_failed = bool(result.get("integration_failed"))
+    conflictos_n = int(result.get("conflictos_count", 0))
+    has_conflicts_success = not integration_failed and conflictos_n > 0
 
     summary_obj = SandIntegrationResponse.model_validate(
         {
             "total_filas": result["total_filas"],
             "contribuciones": result["contribuciones"],
-            "conflictos_count": result["conflictos_count"],
+            "conflictos_count": conflictos_n,
+            "conflictos": jsonable_encoder(result.get("conflictos", [])),
             "resumen": result["resumen"],
             "warnings": result["warnings"],
             "errors": result.get("errors", []),
             "has_log": bool(log_text.strip())
-            and (want_log_zip or integration_failed),
+            and (want_log_zip or integration_failed or has_conflicts_success),
             "log_line_count": log_line_count,
             "has_cambios_xlsx": want_log_zip
             and bool((result.get("cambios_excel_content") or b""))
-            and not integration_failed,
+            and not integration_failed
+            and not has_conflicts_success,
+            "has_conflictos_xlsx": has_conflicts_success,
             "integration_failed": integration_failed,
         }
     )
@@ -323,6 +330,25 @@ def concatenate_sand_files(
             media_type="text/plain; charset=utf-8",
             headers={
                 "Content-Disposition": 'attachment; filename="integracion_sand_log.txt"',
+                "X-Sand-Integration-Summary": summary_header,
+                "X-Sand-Integration-Summary-Format": "base64-json",
+            },
+        )
+
+    if has_conflicts_success:
+        conf_xlsx = build_conflictos_workbook_bytes(list(result.get("conflictos") or []))
+        zip_buf = BytesIO()
+        stem = Path(output_filename).stem
+        zip_name = f"{stem}_conflictos.zip"
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("integracion_sand_log.txt", log_text.encode("utf-8"))
+            zf.writestr("conflictos_integracion.xlsx", conf_xlsx)
+        zip_buf.seek(0)
+        return StreamingResponse(
+            zip_buf,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{zip_name}"',
                 "X-Sand-Integration-Summary": summary_header,
                 "X-Sand-Integration-Summary-Format": "base64-json",
             },

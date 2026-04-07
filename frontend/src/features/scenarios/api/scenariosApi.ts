@@ -102,12 +102,16 @@ export type SandIntegrationSummary = {
   total_filas: number;
   contribuciones: SandContribution[];
   conflictos_count: number;
+  /** Detalle de conflictos entre archivos nuevos (misma estructura que la hoja Conflictos del Excel). */
+  conflictos?: Record<string, unknown>[];
   resumen: string;
   warnings: string[];
   errors: string[];
   has_log?: boolean;
   log_line_count?: number;
   has_cambios_xlsx?: boolean;
+  /** true cuando el ZIP trae conflictos_integracion.xlsx (disputas entre archivos nuevos). */
+  has_conflictos_xlsx?: boolean;
   /** true cuando el backend no generó Excel integrado (solo log de error). */
   integration_failed?: boolean;
 };
@@ -313,12 +317,14 @@ export const scenariosApi = {
         total_filas: 0,
         contribuciones: [],
         conflictos_count: 0,
+        conflictos: [],
         resumen: "",
         warnings: [],
         errors: [],
         has_log: false,
         log_line_count: 0,
         has_cambios_xlsx: false,
+        has_conflictos_xlsx: false,
         integration_failed: false,
       },
     );

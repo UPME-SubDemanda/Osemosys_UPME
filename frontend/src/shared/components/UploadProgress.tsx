@@ -12,6 +12,10 @@ type Props = {
   uploadPercent: number;
   fileSizeBytes: number;
   startedAt: number | null;
+  /** Si `phase === "done"`, sustituye el texto «Completado». */
+  doneLabel?: string;
+  /** Tono de la barra al terminar: «conflicts» (ámbar) o éxito (verde). */
+  doneVariant?: "success" | "conflicts";
 };
 
 function formatTime(seconds: number): string {
@@ -21,7 +25,14 @@ function formatTime(seconds: number): string {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
-export function UploadProgress({ phase, uploadPercent, fileSizeBytes, startedAt }: Props) {
+export function UploadProgress({
+  phase,
+  uploadPercent,
+  fileSizeBytes,
+  startedAt,
+  doneLabel,
+  doneVariant = "success",
+}: Props) {
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -61,7 +72,7 @@ export function UploadProgress({ phase, uploadPercent, fileSizeBytes, startedAt 
     hint = `Leyendo, validando e insertando datos (${fileSizeMB.toFixed(1)} MB). No cierres esta ventana.`;
   } else if (phase === "done") {
     displayPercent = 100;
-    label = "Completado";
+    label = doneLabel?.trim() ? doneLabel.trim() : "Completado";
     estimateText = elapsedSec > 1 ? `Terminado en ${formatTime(elapsedSec)}` : "";
   } else if (phase === "error") {
     label = "Error en el proceso";
@@ -70,7 +81,9 @@ export function UploadProgress({ phase, uploadPercent, fileSizeBytes, startedAt 
 
   const barColor =
     phase === "done"
-      ? "rgba(34, 197, 94, 0.85)"
+      ? doneVariant === "conflicts"
+        ? "rgba(245, 158, 11, 0.9)"
+        : "rgba(34, 197, 94, 0.85)"
       : phase === "error"
         ? "rgba(239, 68, 68, 0.85)"
         : "linear-gradient(90deg, rgba(31, 94, 164, 0.9), rgba(20, 184, 122, 0.85))";
@@ -84,8 +97,19 @@ export function UploadProgress({ phase, uploadPercent, fileSizeBytes, startedAt 
         gap: 8,
         padding: 14,
         borderRadius: 12,
-        border: `1px solid ${phase === "error" ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.1)"}`,
-        background: phase === "error" ? "rgba(239,68,68,0.06)" : "rgba(255,255,255,0.03)",
+        border: `1px solid ${
+          phase === "error"
+            ? "rgba(239,68,68,0.3)"
+            : phase === "done" && doneVariant === "conflicts"
+              ? "rgba(245,158,11,0.35)"
+              : "rgba(255,255,255,0.1)"
+        }`,
+        background:
+          phase === "error"
+            ? "rgba(239,68,68,0.06)"
+            : phase === "done" && doneVariant === "conflicts"
+              ? "rgba(245,158,11,0.08)"
+              : "rgba(255,255,255,0.03)",
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>

@@ -38,6 +38,7 @@ from app.schemas.scenario import (
     ScenarioPermissionPublic,
     ScenarioPublic,
     ScenarioUpdate,
+    VerifySandIntegrationResponse,
 )
 from app.schemas.scenario_operation import (
     ScenarioCloneAsyncCreate,
@@ -284,6 +285,7 @@ def concatenate_sand_files(
     conflictos_n = int(result.get("conflictos_count", 0))
     has_conflicts_success = not integration_failed and conflictos_n > 0
 
+    ev_raw = result.get("export_verification")
     summary_obj = SandIntegrationResponse.model_validate(
         {
             "total_filas": result["total_filas"],
@@ -302,6 +304,7 @@ def concatenate_sand_files(
             and not has_conflicts_success,
             "has_conflictos_xlsx": has_conflicts_success,
             "integration_failed": integration_failed,
+            "export_verification": jsonable_encoder(ev_raw) if ev_raw is not None else None,
         }
     )
     summary_json = summary_obj.model_dump_json()
@@ -383,6 +386,58 @@ def concatenate_sand_files(
             "X-Sand-Integration-Summary": summary_header,
             "X-Sand-Integration-Summary-Format": "base64-json",
         },
+    )
+
+
+@router.post("/verify-sand-integration", response_model=VerifySandIntegrationResponse)
+def verify_sand_integration(
+    base_file: UploadFile = File(...),
+    integrated_file: UploadFile = File(...),
+    new_files: list[UploadFile] = File(...),
+    drop_techs: str | None = Form(default=None),
+    drop_fuels: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Verifica un Excel integrado respecto a la base y los archivos nuevos (misma lógica que la doble verificación)."""
+    _ = db
+    _ = current_user
+
+    base_filename = base_file.filename or "base.xlsx"
+    base_content = base_file.file.read()
+    integrated_filename = integrated_file.filename or "integrado.xlsx"
+    integrated_content = integrated_file.file.read()
+
+    collected_new_files: list[tuple[str, bytes]] = []
+    for upload in new_files:
+        filename = upload.filename or "nuevo.xlsx"
+        content = upload.file.read()
+        collected_new_files.append((filename, content))
+
+    try:
+        result = IntegrateSandService.verify_integrated_export_standalone(
+            base_filename=base_filename,
+            base_content=base_content,
+            integrated_filename=integrated_filename,
+            integrated_content=integrated_content,
+            new_files=collected_new_files,
+            drop_techs_csv=drop_techs,
+            drop_fuels_csv=drop_fuels,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Ocurrió un error inesperado durante la verificación SAND.",
+        )
+
+    ev_raw = result["export_verification"]
+    return VerifySandIntegrationResponse.model_validate(
+        {
+            "standalone": True,
+            "export_verification": jsonable_encoder(ev_raw),
+        }
     )
 
 

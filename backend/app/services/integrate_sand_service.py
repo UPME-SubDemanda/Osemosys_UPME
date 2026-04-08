@@ -443,6 +443,216 @@ def _validate_apply(
     return unapplied
 
 
+# Máximo de entradas de faltantes en el resumen API (header JSON).
+_EXPORT_VERIFY_MAX_FALTANTES = 20
+
+
+def _verify_export_single_file(
+    df_result: pd.DataFrame,
+    df_new: pd.DataFrame,
+    df_base: pd.DataFrame,
+    filename: str,
+    drop_techs: list[str],
+    drop_fuels: list[str],
+    faltantes_budget: list | None,
+) -> dict:
+    """
+    Verifica que df_result (Excel integrado releído) refleje los cambios NUEVA/MODIFICADA
+    de df_new vs df_base, excluyendo filas cubiertas por drop_techs/drop_fuels.
+    """
+    df_diffs = _detect_diffs(df_base, df_new)
+    df_diffs = df_diffs[df_diffs["tipo_cambio"].isin(["NUEVA", "MODIFICADA"])].copy()
+
+    n_omitidas = 0
+    if drop_techs and "TECHNOLOGY" in df_diffs.columns:
+        mask = df_diffs["TECHNOLOGY"].isin(drop_techs)
+        n_omitidas += int(mask.sum())
+        df_diffs = df_diffs[~mask]
+    if drop_fuels and "FUEL" in df_diffs.columns:
+        mask = df_diffs["FUEL"].isin(drop_fuels)
+        n_omitidas += int(mask.sum())
+        df_diffs = df_diffs[~mask]
+
+    key_cols = [c for c in KEY_COLS if c in df_result.columns]
+    faltantes: list[dict] = []
+    n_ok_nuevas = 0
+    n_ok_modif = 0
+
+    if not key_cols:
+        err = {
+            "tipo": "VALIDACION",
+            "Parameter": "",
+            "TECHNOLOGY": "",
+            "FUEL": "",
+            "columna": "—",
+            "valor_esperado": "KEY_COLS presentes",
+            "valor_actual": "no disponibles en exportado",
+        }
+        if faltantes_budget is not None and len(faltantes_budget) < _EXPORT_VERIFY_MAX_FALTANTES:
+            faltantes_budget.append(err)
+        return {
+            "archivo": filename,
+            "n_verificadas_nuevas": 0,
+            "n_verificadas_modif": 0,
+            "n_omitidas_drop": n_omitidas,
+            "n_faltantes": 1,
+            "faltantes": [err],
+            "ok": False,
+        }
+
+    result_idx = df_result.set_index(key_cols)
+
+    nuevas = df_diffs[df_diffs["tipo_cambio"] == "NUEVA"]
+    for _, row in nuevas.iterrows():
+        key = tuple(row[k] for k in key_cols)
+        if key in result_idx.index:
+            n_ok_nuevas += 1
+        else:
+            item = {
+                "tipo": "NUEVA",
+                "Parameter": row.get("Parameter", ""),
+                "TECHNOLOGY": row.get("TECHNOLOGY", ""),
+                "FUEL": row.get("FUEL", ""),
+                "columna": "—",
+                "valor_esperado": "fila completa",
+                "valor_actual": "no existe",
+            }
+            faltantes.append(item)
+            if faltantes_budget is not None and len(faltantes_budget) < _EXPORT_VERIFY_MAX_FALTANTES:
+                faltantes_budget.append(item)
+
+    mods = df_diffs[df_diffs["tipo_cambio"] == "MODIFICADA"]
+    for _, row in mods.iterrows():
+        key = tuple(row[k] for k in key_cols)
+        col = row["columna"]
+        expected = row["valor_nuevo"]
+        if key not in result_idx.index or col not in result_idx.columns:
+            item = {
+                "tipo": "MODIFICADA",
+                "Parameter": row.get("Parameter", ""),
+                "TECHNOLOGY": row.get("TECHNOLOGY", ""),
+                "FUEL": row.get("FUEL", ""),
+                "columna": col,
+                "valor_esperado": expected,
+                "valor_actual": "fila/col no existe",
+            }
+            faltantes.append(item)
+            if faltantes_budget is not None and len(faltantes_budget) < _EXPORT_VERIFY_MAX_FALTANTES:
+                faltantes_budget.append(item)
+            continue
+        actual = result_idx.loc[key, col]
+        if isinstance(actual, pd.Series):
+            actual = actual.iloc[0]
+        if pd.isna(expected) and pd.isna(actual):
+            n_ok_modif += 1
+            continue
+        if pd.isna(expected) != pd.isna(actual):
+            item = {
+                "tipo": "MODIFICADA",
+                "Parameter": row.get("Parameter", ""),
+                "TECHNOLOGY": row.get("TECHNOLOGY", ""),
+                "FUEL": row.get("FUEL", ""),
+                "columna": col,
+                "valor_esperado": expected,
+                "valor_actual": actual,
+            }
+            faltantes.append(item)
+            if faltantes_budget is not None and len(faltantes_budget) < _EXPORT_VERIFY_MAX_FALTANTES:
+                faltantes_budget.append(item)
+            continue
+        if np.isclose(float(expected), float(actual), rtol=RTOL, atol=0):
+            n_ok_modif += 1
+        else:
+            item = {
+                "tipo": "MODIFICADA",
+                "Parameter": row.get("Parameter", ""),
+                "TECHNOLOGY": row.get("TECHNOLOGY", ""),
+                "FUEL": row.get("FUEL", ""),
+                "columna": col,
+                "valor_esperado": expected,
+                "valor_actual": actual,
+            }
+            faltantes.append(item)
+            if faltantes_budget is not None and len(faltantes_budget) < _EXPORT_VERIFY_MAX_FALTANTES:
+                faltantes_budget.append(item)
+
+    n_falt = len(faltantes)
+    return {
+        "archivo": filename,
+        "n_verificadas_nuevas": n_ok_nuevas,
+        "n_verificadas_modif": n_ok_modif,
+        "n_omitidas_drop": n_omitidas,
+        "n_faltantes": n_falt,
+        "faltantes": faltantes[:_EXPORT_VERIFY_MAX_FALTANTES],
+        "ok": n_falt == 0,
+    }
+
+
+def _build_export_verification(
+    output_content: bytes,
+    df_base: pd.DataFrame,
+    names_new: list[str],
+    dfs_new: list[pd.DataFrame],
+    drop_techs: list[str],
+    drop_fuels: list[str],
+    conflictos_count: int,
+) -> dict:
+    """
+    Doble verificación: relee el Excel exportado y contrasta NUEVA/MODIFICADA vs base por archivo nuevo.
+    """
+    budget: list[dict] = []
+    try:
+        df_export = _read_parameters_from_bytes(output_content)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "applies_to_download": conflictos_count == 0,
+            "verification_error": f"{type(exc).__name__}: {exc}",
+            "total_nuevas_verificadas": 0,
+            "total_modificadas_verificadas": 0,
+            "total_omitidas_drop": 0,
+            "total_faltantes": 0,
+            "per_file": [],
+            "faltantes_muestra": [],
+        }
+
+    per_file: list[dict] = []
+    total_n = total_m = total_o = total_f = 0
+    all_ok = True
+    for name, df_n in zip(names_new, dfs_new):
+        r = _verify_export_single_file(
+            df_export, df_n, df_base, Path(name).name, drop_techs, drop_fuels, budget
+        )
+        per_file.append(
+            {
+                "archivo": r["archivo"],
+                "ok": r["ok"],
+                "n_verificadas_nuevas": r["n_verificadas_nuevas"],
+                "n_verificadas_modif": r["n_verificadas_modif"],
+                "n_omitidas_drop": r["n_omitidas_drop"],
+                "n_faltantes": r["n_faltantes"],
+            }
+        )
+        total_n += r["n_verificadas_nuevas"]
+        total_m += r["n_verificadas_modif"]
+        total_o += r["n_omitidas_drop"]
+        total_f += r["n_faltantes"]
+        if not r["ok"]:
+            all_ok = False
+
+    return {
+        "ok": all_ok and total_f == 0,
+        "applies_to_download": conflictos_count == 0,
+        "verification_error": None,
+        "total_nuevas_verificadas": total_n,
+        "total_modificadas_verificadas": total_m,
+        "total_omitidas_drop": total_o,
+        "total_faltantes": total_f,
+        "per_file": per_file,
+        "faltantes_muestra": budget[:_EXPORT_VERIFY_MAX_FALTANTES],
+    }
+
+
 def _format_unapplied_warning(detail: dict) -> str:
     return (
         f"{detail.get('archivo', '')}: {detail.get('tipo', '')} "
@@ -509,6 +719,78 @@ class IntegrateSandService:
     """Orquesta la integracion SAND para uso via API."""
 
     @staticmethod
+    def verify_integrated_export_standalone(
+        base_filename: str,
+        base_content: bytes,
+        integrated_filename: str,
+        integrated_content: bytes,
+        new_files: list[tuple[str, bytes]],
+        drop_techs_csv: str | None = None,
+        drop_fuels_csv: str | None = None,
+    ) -> dict:
+        """
+        Verifica un Excel integrado subido por el usuario (sin ejecutar la integración).
+        Misma lógica que la doble verificación post-export en integrate_sand_files.
+        """
+        if not _is_allowed_excel(base_filename):
+            raise ValueError(
+                "El archivo base debe ser un Excel válido "
+                f"({', '.join(sorted(ALLOWED_EXCEL_EXTENSIONS))})."
+            )
+        if not base_content:
+            raise ValueError("El archivo base está vacío.")
+        if not _is_allowed_excel(integrated_filename):
+            raise ValueError(
+                "El archivo integrado debe ser un Excel válido "
+                f"({', '.join(sorted(ALLOWED_EXCEL_EXTENSIONS))})."
+            )
+        if not integrated_content:
+            raise ValueError("El archivo integrado está vacío.")
+        if not new_files:
+            raise ValueError("Debes enviar al menos un archivo nuevo.")
+
+        valid_new_files: list[tuple[str, bytes]] = []
+        for filename, content in new_files:
+            if not _is_allowed_excel(filename):
+                continue
+            if filename.startswith("~$"):
+                continue
+            if content:
+                valid_new_files.append((filename, content))
+        if not valid_new_files:
+            raise ValueError(
+                "No se encontraron archivos nuevos válidos "
+                f"({', '.join(sorted(ALLOWED_EXCEL_EXTENSIONS))})."
+            )
+
+        df_base = _read_parameters_from_bytes(base_content)
+        names_new: list[str] = []
+        dfs_new: list[pd.DataFrame] = []
+        for filename, content in valid_new_files:
+            try:
+                df_new = _read_parameters_from_bytes(content)
+            except Exception as exc:
+                raise ValueError(
+                    f"{filename}: no se pudo leer hoja Parameters ({type(exc).__name__}: {exc})"
+                ) from exc
+            names_new.append(filename)
+            dfs_new.append(df_new)
+
+        drop_techs = _clean_csv_values(drop_techs_csv)
+        drop_fuels = _clean_csv_values(drop_fuels_csv)
+
+        export_verification = _build_export_verification(
+            integrated_content,
+            df_base,
+            names_new,
+            dfs_new,
+            drop_techs,
+            drop_fuels,
+            0,
+        )
+        return {"export_verification": export_verification}
+
+    @staticmethod
     def integrate_sand_files(
         base_filename: str,
         base_content: bytes,
@@ -563,6 +845,7 @@ class IntegrateSandService:
         df_drop_removed = pd.DataFrame()
         drop_techs: list[str] = []
         drop_fuels: list[str] = []
+        export_verification: dict | None = None
 
         try:
             df_base = _read_parameters_from_bytes(base_content)
@@ -715,6 +998,15 @@ class IntegrateSandService:
             df_acum.to_excel(output_buffer, sheet_name="Parameters", index=False, engine="openpyxl")
             output_content = output_buffer.getvalue()
             export_dt = time.time() - t_exp_start
+            export_verification = _build_export_verification(
+                output_content,
+                df_base,
+                names_new,
+                dfs_new,
+                drop_techs,
+                drop_fuels,
+                len(conflicts),
+            )
 
         if not log_text:
             validation_ok_msg = (
@@ -782,4 +1074,5 @@ class IntegrateSandService:
             "log_text": log_text,
             "cambios_excel_content": cambios_excel_content,
             "integration_failed": fatal_integration_error,
+            "export_verification": export_verification,
         }

@@ -98,6 +98,40 @@ export type SandContribution = {
   fuels: string[];
 };
 
+/** Muestra de fila/celda no verificada (doble lectura del exportado). */
+export type SandExportVerificationFaltante = {
+  tipo?: string;
+  Parameter?: string;
+  TECHNOLOGY?: string;
+  FUEL?: string;
+  columna?: string;
+  valor_esperado?: unknown;
+  valor_actual?: unknown;
+};
+
+export type SandExportVerificationPerFile = {
+  archivo: string;
+  ok: boolean;
+  n_verificadas_nuevas: number;
+  n_verificadas_modif: number;
+  n_omitidas_drop: number;
+  n_faltantes: number;
+};
+
+/** Doble verificación del archivo integrado releído desde el Excel exportado. */
+export type SandExportVerification = {
+  ok: boolean;
+  /** false si hay conflictos: el ZIP no incluye el integrado; la verificación es sobre el generado en servidor. */
+  applies_to_download: boolean;
+  verification_error?: string | null;
+  total_nuevas_verificadas: number;
+  total_modificadas_verificadas: number;
+  total_omitidas_drop: number;
+  total_faltantes: number;
+  per_file: SandExportVerificationPerFile[];
+  faltantes_muestra?: SandExportVerificationFaltante[];
+};
+
 export type SandIntegrationSummary = {
   total_filas: number;
   contribuciones: SandContribution[];
@@ -114,6 +148,13 @@ export type SandIntegrationSummary = {
   has_conflictos_xlsx?: boolean;
   /** true cuando el backend no generó Excel integrado (solo log de error). */
   integration_failed?: boolean;
+  export_verification?: SandExportVerification | null;
+};
+
+/** Respuesta JSON de verificación manual (sin integrar en servidor). */
+export type VerifySandIntegrationResponse = {
+  standalone: boolean;
+  export_verification: SandExportVerification;
 };
 
 export type ExcelUpdatePreviewRow = {
@@ -326,10 +367,48 @@ export const scenariosApi = {
         has_cambios_xlsx: false,
         has_conflictos_xlsx: false,
         integration_failed: false,
+        export_verification: null,
       },
     );
 
     return { blob, filename, summary };
+  },
+
+  async verifySandIntegration(
+    input: {
+      baseFile: File;
+      integratedFile: File;
+      newFiles: File[];
+      dropTechs?: string;
+      dropFuels?: string;
+    },
+    onUploadProgress?: (percent: number) => void,
+    signal?: AbortSignal,
+  ): Promise<VerifySandIntegrationResponse> {
+    const form = new FormData();
+    form.append("base_file", input.baseFile);
+    form.append("integrated_file", input.integratedFile);
+    for (const file of input.newFiles) {
+      form.append("new_files", file);
+    }
+    if (input.dropTechs?.trim()) form.append("drop_techs", input.dropTechs.trim());
+    if (input.dropFuels?.trim()) form.append("drop_fuels", input.dropFuels.trim());
+
+    const { data } = await httpClient.post<VerifySandIntegrationResponse>(
+      "/scenarios/verify-sand-integration",
+      form,
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 1_800_000,
+        ...(signal ? { signal } : {}),
+        onUploadProgress(event) {
+          if (event.total && onUploadProgress) {
+            onUploadProgress(Math.round((event.loaded * 100) / event.total));
+          }
+        },
+      },
+    );
+    return data;
   },
 
   /** Calcula permisos efectivos: owner tiene todo; OPEN da acceso amplio; RESTRICTED usa permisos explícitos */

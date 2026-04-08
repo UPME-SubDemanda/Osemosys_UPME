@@ -9,12 +9,17 @@ import { useNavigate } from "react-router-dom";
 import { useCurrentUser } from "@/app/providers/useCurrentUser";
 import { useToast } from "@/app/providers/useToast";
 import { officialImportApi } from "@/features/officialImport/api/officialImportApi";
-import { scenariosApi, type SandIntegrationSummary } from "@/features/scenarios/api/scenariosApi";
+import {
+  scenariosApi,
+  type SandExportVerification,
+  type SandIntegrationSummary,
+} from "@/features/scenarios/api/scenariosApi";
 import { isApiError } from "@/shared/errors/ApiError";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { Modal } from "@/shared/components/Modal";
 import { TextField } from "@/shared/components/TextField";
+import { SandExportVerificationPanel } from "@/shared/components/SandExportVerificationPanel";
 import { UploadProgress, type UploadPhase } from "@/shared/components/UploadProgress";
 import { paths } from "@/routes/paths";
 import type { Scenario, ScenarioEditPolicy, ScenarioOperationJob } from "@/types/domain";
@@ -150,6 +155,16 @@ export function ScenariosPage() {
   const [openCreate, setOpenCreate] = useState(false);
   const [openExcel, setOpenExcel] = useState(false);
   const [openConcatSand, setOpenConcatSand] = useState(false);
+  const [openVerifySand, setOpenVerifySand] = useState(false);
+  const [verifyBaseFile, setVerifyBaseFile] = useState<File | null>(null);
+  const [verifyNewFiles, setVerifyNewFiles] = useState<File[]>([]);
+  const [verifyIntegratedFile, setVerifyIntegratedFile] = useState<File | null>(null);
+  const [verifyDropTechs, setVerifyDropTechs] = useState("");
+  const [verifyDropFuels, setVerifyDropFuels] = useState("");
+  const [verifyUploadPhase, setVerifyUploadPhase] = useState<UploadPhase>("idle");
+  const [verifyUploadPercent, setVerifyUploadPercent] = useState(0);
+  const [verifyUploadStartedAt, setVerifyUploadStartedAt] = useState<number | null>(null);
+  const [verifyResult, setVerifyResult] = useState<SandExportVerification | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [editPolicy, setEditPolicy] = useState<ScenarioEditPolicy>("OWNER_ONLY");
@@ -174,6 +189,7 @@ export function ScenariosPage() {
   const importAbortRef = useRef<AbortController | null>(null);
   const createdScenarioIdRef = useRef<number | null>(null);
   const concatAbortRef = useRef<AbortController | null>(null);
+  const verifyAbortRef = useRef<AbortController | null>(null);
   const [concatBaseFile, setConcatBaseFile] = useState<File | null>(null);
   const [concatNewFiles, setConcatNewFiles] = useState<File[]>([]);
   const [concatDropTechs, setConcatDropTechs] = useState("");
@@ -188,6 +204,7 @@ export function ScenariosPage() {
   const [concatDoneConflictsDetail, setConcatDoneConflictsDetail] = useState<string | null>(null);
   const [concatDoneConflictsExpanded, setConcatDoneConflictsExpanded] = useState(false);
   const [concatDoneConflictCount, setConcatDoneConflictCount] = useState(0);
+  const [concatExportVerification, setConcatExportVerification] = useState<SandExportVerification | null>(null);
 
   const fetchScenarios = useCallback(async () => {
     if (!user) return;
@@ -437,6 +454,7 @@ export function ScenariosPage() {
     setConcatDoneConflictsDetail(null);
     setConcatDoneConflictsExpanded(false);
     setConcatDoneConflictCount(0);
+    setConcatExportVerification(null);
   }
 
   async function handleCloseConcatSand() {
@@ -470,6 +488,7 @@ export function ScenariosPage() {
     setConcatDoneConflictsDetail(null);
     setConcatDoneConflictsExpanded(false);
     setConcatDoneConflictCount(0);
+    setConcatExportVerification(null);
 
     try {
       const { blob, filename, summary } = await scenariosApi.concatenateSand(
@@ -506,6 +525,7 @@ export function ScenariosPage() {
       }
 
       setConcatUploadPhase("done");
+      setConcatExportVerification(summary.export_verification ?? null);
 
       if (summary.conflictos_count > 0) {
         setConcatDoneConflictCount(summary.conflictos_count);
@@ -552,15 +572,10 @@ export function ScenariosPage() {
       if (summary.errors.length) {
         push(`La integración reportó ${summary.errors.length} error(es) de validación.`, "error");
       }
-
-      if (summary.conflictos_count === 0) {
-        setTimeout(() => {
-          void handleCloseConcatSand();
-        }, 800);
-      }
     } catch (err) {
       if (abortCtrl.signal.aborted) return;
       setConcatUploadPhase("error");
+      setConcatExportVerification(null);
       setConcatErrorDetail(formatConcatAxiosErrorDetail(err));
       setConcatErrorExpanded(false);
       push(err instanceof Error ? err.message : "No se pudo concatenar archivos SAND.", "error");
@@ -569,6 +584,75 @@ export function ScenariosPage() {
       concatAbortRef.current = null;
     }
   }
+
+  function resetVerifyModal() {
+    setVerifyBaseFile(null);
+    setVerifyNewFiles([]);
+    setVerifyIntegratedFile(null);
+    setVerifyDropTechs("");
+    setVerifyDropFuels("");
+    setVerifyUploadPhase("idle");
+    setVerifyUploadPercent(0);
+    setVerifyUploadStartedAt(null);
+    setVerifyResult(null);
+  }
+
+  function handleCloseVerifySand() {
+    if (verifyUploadPhase === "uploading" || verifyUploadPhase === "processing") {
+      verifyAbortRef.current?.abort();
+      verifyAbortRef.current = null;
+    }
+    setOpenVerifySand(false);
+    resetVerifyModal();
+  }
+
+  async function handleVerifySandIntegration() {
+    if (!verifyBaseFile || !verifyIntegratedFile || !verifyNewFiles.length) {
+      push("Selecciona archivo base, al menos un archivo nuevo y el Excel integrado.", "error");
+      return;
+    }
+    const abortCtrl = new AbortController();
+    verifyAbortRef.current = abortCtrl;
+    setVerifyUploadPhase("uploading");
+    setVerifyUploadPercent(0);
+    setVerifyUploadStartedAt(Date.now());
+    setVerifyResult(null);
+    try {
+      const res = await scenariosApi.verifySandIntegration(
+        {
+          baseFile: verifyBaseFile,
+          integratedFile: verifyIntegratedFile,
+          newFiles: verifyNewFiles,
+          dropTechs: verifyDropTechs,
+          dropFuels: verifyDropFuels,
+        },
+        (percent) => {
+          setVerifyUploadPercent(percent);
+          if (percent >= 100) setVerifyUploadPhase("processing");
+        },
+        abortCtrl.signal,
+      );
+      setVerifyResult(res.export_verification);
+      setVerifyUploadPhase("done");
+      push(
+        res.export_verification.ok
+          ? "Validación: el integrado coincide con los cambios esperados."
+          : "Validación: hay discrepancias entre el integrado y los cambios esperados.",
+        res.export_verification.ok ? "success" : "error",
+      );
+    } catch (err) {
+      if (abortCtrl.signal.aborted) return;
+      setVerifyUploadPhase("error");
+      push(err instanceof Error ? err.message : "No se pudo verificar la integración.", "error");
+    } finally {
+      verifyAbortRef.current = null;
+    }
+  }
+
+  const verifyFileSizeBytes =
+    (verifyBaseFile?.size ?? 0) +
+    (verifyIntegratedFile?.size ?? 0) +
+    verifyNewFiles.reduce((s, f) => s + f.size, 0);
 
   return (
     <section className="pageSection scenariosPage">
@@ -585,6 +669,16 @@ export function ScenariosPage() {
           </Button>
           <Button variant="ghost" onClick={() => setOpenConcatSand(true)} className="scenariosPage__actionButton">
             Concatenar SAND
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              resetVerifyModal();
+              setOpenVerifySand(true);
+            }}
+            className="scenariosPage__actionButton"
+          >
+            Verificar integración
           </Button>
         </div>
       </div>
@@ -1033,6 +1127,10 @@ export function ScenariosPage() {
             />
           ) : null}
 
+          {concatUploadPhase === "done" && concatExportVerification && concatDoneConflictCount === 0 ? (
+            <SandExportVerificationPanel data={concatExportVerification} variant="concatenate" />
+          ) : null}
+
           {concatUploadPhase === "error" && concatErrorDetail ? (
             <div style={{ display: "grid", gap: 8 }}>
               <Button
@@ -1101,6 +1199,101 @@ export function ScenariosPage() {
                 </pre>
               ) : null}
             </div>
+          ) : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={openVerifySand}
+        title="Verificar integración SAND"
+        onClose={handleCloseVerifySand}
+        footer={
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Button variant="ghost" onClick={handleCloseVerifySand}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => void handleVerifySandIntegration()}
+              disabled={
+                verifyUploadPhase === "uploading" ||
+                verifyUploadPhase === "processing" ||
+                !verifyBaseFile ||
+                !verifyIntegratedFile ||
+                verifyNewFiles.length === 0
+              }
+            >
+              {verifyUploadPhase === "uploading" || verifyUploadPhase === "processing"
+                ? "Verificando..."
+                : "Verificar"}
+            </Button>
+          </div>
+        }
+      >
+        <div style={{ display: "grid", gap: 12, maxHeight: "min(70vh, 640px)", overflowY: "auto" }}>
+          <p style={{ margin: 0, fontSize: 13, opacity: 0.85 }}>
+            Sube el mismo archivo base, los Excel nuevos que integraste (en el mismo orden si aplica) y el Excel
+            integrado resultante. Opcionalmente indica tecnologías y fuels eliminados por drop, como en concatenar
+            SAND.
+          </p>
+          <label className="field">
+            <span className="field__label">Archivo base (.xlsm/.xlsx)</span>
+            <input
+              className="field__input"
+              type="file"
+              accept=".xlsm,.xlsx"
+              onChange={(e) => setVerifyBaseFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <label className="field">
+            <span className="field__label">Archivos nuevos a comprobar (.xlsm/.xlsx)</span>
+            <input
+              className="field__input"
+              type="file"
+              accept=".xlsm,.xlsx"
+              multiple
+              onChange={(e) => setVerifyNewFiles(Array.from(e.target.files ?? []))}
+            />
+          </label>
+          <small style={{ opacity: 0.75 }}>Seleccionados: {verifyNewFiles.length} archivo(s)</small>
+          <label className="field">
+            <span className="field__label">Excel integrado a validar (.xlsm/.xlsx)</span>
+            <input
+              className="field__input"
+              type="file"
+              accept=".xlsm,.xlsx"
+              onChange={(e) => setVerifyIntegratedFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <TextField
+            label="Tecnologías a eliminar (CSV, opcional)"
+            value={verifyDropTechs}
+            onChange={(e) => setVerifyDropTechs(e.target.value)}
+            placeholder="Ejemplo: MINOIL,TECH_X"
+          />
+          <TextField
+            label="Fuels a eliminar (CSV, opcional)"
+            value={verifyDropFuels}
+            onChange={(e) => setVerifyDropFuels(e.target.value)}
+            placeholder="Ejemplo: OIL,GAS"
+          />
+
+          {verifyUploadPhase !== "idle" ? (
+            <UploadProgress
+              phase={verifyUploadPhase}
+              uploadPercent={verifyUploadPercent}
+              fileSizeBytes={verifyFileSizeBytes}
+              startedAt={verifyUploadStartedAt}
+              {...(verifyUploadPhase === "done" && verifyResult
+                ? verifyResult.ok
+                  ? { doneLabel: "Verificación completada" }
+                  : { doneLabel: "Verificación con discrepancias", doneVariant: "conflicts" as const }
+                : {})}
+            />
+          ) : null}
+
+          {verifyResult ? (
+            <SandExportVerificationPanel data={verifyResult} variant="standalone" />
           ) : null}
         </div>
       </Modal>

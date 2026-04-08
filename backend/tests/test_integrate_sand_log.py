@@ -158,6 +158,7 @@ def test_integrate_sand_fatal_error_no_excel_output(monkeypatch: pytest.MonkeyPa
     assert result.get("total_filas") == 0
     assert result.get("errors")
     assert "ERROR FATAL" in result["errors"][0]
+    assert result.get("export_verification") is None
 
 
 def test_drop_keys_removed_rows_and_motivo() -> None:
@@ -253,6 +254,42 @@ def test_integrate_sand_files_returns_log_text() -> None:
     assert len(result["log_text"]) > 80
 
 
+def test_integrate_sand_export_verification_ok() -> None:
+    """Doble verificación del Excel exportado: coincide con diffs vs base."""
+    base_bytes = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="TECH_A")])
+    new_bytes = _minimal_sand_excel_bytes(
+        [_sand_row(Parameter="CapCost", TECHNOLOGY="TECH_B", **{"2022": 1.0})]
+    )
+    result = IntegrateSandService.integrate_sand_files(
+        base_filename="base.xlsx",
+        base_content=base_bytes,
+        new_files=[("new.xlsx", new_bytes)],
+    )
+    ev = result.get("export_verification")
+    assert ev is not None
+    assert ev["ok"] is True
+    assert ev["applies_to_download"] is True
+    assert ev["verification_error"] is None
+    assert ev["total_faltantes"] == 0
+    assert len(ev["per_file"]) == 1
+    assert ev["per_file"][0]["ok"] is True
+
+
+def test_integrate_sand_export_verification_applies_false_when_conflicts() -> None:
+    """Con conflictos el ZIP no incluye el integrado; applies_to_download es false."""
+    base_bytes = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="T")])
+    new_a = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="T", **{"2022": 2.0})])
+    new_b = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="T", **{"2022": 3.0})])
+    result = IntegrateSandService.integrate_sand_files(
+        base_filename="base.xlsx",
+        base_content=base_bytes,
+        new_files=[("a.xlsx", new_a), ("b.xlsx", new_b)],
+    )
+    ev = result.get("export_verification")
+    assert ev is not None
+    assert ev["applies_to_download"] is False
+
+
 def test_zip_contains_txt_and_xlsx() -> None:
     """Misma estructura que el endpoint: ZIP con xlsx + integracion_sand_log.txt + cambios_integracion.xlsx."""
     xlsx_bytes = b"PK\x03\x04fake"
@@ -270,3 +307,37 @@ def test_zip_contains_txt_and_xlsx() -> None:
         assert "SAND_integrado.xlsx" in names
         assert "cambios_integracion.xlsx" in names
         assert zf.read("integracion_sand_log.txt").decode("utf-8") == log_txt
+
+
+def test_verify_integrated_export_standalone_matches_integration_output() -> None:
+    base_bytes = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="TECH_A")])
+    new_bytes = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="TECH_B", **{"2022": 1.0})])
+    integrated = IntegrateSandService.integrate_sand_files(
+        base_filename="base.xlsx",
+        base_content=base_bytes,
+        new_files=[("new.xlsx", new_bytes)],
+    )
+    out = integrated["output_content"]
+    vr = IntegrateSandService.verify_integrated_export_standalone(
+        base_filename="base.xlsx",
+        base_content=base_bytes,
+        integrated_filename="integrado.xlsx",
+        integrated_content=out,
+        new_files=[("new.xlsx", new_bytes)],
+    )
+    assert vr["export_verification"]["ok"] is True
+
+
+def test_verify_integrated_export_standalone_detects_missing_row() -> None:
+    base_bytes = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="TECH_A")])
+    new_bytes = _minimal_sand_excel_bytes([_sand_row(Parameter="CapCost", TECHNOLOGY="TECH_B", **{"2022": 1.0})])
+    wrong_integrated = base_bytes
+    vr = IntegrateSandService.verify_integrated_export_standalone(
+        base_filename="base.xlsx",
+        base_content=base_bytes,
+        integrated_filename="bad.xlsx",
+        integrated_content=wrong_integrated,
+        new_files=[("new.xlsx", new_bytes)],
+    )
+    assert vr["export_verification"]["ok"] is False
+    assert vr["export_verification"]["total_faltantes"] > 0

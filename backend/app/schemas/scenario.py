@@ -138,6 +138,38 @@ class SandContribution(BaseModel):
     fuels: list[str]
 
 
+class SandExportVerificationPerFile(BaseModel):
+    """Conteos de doble verificación del Excel exportado por archivo nuevo."""
+
+    archivo: str
+    ok: bool
+    n_verificadas_nuevas: int
+    n_verificadas_modif: int
+    n_omitidas_drop: int
+    n_faltantes: int
+
+
+class SandExportVerification(BaseModel):
+    """Doble verificación: releer el integrado exportado vs cambios esperados por archivo."""
+
+    ok: bool
+    applies_to_download: bool
+    verification_error: str | None = None
+    total_nuevas_verificadas: int = 0
+    total_modificadas_verificadas: int = 0
+    total_omitidas_drop: int = 0
+    total_faltantes: int = 0
+    per_file: list[SandExportVerificationPerFile] = []
+    faltantes_muestra: list[dict[str, Any]] = []
+
+
+class VerifySandIntegrationResponse(BaseModel):
+    """Resultado de verificación manual: base + nuevos + integrado (sin ejecutar integración)."""
+
+    standalone: bool = True
+    export_verification: SandExportVerification
+
+
 class SandIntegrationResponse(BaseModel):
     """Resumen de resultado de la integración de múltiples archivos SAND."""
 
@@ -153,6 +185,7 @@ class SandIntegrationResponse(BaseModel):
     has_cambios_xlsx: bool = False
     has_conflictos_xlsx: bool = False
     integration_failed: bool = False
+    export_verification: SandExportVerification | None = None
 
 
 class ExcelUpdatePreviewRow(BaseModel):

@@ -204,6 +204,21 @@ def generar_colores_tecnologias(df, columna: str = 'COLOR'):
     return [color_dict[c] for c in orden_final], orden_final
 
 
+def _color_por_sector(df, columna: str = 'COLOR'):
+    """Paleta fija según COLORES_SECTOR — para gráficas agrupadas por sector."""
+    # Import lazy para evitar dependencia circular (configs.py importa de colors.py)
+    from app.visualization.configs_comparacion import COLORES_SECTOR
+
+    grupos = df[columna].dropna().unique()
+    # Mantener el orden definido en COLORES_SECTOR
+    orden = [s for s in COLORES_SECTOR if s in grupos]
+    for g in grupos:
+        if g not in orden:
+            orden.append(g)
+    colores = [COLORES_SECTOR.get(g, '#999999') for g in orden]
+    return colores, orden
+
+
 def _color_por_grupo_fijo(df, columna: str = 'COLOR'):
     """Paleta fija según COLORES_GRUPOS — para gas y refinerías."""
     grupos_presentes = df[columna].unique()

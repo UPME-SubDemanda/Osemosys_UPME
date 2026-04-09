@@ -12,12 +12,38 @@ from app.visualization.colors import (
     generar_colores_tecnologias,
     _color_por_grupo_fijo,
     _color_electricidad,
+    _color_por_sector,
 )
 
 
 # ════════════════════════════════════════════════════════════════════════
 # MAPEO DE VARIABLES → TÍTULOS (para capacidad)
 # ════════════════════════════════════════════════════════════════════════
+
+# ════════════════════════════════════════════════════════════════════════
+# NOMBRES DE COMBUSTIBLES (código → nombre legible)
+# ════════════════════════════════════════════════════════════════════════
+
+NOMBRES_COMBUSTIBLES = {
+    'NGS': 'Gas Natural',
+    'DSL': 'Diésel',
+    'ELC': 'Electricidad',
+    'GSL': 'Gasolina',
+    'COA': 'Carbón',
+    'LPG': 'GLP',
+    'WOO': 'Leña',
+    'BGS': 'Biogás',
+    'BAG': 'Bagazo',
+    'HDG': 'Hidrógeno',
+    'FOL': 'Fuel Oil',
+    'BDL': 'Biodiésel',
+    'JET': 'Jet A1',
+    'WAS': 'RSU',
+    'OIL': 'Petróleo',
+    'AFR': 'Residuos Agrícolas/Forestales',
+    'SAF': 'SAF',
+}
+
 
 TITULOS_VARIABLES_CAPACIDAD = {
     'TotalCapacityAnnual':    'Capacidad Total Anual',
@@ -133,6 +159,21 @@ def _filtro_mineria(df, sub_filtro=None, **kw):
 
 def _filtro_coquerias(df, sub_filtro=None, **kw):
     return _filtro_prefijo_con_sub(df, 'DEMCOQ', sub_filtro)
+
+
+def _filtro_demanda_por_combustible(df, sub_filtro=None, **kw):
+    """Todos los sectores de demanda, filtrados por columna FUEL via sub_filtro.
+
+    El filtro usa ``str.startswith`` porque los códigos FUEL en la BD pueden
+    tener sufijos numéricos (ej. ELC002, NGS002, LPG002) que deben agruparse
+    bajo el código base (ELC, NGS, LPG).
+    """
+    prefijos = ('DEMRES', 'DEMIND', 'DEMTRA', 'DEMTER',
+                'DEMCON', 'DEMAGF', 'DEMMIN', 'DEMCOQ')
+    df = df[df['TECHNOLOGY'].str.startswith(prefijos)]
+    if sub_filtro and 'FUEL' in df.columns:
+        df = df[df['FUEL'].str.startswith(sub_filtro)]
+    return df
 
 
 def _filtro_solidos_extraccion(df, **kw):
@@ -684,7 +725,24 @@ CONFIGS = {
         'filtro':           None,  # Se agrupa por sector, no se filtra
         'msg_sin_datos':    'Sin datos de emisiones por tecnología',
         'agrupar_por':      'SECTOR',
-        'color_fn':         None,
+        'color_fn':         _color_por_sector,
         'variable_default': 'AnnualTechnologyEmission',
+    },
+
+    # ═══════════════════════════════════════════════════════════════════
+    # CONSUMO POR COMBUSTIBLE — TODOS LOS SECTORES
+    # ═══════════════════════════════════════════════════════════════════
+    'dem_consumo_combustible': {
+        'titulo':           'Consumo por Sector ',
+        'figura':           'Figura DEM-COMB',
+        'filename':         'DEM_Consumo_Por_Combustible',
+        'print':            'CONSUMO POR COMBUSTIBLE — TODOS LOS SECTORES',
+        'filtro':           _filtro_demanda_por_combustible,
+        'msg_sin_datos':    'Sin tecnologías de demanda para el combustible seleccionado',
+        'agrupar_por':      'SECTOR',
+        'color_fn':         _color_por_sector,
+        'tiene_sub_filtro': True,
+        'label_sub_filtro': 'Combustible',
+        'variable_default': 'UseByTechnology',
     },
 }

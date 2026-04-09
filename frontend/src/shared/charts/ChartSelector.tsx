@@ -16,6 +16,7 @@ export interface ChartSelection {
   sub_filtro?: string;
   loc?: string;
   variable?: string;
+  viewMode?: 'column' | 'line';
 }
 
 interface Props {
@@ -384,7 +385,7 @@ export function ChartSelector({ value, onChange }: Props) {
         </div>
       )}
 
-      {/* ── Fila inferior: Unidades + Sub-filtro + Localización ── */}
+      {/* ── Fila inferior: Unidades + Tipo de vista + Sub-filtro + Localización ── */}
       <div style={bottomRowStyle}>
         <div style={{ display: 'grid', gap: 6 }}>
           <p style={labelStyle}>Unidades</p>
@@ -399,6 +400,25 @@ export function ChartSelector({ value, onChange }: Props) {
                 {u}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: 6 }}>
+          <p style={labelStyle}>Tipo de vista</p>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {(['column', 'line'] as const).map((vm) => {
+              const isActive = (value.viewMode ?? 'column') === vm;
+              return (
+                <button
+                  key={vm}
+                  type="button"
+                  onClick={() => onChange({ ...value, viewMode: vm })}
+                  style={{ ...viewBtnStyle, ...(isActive ? viewBtnActiveStyle : viewBtnInactiveStyle) }}
+                >
+                  {vm === 'column' ? '▦ Barras' : '∿ Línea'}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -498,7 +518,7 @@ const varBtnActiveStyle: React.CSSProperties   = { background: 'rgba(16,185,129,
 const varBtnInactiveStyle: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: '#94a3b8' };
 
 const bottomRowStyle: React.CSSProperties = {
-  display: 'grid', gridTemplateColumns: 'auto 1fr 1fr', gap: 20,
+  display: 'grid', gridTemplateColumns: 'auto auto 1fr 1fr', gap: 20,
   alignItems: 'start', paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.06)',
 };
 const unitBtnStyle: React.CSSProperties = {
@@ -513,6 +533,13 @@ const selectStyle: React.CSSProperties = {
   borderRadius: 7, color: '#e2e8f0', padding: '6px 10px', fontSize: 13,
   fontFamily: 'inherit', cursor: 'pointer', outline: 'none', minWidth: 140,
 };
+const viewBtnStyle: React.CSSProperties = {
+  padding: '4px 12px', borderRadius: 6, border: '1px solid transparent',
+  cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.12s ease',
+};
+const viewBtnActiveStyle: React.CSSProperties   = { background: 'rgba(99,102,241,0.2)',  borderColor: 'rgba(99,102,241,0.45)', color: '#a5b4fc' };
+const viewBtnInactiveStyle: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: '#94a3b8' };
+
 const summaryStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 4,
   padding: '10px 14px', borderRadius: 8,

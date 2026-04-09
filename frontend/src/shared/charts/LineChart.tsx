@@ -21,7 +21,7 @@ export const LineChart: React.FC<LineChartProps> = ({ data }) => {
       chart: {
         type: 'line',
         height: 500,
-        style: { fontFamily: 'inherit' },
+        style: { fontFamily: 'Verdana, sans-serif' },
         backgroundColor: 'transparent',
       },
       title: {
@@ -35,7 +35,7 @@ export const LineChart: React.FC<LineChartProps> = ({ data }) => {
       xAxis: {
         categories: data.categories,
         crosshair: { color: '#334155' },
-        labels: { style: { color: '#94a3b8' } },
+        labels: { style: { color: '#94a3b8', fontSize: '13px' } },
         lineColor: '#334155',
         tickColor: '#334155',
       },
@@ -43,9 +43,9 @@ export const LineChart: React.FC<LineChartProps> = ({ data }) => {
         min: 0,
         title: {
           text: data.yAxisLabel,
-          style: { color: '#94a3b8' },
+          style: { color: '#94a3b8', fontSize: '14px' },
         },
-        labels: { style: { color: '#94a3b8' } },
+        labels: { style: { color: '#94a3b8', fontSize: '13px' } },
         gridLineColor: '#334155',
       },
       tooltip: {
@@ -66,9 +66,28 @@ export const LineChart: React.FC<LineChartProps> = ({ data }) => {
       series: series as Highcharts.SeriesOptionsType[],
       exporting: {
         enabled: true,
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        scale: 1,
+        fallbackToExportServer: false,
+        chartOptions: {
+          chart: { backgroundColor: '#FFFFFF' },
+          title: { style: { color: '#1e293b', fontSize: '28px' } },
+          xAxis: {
+            labels: { style: { color: '#334155', fontSize: '20px' } },
+            lineColor: '#cbd5e1',
+            tickColor: '#cbd5e1',
+          },
+          yAxis: {
+            labels: { style: { color: '#334155', fontSize: '22px' } },
+            title: { style: { color: '#334155', fontSize: '24px' } },
+            gridLineColor: '#e2e8f0',
+          },
+          legend: { itemStyle: { color: '#334155', fontSize: '24px' } },
+        },
         buttons: {
           contextButton: {
-            menuItems: ['downloadPNG', 'downloadSVG', 'separator', 'downloadCSV'],
+            menuItems: ['downloadPNG', 'downloadJPEG', 'downloadSVG', 'separator', 'downloadCSV'],
           },
         },
       },
@@ -77,7 +96,7 @@ export const LineChart: React.FC<LineChartProps> = ({ data }) => {
         align: 'center',
         verticalAlign: 'bottom',
         layout: 'horizontal',
-        itemStyle: { color: '#94a3b8', fontWeight: 'normal' },
+        itemStyle: { color: '#94a3b8', fontWeight: 'normal', fontSize: '13px' },
         itemHoverStyle: { color: '#f8fafc' },
       },
     };

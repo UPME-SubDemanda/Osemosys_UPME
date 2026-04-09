@@ -706,6 +706,7 @@ CONFIGS = {
 
     'emisiones_total': {
         'titulo':           'Emisiones - Total Anual - AnnualEmissions',
+        "es_emision": True, 
         'figura':           'EMI-TOT',
         'filename':         'Emisiones_Total',
         'print':            'EMISIONES TOTALES',
@@ -719,6 +720,7 @@ CONFIGS = {
 
     'emisiones_sectorial': {
         'titulo':           'Emisiones - Por Sector - AnnualTechnologyEmission',
+        "es_emision": True, 
         'figura':           'EMI-SEC',
         'filename':         'Emisiones_Sectorial',
         'print':            'EMISIONES SECTORIALES',

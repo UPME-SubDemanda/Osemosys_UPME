@@ -32,7 +32,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({ data }) => {
         width: widthStr,
         left: leftStr,
         offset: 0,
-        labels: { style: { color: '#94a3b8' } },
+        labels: { style: { color: '#94a3b8', fontSize: '13px' } },
         lineColor: '#334155',
         tickColor: '#334155',
       });
@@ -41,13 +41,13 @@ export const CompareChart: React.FC<CompareChartProps> = ({ data }) => {
         id: `y-${idx}`,
         title: {
           text: idx === 0 ? data.yAxisLabel : null,
-          style: { color: '#94a3b8' },
+          style: { color: '#94a3b8', fontSize: '14px' },
         },
         width: widthStr,
         left: leftStr,
         min: 0,
         gridLineColor: '#334155',
-        labels: { style: { color: '#94a3b8' } },
+        labels: { style: { color: '#94a3b8', fontSize: '13px' } },
         stackLabels: {
           enabled: true,
           style: {
@@ -84,7 +84,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({ data }) => {
       chart: {
         type: 'column',
         height: 550,
-        style: { fontFamily: 'inherit' },
+        style: { fontFamily: 'Verdana, sans-serif' },
         backgroundColor: 'transparent',
       },
       title: {
@@ -103,9 +103,18 @@ export const CompareChart: React.FC<CompareChartProps> = ({ data }) => {
       series: series as Highcharts.SeriesOptionsType[],
       exporting: {
         enabled: true,
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        scale: 1,
+        fallbackToExportServer: false,
+        chartOptions: {
+          chart: { backgroundColor: '#FFFFFF' },
+          title: { style: { color: '#1e293b', fontSize: '28px' } },
+          legend: { itemStyle: { color: '#334155', fontSize: '20px' } },
+        },
         buttons: {
           contextButton: {
-            menuItems: ['downloadPNG', 'downloadSVG', 'separator', 'downloadCSV'],
+            menuItems: ['downloadPNG', 'downloadJPEG', 'downloadSVG', 'separator', 'downloadCSV'],
           },
         },
       },
@@ -114,7 +123,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({ data }) => {
         align: 'center',
         verticalAlign: 'bottom',
         layout: 'horizontal',
-        itemStyle: { color: '#94a3b8', fontWeight: 'normal' },
+        itemStyle: { color: '#94a3b8', fontWeight: 'normal', fontSize: '13px' },
         itemHoverStyle: { color: '#f8fafc' },
       },
     };

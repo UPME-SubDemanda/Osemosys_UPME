@@ -43,6 +43,9 @@ const CAPACITY_VARIABLES: { value: string; label: string }[] = [
 
 const UNITS = ['PJ', 'GW', 'MW', 'TWh', 'Gpc'] as const;
 
+const EMISSION_CHART_IDS = new Set(['emisiones_total', 'emisiones_sectorial']);
+const EMISSION_UNIT = 'MtCO₂eq';  // solo informativo, no se envía al backend
+
 /** Código → nombre legible de combustible (para dropdowns de sub-filtro). */
 const FUEL_LABELS: Record<string, string> = {
   NGS: 'Gas Natural',
@@ -384,6 +387,9 @@ export function ChartSelector({ value, onChange }: Props) {
   const agrupacionLabel =
     AGRUPACION_OPTIONS.find((a) => a.value === activeAgrupacion)?.label ?? activeAgrupacion;
 
+
+    const isEmissionChart = EMISSION_CHART_IDS.has(value.tipo);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -530,8 +536,23 @@ export function ChartSelector({ value, onChange }: Props) {
 
       {/* ── Fila inferior: Unidades + Tipo de vista + Sub-filtro + Localización ── */}
       <div style={bottomRowStyle}>
-        <div style={{ display: 'grid', gap: 6 }}>
-          <p style={labelStyle}>Unidades</p>
+      <div style={{ display: 'grid', gap: 6 }}>
+        <p style={labelStyle}>Unidades</p>
+        {isEmissionChart ? (
+          <div style={{
+            padding: '4px 12px',
+            borderRadius: 6,
+            border: '1px solid rgba(251,191,36,0.4)',
+            background: 'rgba(251,191,36,0.08)',
+            color: '#fcd34d',
+            fontSize: 12,
+            fontWeight: 600,
+            fontFamily: 'monospace',
+            display: 'inline-block',
+          }}>
+            MtCO₂eq  {/* o TonCO₂eq según tu modelo */}
+          </div>
+        ) : (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {UNITS.map((u) => (
               <button
@@ -544,7 +565,8 @@ export function ChartSelector({ value, onChange }: Props) {
               </button>
             ))}
           </div>
-        </div>
+        )}
+      </div>
 
         <div style={{ display: 'grid', gap: 6 }}>
           <p style={labelStyle}>Tipo de vista</p>

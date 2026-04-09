@@ -482,7 +482,7 @@ export function ResultDetailPage() {
             borderColor="border-t-amber-400"
           />
           <KpiCard
-            label="Emisiones CO2"
+            label="Emisiones CO2 (MtCO₂eq)"
             value={summary.total_co2.toLocaleString(undefined, {
               maximumFractionDigits: 2,
             })}
@@ -572,7 +572,7 @@ export function ResultDetailPage() {
                     Demand Coverage (%)
                   </th>
                   <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400 text-right">
-                    CO2 Emissions
+                    CO2 Emissions (MtCO₂eq)
                   </th>
                 </tr>
               </thead>

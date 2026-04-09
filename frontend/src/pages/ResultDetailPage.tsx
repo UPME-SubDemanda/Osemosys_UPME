@@ -18,6 +18,7 @@ import {
 import { ChartSelector, type ChartSelection } from '../shared/charts/ChartSelector';
 import { ScenarioComparer, type CompareViewMode } from '../shared/charts/ScenarioComparer';
 import { HighchartsChart } from '../shared/charts/HighchartsChart';
+import { LineChart } from '../shared/charts/LineChart';
 import { CompareChart } from '../shared/charts/CompareChart';
 import { CompareChartFacet } from '../shared/charts/CompareChartFacet';
 import { Button } from '../shared/components/Button';
@@ -47,6 +48,8 @@ export function ResultDetailPage() {
     sub_filtro: '',
     loc: '',
     variable: '',
+    viewMode: 'column',
+    agrupar_por: 'TECNOLOGIA',
   });
 
   // Comparison state unificado (CompareMode enum)
@@ -179,6 +182,7 @@ export function ResultDetailPage() {
       if (chartSelection.sub_filtro) params.sub_filtro = chartSelection.sub_filtro;
       if (chartSelection.loc) params.loc = chartSelection.loc;
       if (chartSelection.variable) params.variable = chartSelection.variable;
+      if (chartSelection.agrupar_por) params.agrupar_por = chartSelection.agrupar_por;
 
       simulationApi
         .getCompareFacetData(params as Parameters<typeof simulationApi.getCompareFacetData>[0])
@@ -198,6 +202,7 @@ export function ResultDetailPage() {
       };
       if (chartSelection.sub_filtro) params.sub_filtro = chartSelection.sub_filtro;
       if (chartSelection.loc) params.loc = chartSelection.loc;
+      if (chartSelection.agrupar_por) params.agrupacion = chartSelection.agrupar_por;
 
       simulationApi
         .getCompareData(params as Parameters<typeof simulationApi.getCompareData>[0])
@@ -216,6 +221,7 @@ export function ResultDetailPage() {
       if (chartSelection.sub_filtro) params.sub_filtro = chartSelection.sub_filtro;
       if (chartSelection.loc) params.loc = chartSelection.loc;
       if (chartSelection.variable) params.variable = chartSelection.variable;
+      if (chartSelection.agrupar_por) params.agrupar_por = chartSelection.agrupar_por;
 
       simulationApi
         .getChartData(
@@ -646,7 +652,9 @@ export function ResultDetailPage() {
             ) : compareState.mode === 'by-year' && compareState.jobIds.length > 1 && compareChartData ? (
               <CompareChart data={compareChartData} />
             ) : singleChartData ? (
-              <HighchartsChart data={singleChartData} />
+              chartSelection.viewMode === 'line'
+                ? <LineChart data={singleChartData} />
+                : <HighchartsChart data={singleChartData} />
             ) : !loadingChart ? (
               <div className="h-[400px] flex flex-col items-center justify-center text-slate-500 text-center px-4">
                 <div className="w-16 h-16 mb-3 rounded-full bg-slate-800 flex items-center justify-center">

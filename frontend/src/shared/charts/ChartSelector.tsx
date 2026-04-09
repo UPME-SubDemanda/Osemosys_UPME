@@ -85,6 +85,11 @@ const AGRUPACION_OPTIONS: { value: string; label: string; description: string }[
     label: 'Por combustible',
     description: 'Agrupa directamente por el campo FUEL del resultado',
   },
+  {
+    value: 'SECTOR',
+    label: 'Por Sector',
+    description: 'Agrupa por sectores de demanda',
+  },
 ];
 
 // IDs de charts que NO deben mostrar el selector de agrupación
@@ -104,6 +109,12 @@ interface ChartItem {
   hasSub?: boolean;
   hasLoc?: boolean;
   subFiltros?: string[];
+  /** Etiqueta del dropdown de sub-filtro (ej. 'Combustible', 'Uso', 'Modo'). Default: 'Sub-filtro'. */
+  subFiltroLabel?: string;
+  /** Agrupaciones válidas para esta gráfica. Si no se define, se muestran todas. */
+  allowedGroupings?: string[];
+  /** Agrupación por defecto al seleccionar esta gráfica. */
+  defaultGrouping?: string;
 }
 
 interface Subsector {
@@ -126,7 +137,7 @@ const MENU: Module[] = [
     emoji: '⚡',
     label: 'Sector Eléctrico',
     charts: [
-      { id: 'elec_produccion',  label: 'Producción de Electricidad - ProductionByTechnology' },
+      { id: 'elec_produccion',  label: 'Producción de Electricidad - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
       { id: 'prd_electricidad', label: 'Producción de Electricidad - ProductionByTechnology (%)' },
       { id: 'cap_electricidad', label: 'Matriz Eléctrica (Capacidad) - TotalCapacityAnnual', isCapacity: true },
     ],
@@ -136,40 +147,40 @@ const MENU: Module[] = [
     emoji: '🏠',
     label: 'Demanda Final — Sectores',
     subsectors: [
-      { id: 'consum_combustible', label: '🔥 Todos los Sectores', charts: [{id: 'dem_consumo_combustible', label: 'Consumo Por Sector', hasSub: true, subFiltros: ['NGS','DSL','ELC','GSL','COA','LPG','WOO','BGS','BAG','HDG','FOL','BDL','JET','WAS','OIL','AFR','SAF']}]},
+      { id: 'consum_combustible', label: '🔥 Todos los Sectores', charts: [{id: 'dem_consumo_combustible', label: 'Consumo Por Sector', hasSub: true, subFiltroLabel: 'Combustible', subFiltros: ['NGS','DSL','ELC','GSL','COA','LPG','WOO','BGS','BAG','HDG','FOL','BDL','JET','WAS','OIL','AFR','SAF'], allowedGroupings: ['SECTOR'], defaultGrouping: 'SECTOR'}]},
       {
         id: 'residencial', label: '🏘️ Residencial',
         charts: [
-          { id: 'res_total', label: 'Sector Residencial - Consumo Total - UseByTechnology', hasSub: true, hasLoc: true, subFiltros: ['CKN','WHT','AIR','REF','ILU','TV','OTH'] },
-          { id: 'res_uso',   label: 'Sector Residencial - ProductionByTechnology',           hasSub: true, hasLoc: true, subFiltros: ['CKN','WHT','AIR','REF','ILU','TV','OTH'] },
+          { id: 'res_total', label: 'Sector Residencial - Consumo Total - UseByTechnology', hasSub: true, subFiltroLabel: 'Uso', hasLoc: true, subFiltros: ['CKN','WHT','AIR','REF','ILU','TV','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+          { id: 'res_uso',   label: 'Sector Residencial - ProductionByTechnology',           hasSub: true, subFiltroLabel: 'Uso', hasLoc: true, subFiltros: ['CKN','WHT','AIR','REF','ILU','TV','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
         ],
       },
       {
         id: 'industrial', label: '🏗️ Industrial',
         charts: [
-          { id: 'ind_total', label: 'Sector Industrial - Consumo Total - UseByTechnology', hasSub: true, subFiltros: ['BOI','FUR','MPW','AIR','REF','ILU','OTH'] },
-          { id: 'ind_uso',   label: 'Sector Industrial - ProductionByTechnology',           hasSub: true, subFiltros: ['BOI','FUR','MPW','AIR','REF','ILU','OTH'] },
+          { id: 'ind_total', label: 'Sector Industrial - Consumo Total - UseByTechnology', hasSub: true, subFiltroLabel: 'Uso', subFiltros: ['BOI','FUR','MPW','AIR','REF','ILU','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+          { id: 'ind_uso',   label: 'Sector Industrial - ProductionByTechnology',           hasSub: true, subFiltroLabel: 'Uso', subFiltros: ['BOI','FUR','MPW','AIR','REF','ILU','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
         ],
       },
       {
         id: 'transporte', label: '🚗 Transporte',
         charts: [
-          { id: 'tra_total', label: 'Sector Transporte - Consumo Total - UseByTechnology', hasSub: true, subFiltros: ['AVI','BOT','SHP','LDV','FWD','BUS','TCK_C2P','TCK_CSG','MOT','MIC','TAX','STT','MET'] },
-          { id: 'tra_uso',   label: 'Sector Transporte - ProductionByTechnology',           hasSub: true, subFiltros: ['AVI','BOT','SHP','LDV','FWD','BUS','TCK_C2P','TCK_CSG','MOT','MIC','TAX','STT','MET'] },
+          { id: 'tra_total', label: 'Sector Transporte - Consumo Total - UseByTechnology', hasSub: true, subFiltroLabel: 'Modo', subFiltros: ['AVI','BOT','SHP','LDV','FWD','BUS','TCK_C2P','TCK_CSG','MOT','MIC','TAX','STT','MET'], allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+          { id: 'tra_uso',   label: 'Sector Transporte - ProductionByTechnology',           hasSub: true, subFiltroLabel: 'Modo', subFiltros: ['AVI','BOT','SHP','LDV','FWD','BUS','TCK_C2P','TCK_CSG','MOT','MIC','TAX','STT','MET'], allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
         ],
       },
       {
         id: 'terciario', label: '🏢 Terciario',
         charts: [
-          { id: 'ter_total', label: 'Sector Terciario - Consumo Total - UseByTechnology', hasSub: true, subFiltros: ['AIR','ILU','OTH'] },
-          { id: 'ter_uso',   label: 'Sector Terciario - ProductionByTechnology',           hasSub: true, subFiltros: ['AIR','ILU','OTH'] },
+          { id: 'ter_total', label: 'Sector Terciario - Consumo Total - UseByTechnology', hasSub: true, subFiltroLabel: 'Uso', subFiltros: ['AIR','ILU','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+          { id: 'ter_uso',   label: 'Sector Terciario - ProductionByTechnology',           hasSub: true, subFiltroLabel: 'Uso', subFiltros: ['AIR','ILU','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
         ],
       },
-      { id: 'construccion', label: '🔨 Construcción',      charts: [{ id: 'con_total',   label: 'Sector Construcción - Consumo Total - UseByTechnology' }] },
-      { id: 'agroforestal', label: '🌾 Agroforestal',      charts: [{ id: 'agf_total',   label: 'Sector Agroforestal - Consumo Total - UseByTechnology' }] },
-      { id: 'mineria_dem',  label: '⛏️ Minería (demanda)', charts: [{ id: 'min_total',   label: 'Sector Minería - Consumo Total - UseByTechnology' }] },
-      { id: 'coquerias',    label: '🧱 Coquerías',          charts: [{ id: 'coq_total',   label: 'Sector Coquerías - Consumo Total - UseByTechnology' }] },
-      { id: 'otros_dem',    label: '📦 Otros Sectores',     charts: [{ id: 'otros_total', label: 'Otros Sectores - Consumo Total - UseByTechnology' }] },
+      { id: 'construccion', label: '🔨 Construcción',      charts: [{ id: 'con_total',   label: 'Sector Construcción - Consumo Total - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] }] },
+      { id: 'agroforestal', label: '🌾 Agroforestal',      charts: [{ id: 'agf_total',   label: 'Sector Agroforestal - Consumo Total - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] }] },
+      { id: 'mineria_dem',  label: '⛏️ Minería (demanda)', charts: [{ id: 'min_total',   label: 'Sector Minería - Consumo Total - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] }] },
+      { id: 'coquerias',    label: '🧱 Coquerías',          charts: [{ id: 'coq_total',   label: 'Sector Coquerías - Consumo Total - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] }] },
+      { id: 'otros_dem',    label: '📦 Otros Sectores',     charts: [{ id: 'otros_total', label: 'Otros Sectores - Consumo Total - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] }] },
     ],
   },
   {
@@ -189,13 +200,13 @@ const MENU: Module[] = [
     emoji: '🛢️',
     label: 'Upstream & Refinación',
     charts: [
-      { id: 'gas_consumo',    label: 'Gas Natural - UseByTechnology' },
-      { id: 'gas_produccion', label: 'Gas Natural - ProductionByTechnology' },
-      { id: 'ref_total',      label: 'Refinerías - ProductionByTechnology' },
-      { id: 'ref_consumo',    label: 'Refinerías — Consumo Total por Tecnología' },
-      { id: 'ref_import',     label: 'Refinerías - Importaciones - ProductionByTechnology' },
-      { id: 'ups_refinacion', label: 'Upstream Refinación - ProductionByTechnology' },
-      { id: 'saf_produccion', label: 'SAF - Producción - ProductionByTechnology' },
+      { id: 'gas_consumo',    label: 'Gas Natural - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'gas_produccion', label: 'Gas Natural - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'ref_total',      label: 'Refinerías - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'ref_consumo',    label: 'Refinerías — Consumo Total por Tecnología', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'ref_import',     label: 'Refinerías - Importaciones - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'ups_refinacion', label: 'Upstream Refinación - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'saf_produccion', label: 'SAF - Producción - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
     ],
   },
   {
@@ -203,12 +214,12 @@ const MENU: Module[] = [
     emoji: '⛏️',
     label: 'Minería & Extracción',
     charts: [
-      { id: 'min_hidrocarburos',  label: 'Minería Hidrocarburos - ProductionByTechnology' },
-      { id: 'min_carbon',         label: 'Minería Carbón - ProductionByTechnology' },
-      { id: 'extraccion_min',     label: 'Minería - Extracción - ProductionByTechnology' },
-      { id: 'solidos_extraccion', label: 'Sólidos - Extracción - ProductionByTechnology' },
-      { id: 'solidos_import',     label: 'Sólidos - Importación - ProductionByTechnology' },
-      { id: 'solidos_flujos',     label: 'Sólidos - Importación/Exportación - ProductionByTechnology' },
+      { id: 'min_hidrocarburos',  label: 'Minería Hidrocarburos - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'min_carbon',         label: 'Minería Carbón - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'extraccion_min',     label: 'Minería - Extracción - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'solidos_extraccion', label: 'Sólidos - Extracción - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'solidos_import',     label: 'Sólidos - Importación - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'solidos_flujos',     label: 'Sólidos - Importación/Exportación - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
     ],
   },
   {
@@ -216,15 +227,15 @@ const MENU: Module[] = [
     emoji: '💧',
     label: 'Hidrógeno',
     charts: [
-      { id: 'cap_h2',     label: 'Hidrógeno - ProductionByTechnology' },
-      { id: 'h2_consumo', label: 'Hidrógeno - Consumo - UseByTechnology' },
+      { id: 'cap_h2',     label: 'Hidrógeno - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'h2_consumo', label: 'Hidrógeno - Consumo - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
     ],
   },
   {
     id: 'comercio',
     emoji: '🚢',
     label: 'Comercio Exterior',
-    charts: [{ id: 'exp_liquidos_gas', label: 'Exportaciones — Líquidos y Gas' }],
+    charts: [{ id: 'exp_liquidos_gas', label: 'Exportaciones — Líquidos y Gas', allowedGroupings: ['TECNOLOGIA', 'FUEL'] }],
   },
   {
     id: 'emisiones',
@@ -312,9 +323,21 @@ export function ChartSelector({ value, onChange }: Props) {
   // ── Helpers internos ──────────────────────────────────────────────────────
 
   function selectChart(item: ChartItem): void {
-    // Se extrae agrupar_por del value para no arrastrarla automáticamente
-    // via spread cuando la nueva gráfica no la soporta.
     const { agrupar_por: prevAgrupacion, ...rest } = value;
+
+    // Determinar la agrupación correcta para la nueva gráfica
+    let newGrouping: string | undefined;
+    if (showsAgrupacion(item)) {
+      const prev = prevAgrupacion ?? 'TECNOLOGIA';
+      if (item.allowedGroupings) {
+        // Si la agrupación anterior es válida, mantenerla; sino, usar la default
+        newGrouping = item.allowedGroupings.includes(prev)
+          ? prev
+          : (item.defaultGrouping ?? item.allowedGroupings[0] ?? 'TECNOLOGIA');
+      } else {
+        newGrouping = prev;
+      }
+    }
 
     onChange({
       ...rest,
@@ -322,11 +345,7 @@ export function ChartSelector({ value, onChange }: Props) {
       variable:   item.isCapacity ? 'TotalCapacityAnnual' : '',
       sub_filtro: '',
       loc:        '',
-      // Incluir agrupar_por SOLO si la nueva gráfica lo soporta.
-      // Si no se soporta, la propiedad queda AUSENTE (no undefined).
-      ...(showsAgrupacion(item)
-        ? { agrupar_por: prevAgrupacion ?? 'TECNOLOGIA' }
-        : {}),
+      ...(newGrouping != null ? { agrupar_por: newGrouping } : {}),
     });
   }
 
@@ -472,38 +491,42 @@ export function ChartSelector({ value, onChange }: Props) {
       )}
 
       {/* ── Agrupación (no caps, no porcentaje, no emisiones) ── */}
-      {canChangeAgrupacion && (
-        <div>
-          <p style={labelStyle}>Agrupar por</p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {AGRUPACION_OPTIONS.map((opt) => {
-              const isActive = activeAgrupacion === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  title={opt.description}
-                  onClick={() => handleAgrupacionChange(opt.value)}
-                  style={{ ...agrupBtnStyle, ...(isActive ? agrupBtnActiveStyle : agrupBtnInactiveStyle) }}
-                >
-                  {/* Icono según tipo */}
-                  <span style={{ fontSize: 13 }}>
-                    {opt.value === 'TECNOLOGIA' ? '⚙️'
-                      : opt.value === 'COMBUSTIBLE' ? '🔥'
-                      : opt.value === 'FUEL' ? '⛽'
-                      : '🔗'}
-                  </span>
-                  <span>{opt.label}</span>
-                </button>
-              );
-            })}
+      {canChangeAgrupacion && (() => {
+        const allowedOptions = currentItem?.allowedGroupings
+          ? AGRUPACION_OPTIONS.filter(o => currentItem.allowedGroupings!.includes(o.value))
+          : AGRUPACION_OPTIONS;
+        return (
+          <div>
+            <p style={labelStyle}>Agrupar por</p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {allowedOptions.map((opt) => {
+                const isActive = activeAgrupacion === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    title={opt.description}
+                    onClick={() => handleAgrupacionChange(opt.value)}
+                    style={{ ...agrupBtnStyle, ...(isActive ? agrupBtnActiveStyle : agrupBtnInactiveStyle) }}
+                  >
+                    <span style={{ fontSize: 13 }}>
+                      {opt.value === 'TECNOLOGIA' ? '⚙️'
+                        : opt.value === 'COMBUSTIBLE' ? '🔥'
+                        : opt.value === 'FUEL' ? '⛽'
+                        : opt.value === 'SECTOR' ? '🏢'
+                        : '🔗'}
+                    </span>
+                    <span>{opt.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p style={agrupDescStyle}>
+              {AGRUPACION_OPTIONS.find((o) => o.value === activeAgrupacion)?.description ?? ''}
+            </p>
           </div>
-          {/* Descripción de la opción activa */}
-          <p style={agrupDescStyle}>
-            {AGRUPACION_OPTIONS.find((o) => o.value === activeAgrupacion)?.description ?? ''}
-          </p>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Fila inferior: Unidades + Tipo de vista + Sub-filtro + Localización ── */}
       <div style={bottomRowStyle}>
@@ -544,7 +567,7 @@ export function ChartSelector({ value, onChange }: Props) {
 
         {currentItem?.hasSub === true && (
           <label style={{ display: 'grid', gap: 6 }}>
-            <p style={labelStyle}>Sub-filtro</p>
+            <p style={labelStyle}>{currentItem.subFiltroLabel ?? 'Sub-filtro'}</p>
             <select
               style={selectStyle}
               value={value.sub_filtro ?? ''}

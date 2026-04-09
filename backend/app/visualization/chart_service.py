@@ -38,6 +38,7 @@ from app.visualization.colors import (
     _color_electricidad,
     _color_por_grupo_fijo,
 )
+from app.visualization.labels import get_label
 from app.visualization.configs import CONFIGS, TITULOS_VARIABLES_CAPACIDAD
 from app.visualization.configs_comparacion import (
     COLORES_SECTOR,
@@ -411,7 +412,7 @@ def build_chart_data(
         data = [round(valor_por_año.get(a, 0.0), 6) for a in años]
         series.append(
             ChartSeries(
-                name=str(tech),
+                name=get_label(str(tech)),
                 data=data,
                 color=color_dict.get(tech, "#999999"),
                 stack="default",
@@ -618,7 +619,7 @@ def build_comparison_data(
 
             series.append(
                 ChartSeries(
-                    name=str(categoria),
+                    name=get_label(str(categoria)),
                     data=data,
                     color=mapa_colores.get(categoria, "#999999"),
                     stack="default",

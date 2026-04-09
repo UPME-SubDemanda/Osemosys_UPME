@@ -321,7 +321,14 @@ def build_chart_data(
     if loc:
         title += f" ({loc})"
 
-    title += f" ({un})"
+    # title += f" ({un})"
+    # Por:
+    es_emision = cfg.get("es_emision", False)
+
+    if not es_emision:
+        title += f" ({un})"
+    else:
+        title += f" (MtCO₂eq)"
 
     # ── Cargar datos ─────────────────────────────────────────────────────
     df = _load_variable_data(db, job_id, variable_name)
@@ -378,7 +385,8 @@ def build_chart_data(
         )
 
     # ── Conversión de unidades ───────────────────────────────────────────
-    df_agg = _convertir_unidades(df_agg, un)
+    if not es_emision:
+        df_agg = _convertir_unidades(df_agg, un)
 
     # ── Porcentaje (prd_electricidad) ────────────────────────────────────
     if es_porcentaje:
@@ -423,18 +431,24 @@ def build_chart_data(
             )
         )
 
+    # return ChartDataResponse(
+    #     categories=categories,
+    #     series=series,
+    #     title=title,
+    #     yAxisLabel="%" if es_porcentaje else un,
+    # )
+    EMISSION_UNIT_LABEL = "MtCO₂eq"  # ajusta según tu modelo
+
     return ChartDataResponse(
         categories=categories,
         series=series,
         title=title,
-        yAxisLabel="%" if es_porcentaje else un,
+        yAxisLabel="%" if es_porcentaje else (EMISSION_UNIT_LABEL if es_emision else un),
     )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. build_comparison_data — MULTI-ESCENARIO
 # ═══════════════════════════════════════════════════════════════════════════
-
 def build_comparison_data(
     db: Session,
     job_ids: list[int],
@@ -481,6 +495,7 @@ def build_comparison_data(
         if tipo in CONFIGS:
             es_generico = True
             cfg = CONFIGS[tipo]
+            es_emision = cfg.get("es_emision", False)
         else:
             raise ValueError(f"tipo='{tipo}' no existe ni en CONFIGS ni en CONFIGS_COMPARACION.")
     else:
@@ -733,6 +748,7 @@ def _procesar_bloque_comparacion(
     agrupacion: str,
     años: list[int],
     un: str,
+    es_emision: bool = False,
 ) -> pd.DataFrame | None:
     """Pipeline para un bloque de datos de comparación.
 
@@ -762,7 +778,10 @@ def _procesar_bloque_comparacion(
     if df.empty:
         return None
 
-    df = _convertir_unidades(df, un)
+    # df = _convertir_unidades(df, un)
+    
+    if not es_emision:
+        df = _convertir_unidades(df, un)
 
     return df
 
@@ -822,7 +841,11 @@ def _procesar_bloque_single(
     if df.empty:
         return None
         
-    df = _convertir_unidades(df, un)
+    # df = _convertir_unidades(df, un)
+    es_emision = cfg.get("es_emision", False)
+    if not es_emision:
+        df = _convertir_unidades(df, un)
+
     return df
 
 

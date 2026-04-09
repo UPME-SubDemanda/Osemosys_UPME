@@ -4,6 +4,13 @@
  * Nivel 1 → Módulo temático  (pills horizontales)
  * Nivel 2 → Subsector        (solo para "Demanda Final")
  * Nivel 3 → Gráfica          (lista de botones)
+ *
+ * Controles adicionales:
+ *   - Variable de capacidad (TotalCapacityAnnual / NewCapacity / AccumulatedNewCapacity)
+ *   - Agrupación            (TECNOLOGIA / COMBUSTIBLE / FUEL / GROUP)
+ *   - Unidades
+ *   - Sub-filtro
+ *   - Localización
  */
 
 import React, { useState, useMemo } from 'react';
@@ -16,6 +23,8 @@ export interface ChartSelection {
   sub_filtro?: string;
   loc?: string;
   variable?: string;
+  /** Agrupación enviada al backend: 'TECNOLOGIA' | 'COMBUSTIBLE' | 'FUEL' | 'GROUP' */
+  agrupar_por?: string; // 
 }
 
 interface Props {
@@ -32,6 +41,38 @@ const CAPACITY_VARIABLES: { value: string; label: string }[] = [
 ];
 
 const UNITS = ['PJ', 'GW', 'MW', 'TWh', 'Gpc'] as const;
+
+/**
+ * Opciones de agrupación disponibles para el backend.
+ *
+ * TECNOLOGIA → cada barra/serie es una tecnología individual (default actual).
+ * COMBUSTIBLE → agrupa por tipo de combustible/energético usando asignar_grupo().
+ * FUEL        → agrupa directamente por el campo FUEL del resultado.
+ * GROUP       → combina TECHNOLOGY + FUEL y asigna grupo (combustible "compuesto").
+ *
+ * Los configs de capacidad (isCapacity) y porcentaje (prd_electricidad)
+ * no muestran este selector porque su agrupación está fija en el backend.
+ */
+const AGRUPACION_OPTIONS: { value: string; label: string; description: string }[] = [
+  {
+    value: 'TECNOLOGIA',
+    label: 'Por Tecnología',
+    description: 'Una serie por cada tecnología individual',
+  },
+  {
+    value: 'FUEL',
+    label: 'Por combustible',
+    description: 'Agrupa directamente por el campo FUEL del resultado',
+  },
+];
+
+// IDs de charts que NO deben mostrar el selector de agrupación
+// (su agrupación está fija en el backend o no tiene sentido cambiarlo)
+const CHARTS_SIN_AGRUPACION = new Set([
+  'prd_electricidad',   // es_porcentaje → fijo en backend
+  'emisiones_total',    // agrupa por YEAR → fijo
+  'emisiones_sectorial',// agrupa por sector/emisión → fijo
+]);
 
 // ─── Estructura del menú ─────────────────────────────────────────────────────
 
@@ -174,7 +215,6 @@ const MENU: Module[] = [
   },
 ];
 
-// MENU es una constante no vacía definida en este módulo — la aserción es segura.
 const FIRST_MODULE = MENU[0] as Module;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -207,6 +247,14 @@ function findLocation(tipo: string): { moduleId: string; subsectorId?: string } 
   return { moduleId: FIRST_MODULE.id };
 }
 
+/** Determina si la gráfica activa debe mostrar el selector de agrupación */
+function showsAgrupacion(item: ChartItem | undefined): boolean {
+  if (!item) return false;
+  if (item.isCapacity) return false;                    // fijo en backend
+  if (CHARTS_SIN_AGRUPACION.has(item.id)) return false; // porcentaje / emisiones
+  return true;
+}
+
 // ─── Componente ──────────────────────────────────────────────────────────────
 
 export function ChartSelector({ value, onChange }: Props) {
@@ -214,7 +262,6 @@ export function ChartSelector({ value, onChange }: Props) {
   const [activeModule,    setActiveModule]    = useState(initialLocation.moduleId);
   const [activeSubsector, setActiveSubsector] = useState(initialLocation.subsectorId ?? '');
 
-  // Siempre definido: el fallback garantiza un Module concreto.
   const currentModule: Module =
     MENU.find((m) => m.id === activeModule) ?? FIRST_MODULE;
 
@@ -223,7 +270,6 @@ export function ChartSelector({ value, onChange }: Props) {
   const subsectors: Subsector[] = currentModule.subsectors ?? [];
   const flatCharts: ChartItem[] = currentModule.charts ?? [];
 
-  // FIX TS2532: sub?.charts ?? [] — nunca undefined aunque noUncheckedIndexedAccess esté activo.
   const subsectorCharts: ChartItem[] = useMemo(() => {
     if (subsectors.length === 0) return [];
     const sub: Subsector | undefined =
@@ -233,19 +279,35 @@ export function ChartSelector({ value, onChange }: Props) {
 
   const chartsToShow = subsectors.length > 0 ? subsectorCharts : flatCharts;
 
+  // Valores derivados seguros
+  const activeVariable: string  = value.variable ?? '';
+  const activeAgrupacion: string = value.agrupar_por ?? 'TECNOLOGIA';
+  const activeCapacityLabel: string =
+    CAPACITY_VARIABLES.find((cv) => cv.value === activeVariable)?.label ?? activeVariable;
+
+  const canChangeAgrupacion = showsAgrupacion(currentItem);
+
   // ── Helpers internos ──────────────────────────────────────────────────────
 
   function selectChart(item: ChartItem): void {
+    // Se extrae agrupar_por del value para no arrastrarla automáticamente
+    // via spread cuando la nueva gráfica no la soporta.
+    const { agrupar_por: prevAgrupacion, ...rest } = value;
+
     onChange({
-      ...value,
+      ...rest,
       tipo:       item.id,
       variable:   item.isCapacity ? 'TotalCapacityAnnual' : '',
       sub_filtro: '',
       loc:        '',
+      // Incluir agrupar_por SOLO si la nueva gráfica lo soporta.
+      // Si no se soporta, la propiedad queda AUSENTE (no undefined).
+      ...(showsAgrupacion(item)
+        ? { agrupar_por: prevAgrupacion ?? 'TECNOLOGIA' }
+        : {}),
     });
   }
 
-  // FIX TS18048 (líneas 292/294/312/313/317): guards explícitos antes de cada acceso.
   function handleModuleChange(moduleId: string): void {
     setActiveModule(moduleId);
     const mod = MENU.find((m) => m.id === moduleId);
@@ -264,7 +326,6 @@ export function ChartSelector({ value, onChange }: Props) {
     }
   }
 
-  // FIX TS18048 (líneas 323/324): guard antes de sub.charts[0].
   function handleSubsectorChange(subsectorId: string): void {
     setActiveSubsector(subsectorId);
     const sub = currentModule.subsectors?.find((s) => s.id === subsectorId);
@@ -273,10 +334,14 @@ export function ChartSelector({ value, onChange }: Props) {
     if (firstChart) selectChart(firstChart);
   }
 
-  // FIX TS2532 (línea 378): variable es opcional en la interfaz — ?? '' garantiza string.
-  const activeVariable: string = value.variable ?? '';
-  const activeCapacityLabel: string =
-    CAPACITY_VARIABLES.find((cv) => cv.value === activeVariable)?.label ?? activeVariable;
+  function handleAgrupacionChange(agrupacion: string): void {
+    onChange({ ...value, agrupar_por: agrupacion });
+  }
+
+  // ── Resumen para la barra de selección activa ─────────────────────────────
+
+  const agrupacionLabel =
+    AGRUPACION_OPTIONS.find((a) => a.value === activeAgrupacion)?.label ?? activeAgrupacion;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -362,7 +427,7 @@ export function ChartSelector({ value, onChange }: Props) {
         </div>
       )}
 
-      {/* ── Variable de capacidad ── */}
+      {/* ── Variable de capacidad (solo caps) ── */}
       {currentItem?.isCapacity === true && (
         <div>
           <p style={labelStyle}>Variable de capacidad</p>
@@ -381,6 +446,40 @@ export function ChartSelector({ value, onChange }: Props) {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ── Agrupación (no caps, no porcentaje, no emisiones) ── */}
+      {canChangeAgrupacion && (
+        <div>
+          <p style={labelStyle}>Agrupar por</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {AGRUPACION_OPTIONS.map((opt) => {
+              const isActive = activeAgrupacion === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  title={opt.description}
+                  onClick={() => handleAgrupacionChange(opt.value)}
+                  style={{ ...agrupBtnStyle, ...(isActive ? agrupBtnActiveStyle : agrupBtnInactiveStyle) }}
+                >
+                  {/* Icono según tipo */}
+                  <span style={{ fontSize: 13 }}>
+                    {opt.value === 'TECNOLOGIA' ? '⚙️'
+                      : opt.value === 'COMBUSTIBLE' ? '🔥'
+                      : opt.value === 'FUEL' ? '⛽'
+                      : '🔗'}
+                  </span>
+                  <span>{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          {/* Descripción de la opción activa */}
+          <p style={agrupDescStyle}>
+            {AGRUPACION_OPTIONS.find((o) => o.value === activeAgrupacion)?.description ?? ''}
+          </p>
         </div>
       )}
 
@@ -438,15 +537,14 @@ export function ChartSelector({ value, onChange }: Props) {
       {/* ── Resumen de selección activa ── */}
       {value.tipo !== '' && (
         <div style={summaryStyle}>
-          <span style={{ color: '#64748b', fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            Selección activa
-          </span>
+          <span style={summaryLabelStyle}>Selección activa</span>
           <span style={{ color: '#e2e8f0', fontSize: 13 }}>
             {currentItem?.label ?? value.tipo}
             {activeVariable !== '' ? ` — ${activeCapacityLabel}` : ''}
             {value.sub_filtro != null && value.sub_filtro !== '' ? ` [${value.sub_filtro}]` : ''}
             {value.loc != null && value.loc !== '' ? ` (${value.loc})` : ''}
             {' '}· {value.un}
+            {canChangeAgrupacion ? ` · ${agrupacionLabel}` : ''}
           </span>
         </div>
       )}
@@ -497,6 +595,18 @@ const varBtnStyle: React.CSSProperties = {
 const varBtnActiveStyle: React.CSSProperties   = { background: 'rgba(16,185,129,0.18)',  borderColor: 'rgba(16,185,129,0.4)',  color: '#6ee7b7' };
 const varBtnInactiveStyle: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: '#94a3b8' };
 
+// Estilos para el selector de agrupación (color naranja para diferenciarlo)
+const agrupBtnStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  padding: '6px 14px', borderRadius: 7, border: '1px solid transparent',
+  cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', transition: 'all 0.12s ease',
+};
+const agrupBtnActiveStyle: React.CSSProperties   = { background: 'rgba(234,88,12,0.18)',  borderColor: 'rgba(234,88,12,0.45)', color: '#fb923c' };
+const agrupBtnInactiveStyle: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', color: '#94a3b8' };
+const agrupDescStyle: React.CSSProperties = {
+  margin: '6px 0 0', fontSize: 11, color: '#64748b', fontStyle: 'italic',
+};
+
 const bottomRowStyle: React.CSSProperties = {
   display: 'grid', gridTemplateColumns: 'auto 1fr 1fr', gap: 20,
   alignItems: 'start', paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.06)',
@@ -517,4 +627,7 @@ const summaryStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 4,
   padding: '10px 14px', borderRadius: 8,
   background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+};
+const summaryLabelStyle: React.CSSProperties = {
+  color: '#64748b', fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
 };

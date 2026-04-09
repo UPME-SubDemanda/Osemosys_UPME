@@ -47,6 +47,7 @@ export function ResultDetailPage() {
     sub_filtro: '',
     loc: '',
     variable: '',
+    agrupar_por: 'TECNOLOGIA',
   });
 
   // Comparison state unificado (CompareMode enum)
@@ -179,6 +180,7 @@ export function ResultDetailPage() {
       if (chartSelection.sub_filtro) params.sub_filtro = chartSelection.sub_filtro;
       if (chartSelection.loc) params.loc = chartSelection.loc;
       if (chartSelection.variable) params.variable = chartSelection.variable;
+      if (chartSelection.agrupar_por) params.agrupar_por = chartSelection.agrupar_por;
 
       simulationApi
         .getCompareFacetData(params as Parameters<typeof simulationApi.getCompareFacetData>[0])
@@ -198,6 +200,7 @@ export function ResultDetailPage() {
       };
       if (chartSelection.sub_filtro) params.sub_filtro = chartSelection.sub_filtro;
       if (chartSelection.loc) params.loc = chartSelection.loc;
+      if (chartSelection.agrupar_por) params.agrupacion = chartSelection.agrupar_por;
 
       simulationApi
         .getCompareData(params as Parameters<typeof simulationApi.getCompareData>[0])
@@ -216,6 +219,7 @@ export function ResultDetailPage() {
       if (chartSelection.sub_filtro) params.sub_filtro = chartSelection.sub_filtro;
       if (chartSelection.loc) params.loc = chartSelection.loc;
       if (chartSelection.variable) params.variable = chartSelection.variable;
+      if (chartSelection.agrupar_por) params.agrupar_por = chartSelection.agrupar_por;
 
       simulationApi
         .getChartData(

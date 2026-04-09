@@ -17,14 +17,22 @@ MAPA_SECTOR = {
     'DEMIND': 'Industrial',
     'DEMTRA': 'Transporte',
     'DEMTER': 'Terciario',
+    'DEMCON': 'Construcción',
+    'DEMAGF': 'Agroforestal',
+    'DEMMIN': 'Minería',
+    'DEMCOQ': 'Coquerías',
 }
 
 # Colores fijos para cada sector (usados cuando agrupacion='SECTOR')
 COLORES_SECTOR = {
-    'Residencial': '#1f77b4',
-    'Industrial':  '#ff7f0e',
-    'Transporte':  '#2ca02c',
-    'Terciario':   '#9467bd',
+    'Residencial':  '#1f77b4',
+    'Industrial':   '#ff7f0e',
+    'Transporte':   '#2ca02c',
+    'Terciario':    '#9467bd',
+    'Construcción': '#d62728',
+    'Agroforestal': '#8c564b',
+    'Minería':      '#e377c2',
+    'Coquerías':    '#17becf',
 }
 
 

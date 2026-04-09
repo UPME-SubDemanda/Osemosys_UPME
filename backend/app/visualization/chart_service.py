@@ -37,9 +37,10 @@ from app.visualization.colors import (
     generar_colores_tecnologias,
     _color_electricidad,
     _color_por_grupo_fijo,
+    _color_por_sector,
 )
 from app.visualization.labels import get_label
-from app.visualization.configs import CONFIGS, TITULOS_VARIABLES_CAPACIDAD
+from app.visualization.configs import CONFIGS, TITULOS_VARIABLES_CAPACIDAD, NOMBRES_COMBUSTIBLES
 from app.visualization.configs_comparacion import (
     COLORES_SECTOR,
     CONFIGS_COMPARACION,
@@ -315,7 +316,8 @@ def build_chart_data(
         title = cfg.get("titulo", tipo)
 
     if sub_filtro:
-        title += f" — {sub_filtro}"
+        sub_label = NOMBRES_COMBUSTIBLES.get(sub_filtro, sub_filtro)
+        title += f" — {sub_label}"
     if loc:
         title += f" ({loc})"
 
@@ -388,6 +390,8 @@ def build_chart_data(
     if agrupar_por is not None and agrupar_por != cfg.get("agrupar_por"):
         if agrupar_col in ("FUEL", "GROUP"):
             color_fn = _color_por_grupo_fijo
+        elif agrupar_col == "SECTOR":
+            color_fn = _color_por_sector
         else:
             # TECNOLOGIA u otro: usar electricidad si el config lo usa, sino generar_colores
             color_fn = cfg.get("color_fn") if cfg.get("color_fn") == _color_electricidad else generar_colores_tecnologias
@@ -513,7 +517,8 @@ def build_comparison_data(
 
     title = title_base
     if sub_filtro:
-        title += f" — {sub_filtro}"
+        sub_label = NOMBRES_COMBUSTIBLES.get(sub_filtro, sub_filtro)
+        title += f" — {sub_label}"
     if loc:
         title += f" ({loc})"
     title += f" ({un})"
@@ -675,7 +680,8 @@ def build_comparison_facet_data(
     title_base = cfg.get("titulo", cfg.get("titulo_base", tipo))
     title = title_base
     if sub_filtro:
-        title += f" — {sub_filtro}"
+        sub_label = NOMBRES_COMBUSTIBLES.get(sub_filtro, sub_filtro)
+        title += f" — {sub_label}"
     if loc:
         title += f" ({loc})"
     title += f" ({un})"

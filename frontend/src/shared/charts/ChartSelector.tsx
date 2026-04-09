@@ -33,6 +33,27 @@ const CAPACITY_VARIABLES: { value: string; label: string }[] = [
 
 const UNITS = ['PJ', 'GW', 'MW', 'TWh', 'Gpc'] as const;
 
+/** Código → nombre legible de combustible (para dropdowns de sub-filtro). */
+const FUEL_LABELS: Record<string, string> = {
+  NGS: 'Gas Natural',
+  DSL: 'Diésel',
+  ELC: 'Electricidad',
+  GSL: 'Gasolina',
+  COA: 'Carbón',
+  LPG: 'GLP',
+  WOO: 'Leña',
+  BGS: 'Biogás',
+  BAG: 'Bagazo',
+  HDG: 'Hidrógeno',
+  FOL: 'Fuel Oil',
+  BDL: 'Biodiésel',
+  JET: 'Jet A1',
+  WAS: 'RSU',
+  OIL: 'Petróleo',
+  AFR: 'Residuos Agrícolas/Forestales',
+  SAF: 'SAF',
+};
+
 // ─── Estructura del menú ─────────────────────────────────────────────────────
 
 interface ChartItem {
@@ -74,6 +95,7 @@ const MENU: Module[] = [
     emoji: '🏠',
     label: 'Demanda Final — Sectores',
     subsectors: [
+      { id: 'consum_combustible', label: '🔥 Todos los Sectores', charts: [{id: 'dem_consumo_combustible', label: 'Consumo Por Sector', hasSub: true, subFiltros: ['NGS','DSL','ELC','GSL','COA','LPG','WOO','BGS','BAG','HDG','FOL','BDL','JET','WAS','OIL','AFR','SAF']}]},
       {
         id: 'residencial', label: '🏘️ Residencial',
         charts: [
@@ -412,7 +434,7 @@ export function ChartSelector({ value, onChange }: Props) {
             >
               <option value="">Todos</option>
               {(currentItem.subFiltros ?? []).map((sf) => (
-                <option key={sf} value={sf}>{sf}</option>
+                <option key={sf} value={sf}>{FUEL_LABELS[sf] ?? sf}</option>
               ))}
             </select>
           </label>
@@ -444,7 +466,7 @@ export function ChartSelector({ value, onChange }: Props) {
           <span style={{ color: '#e2e8f0', fontSize: 13 }}>
             {currentItem?.label ?? value.tipo}
             {activeVariable !== '' ? ` — ${activeCapacityLabel}` : ''}
-            {value.sub_filtro != null && value.sub_filtro !== '' ? ` [${value.sub_filtro}]` : ''}
+            {value.sub_filtro != null && value.sub_filtro !== '' ? ` [${FUEL_LABELS[value.sub_filtro] ?? value.sub_filtro}]` : ''}
             {value.loc != null && value.loc !== '' ? ` (${value.loc})` : ''}
             {' '}· {value.un}
           </span>

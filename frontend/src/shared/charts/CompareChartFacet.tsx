@@ -30,7 +30,7 @@ function FacetChart({
       chart: {
         type: "column",
         height: 420,
-        style: { fontFamily: "inherit" },
+        style: { fontFamily: "Verdana, sans-serif" },
         backgroundColor: "transparent",
       },
       title: {
@@ -40,14 +40,14 @@ function FacetChart({
       xAxis: {
         categories: facet.categories,
         crosshair: { color: "#334155" },
-        labels: { style: { color: "#94a3b8" } },
+        labels: { style: { color: "#94a3b8", fontSize: "13px" } },
         lineColor: "#334155",
         tickColor: "#334155",
       },
       yAxis: {
         min: 0,
-        title: { text: yAxisLabel, style: { color: "#94a3b8" } },
-        labels: { style: { color: "#94a3b8" } },
+        title: { text: yAxisLabel, style: { color: "#94a3b8", fontSize: "14px" } },
+        labels: { style: { color: "#94a3b8", fontSize: "13px" } },
         gridLineColor: "#334155",
         stackLabels: {
           enabled: true,
@@ -77,9 +77,29 @@ function FacetChart({
       series: series as Highcharts.SeriesOptionsType[],
       exporting: {
         enabled: true,
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        scale: 1,
+        fallbackToExportServer: false,
+        chartOptions: {
+          chart: { backgroundColor: "#FFFFFF" },
+          title: { style: { color: "#1e293b", fontSize: "28px" } },
+          xAxis: {
+            labels: { style: { color: "#334155", fontSize: "20px" } },
+            lineColor: "#cbd5e1",
+            tickColor: "#cbd5e1",
+          },
+          yAxis: {
+            labels: { style: { color: "#334155", fontSize: "20px" } },
+            title: { style: { color: "#334155", fontSize: "22px" } },
+            gridLineColor: "#e2e8f0",
+            stackLabels: { style: { color: "#1e293b", fontSize: "16px" } },
+          },
+          legend: { itemStyle: { color: "#334155", fontSize: "20px" } },
+        },
         buttons: {
           contextButton: {
-            menuItems: ["downloadPNG", "downloadSVG", "separator", "downloadCSV"],
+            menuItems: ["downloadPNG", "downloadJPEG", "downloadSVG", "separator", "downloadCSV"],
           },
         },
       },
@@ -89,7 +109,7 @@ function FacetChart({
         align: "center",
         verticalAlign: "bottom",
         layout: "horizontal",
-        itemStyle: { color: "#94a3b8", fontWeight: "normal" },
+        itemStyle: { color: "#94a3b8", fontWeight: "normal", fontSize: "13px" },
         itemHoverStyle: { color: "#f8fafc" },
       },
     };

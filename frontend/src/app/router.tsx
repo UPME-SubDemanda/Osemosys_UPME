@@ -4,7 +4,7 @@
  * Guards anidados: RequireUserManager, RequireCatalogManager, RequireOfficialDataImporter.
  */
 import { lazy, Suspense } from "react";
-import { Navigate, Outlet, createBrowserRouter } from "react-router-dom";
+import { Navigate, Outlet, createBrowserRouter, useParams } from "react-router-dom";
 import { AppLayout } from "@/layouts/AppLayout";
 import { AuthLayout } from "@/layouts/AuthLayout";
 import { RequireAuth } from "@/routes/RequireAuth";
@@ -44,6 +44,17 @@ function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<LazyFallback />}>{children}</Suspense>;
 }
 
+/**
+ * Wrapper para ResultDetailPage que usa `key={runId}` para forzar un remount
+ * completo cada vez que el run cambia. Sin esto, React reutiliza la misma
+ * instancia del componente al navegar entre distintos runIds (mismo patrón de
+ * ruta), conservando estado obsoleto y mostrando datos del run anterior.
+ */
+function ResultDetailRoute() {
+  const { runId } = useParams<{ runId: string }>();
+  return <ResultDetailPage key={runId} />;
+}
+
 export const router = createBrowserRouter([
   {
     path: "/",
@@ -68,7 +79,7 @@ export const router = createBrowserRouter([
               { path: "change-requests", element: <SuspenseWrapper><ChangeRequestsPage /></SuspenseWrapper> },
               { path: "simulation", element: <SuspenseWrapper><SimulationPage /></SuspenseWrapper> },
               { path: "results", element: <SuspenseWrapper><ResultsPage /></SuspenseWrapper> },
-              { path: "results/:runId", element: <SuspenseWrapper><ResultDetailPage /></SuspenseWrapper> },
+              { path: "results/:runId", element: <SuspenseWrapper><ResultDetailRoute /></SuspenseWrapper> },
               { path: "profile", element: <SuspenseWrapper><ProfilePage /></SuspenseWrapper> },
               {
                 element: <RequireUserManager />,

@@ -730,7 +730,13 @@ DISPLAY_NAMES: dict[str, str] = {
     # ── Refinerias ────────────────────────────────────────
     "UPSREG":               "Planta Regasificación",
     "UPSREF_BAR":           "Refinería Barrancabermeja",
-    "UPSREF_CAR":          "Refinería Cartagena",
+    "UPSREF_CAR":           "Refinería Cartagena",
+
+    # ── UPSTREAM y Refinación ─────────────────
+    "UPSALK":               "Electrolizador alcalino",
+    "UPSPEM":               "Electrolizador PEM",
+    "UPSSAF":               "Planta comb. sostenible aviación",
+    "UPSBJS":               "Mezcla JET-SAF"
 }
 
 

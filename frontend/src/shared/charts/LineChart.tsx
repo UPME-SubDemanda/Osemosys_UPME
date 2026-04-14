@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import Highcharts from './highchartsSetup';
+import { onHighchartsExportError } from './chartExportingShared';
 import HighchartsReact from 'highcharts-react-official';
 import type { ChartDataResponse } from '../../types/domain';
 
@@ -70,6 +71,7 @@ export const LineChart: React.FC<LineChartProps> = ({ data }) => {
         sourceHeight: 1080,
         scale: 1,
         fallbackToExportServer: false,
+        error: onHighchartsExportError,
         chartOptions: {
           chart: { backgroundColor: '#FFFFFF' },
           title: { style: { color: '#1e293b', fontSize: '28px' } },
@@ -87,7 +89,7 @@ export const LineChart: React.FC<LineChartProps> = ({ data }) => {
         },
         buttons: {
           contextButton: {
-            menuItems: ['downloadPNG', 'downloadJPEG', 'downloadSVG', 'separator', 'downloadCSV'],
+            menuItems: ['downloadSVG'],
           },
         },
       },

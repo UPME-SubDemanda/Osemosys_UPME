@@ -321,25 +321,17 @@ export function InfeasibilityDiagnosticsPanel({
   const [activeTab, setActiveTab] = useState<TabId>("constraints");
   const [constraintPage, setConstraintPage] = useState(1);
 
+  const constraintCount = diagnostics?.constraint_violations.length ?? 0;
+  const constraintTotalPages = Math.max(1, Math.ceil(constraintCount / DIAGNOSTIC_PREVIEW_LIMIT));
+  const clampedConstraintPage = Math.max(1, Math.min(constraintPage, constraintTotalPages));
+
   if (!diagnostics) return null;
 
-  const constraintCount = diagnostics.constraint_violations.length;
-  const constraintTotalPages = Math.max(1, Math.ceil(constraintCount / DIAGNOSTIC_PREVIEW_LIMIT));
-  const constraintStart = (constraintPage - 1) * DIAGNOSTIC_PREVIEW_LIMIT;
+  const constraintStart = (clampedConstraintPage - 1) * DIAGNOSTIC_PREVIEW_LIMIT;
   const constraintViolations = diagnostics.constraint_violations.slice(
     constraintStart,
     constraintStart + DIAGNOSTIC_PREVIEW_LIMIT,
   );
-
-  useEffect(() => {
-    setConstraintPage(1);
-  }, [constraintCount]);
-
-  useEffect(() => {
-    if (constraintPage > constraintTotalPages) {
-      setConstraintPage(constraintTotalPages);
-    }
-  }, [constraintPage, constraintTotalPages]);
 
   const tabBtnStyle = (active: boolean): CSSProperties => ({
     padding: "8px 14px",
@@ -414,10 +406,16 @@ export function InfeasibilityDiagnosticsPanel({
                 filas.
               </small>
               <TablePagination
-                page={constraintPage}
+                page={clampedConstraintPage}
                 totalPages={constraintTotalPages}
-                onPrevious={() => setConstraintPage((current) => Math.max(1, current - 1))}
-                onNext={() => setConstraintPage((current) => Math.min(constraintTotalPages, current + 1))}
+                onPrevious={() =>
+                  setConstraintPage((current) => Math.max(1, Math.min(current, constraintTotalPages) - 1))
+                }
+                onNext={() =>
+                  setConstraintPage((current) =>
+                    Math.min(constraintTotalPages, Math.max(1, Math.min(current, constraintTotalPages)) + 1),
+                  )
+                }
               />
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>

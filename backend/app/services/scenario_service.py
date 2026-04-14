@@ -25,6 +25,7 @@ from app.models import (
     Region,
     Scenario,
     ScenarioPermission,
+    ScenarioTag,
     Solver,
     Technology,
     UdcSet,
@@ -43,6 +44,25 @@ CLONE_BATCH_SIZE = 500_000
 
 class ScenarioService:
     """Reglas de negocio para gestión de escenarios OSEMOSYS."""
+
+    @staticmethod
+    def _tag_public_dict(
+        db: Session,
+        scenario: Scenario,
+        *,
+        tag_row: ScenarioTag | None = None,
+    ) -> dict | None:
+        row = tag_row
+        if row is None and scenario.tag_id is not None:
+            row = db.get(ScenarioTag, scenario.tag_id)
+        if row is None:
+            return None
+        return {
+            "id": int(row.id),
+            "name": row.name,
+            "color": row.color,
+            "sort_order": int(row.sort_order),
+        }
 
     @staticmethod
     def _get_permission(db: Session, *, scenario_id: int, current_user: User) -> ScenarioPermission | None:
@@ -116,6 +136,7 @@ class ScenarioService:
         scenario: Scenario,
         current_user: User,
         base_scenario_name: str | None,
+        tag_row: ScenarioTag | None = None,
     ) -> dict:
         return {
             "id": int(scenario.id),
@@ -128,6 +149,7 @@ class ScenarioService:
             "edit_policy": scenario.edit_policy,
             "is_template": bool(scenario.is_template),
             "created_at": scenario.created_at,
+            "tag": ScenarioService._tag_public_dict(db, scenario, tag_row=tag_row),
             "effective_access": ScenarioService._effective_access(
                 db, scenario=scenario, current_user=current_user
             ),
@@ -282,6 +304,11 @@ class ScenarioService:
             limit=page_size,
         )
         meta = build_meta(page, page_size, total, busqueda)
+        tag_ids = {s.tag_id for s, _ in items if s.tag_id is not None}
+        tags_by_id: dict[int, ScenarioTag] = {}
+        if tag_ids:
+            for r in db.execute(select(ScenarioTag).where(ScenarioTag.id.in_(tag_ids))).scalars().all():
+                tags_by_id[int(r.id)] = r
         return {
             "data": [
                 ScenarioService._to_public(
@@ -289,6 +316,7 @@ class ScenarioService:
                     scenario=scenario,
                     current_user=current_user,
                     base_scenario_name=base_scenario_name,
+                    tag_row=tags_by_id.get(int(scenario.tag_id)) if scenario.tag_id is not None else None,
                 )
                 for scenario, base_scenario_name in items
             ],
@@ -320,6 +348,7 @@ class ScenarioService:
         edit_policy: str,
         is_template: bool,
         skip_populate_defaults: bool = False,
+        tag_id: int | None = None,
     ):
         """Crea escenario y configura permisos iniciales del creador.
 
@@ -334,12 +363,18 @@ class ScenarioService:
             skip_populate_defaults: Si True, no copia defaults ni ejecuta preprocess.
                 Usado cuando el flujo import-excel poblará osemosys_param_value directamente.
         """
+        resolved_tag_id: int | None = None
+        if tag_id is not None:
+            if db.get(ScenarioTag, tag_id) is None:
+                raise NotFoundError("La etiqueta indicada no existe.")
+            resolved_tag_id = int(tag_id)
         scenario = Scenario(
             name=name,
             description=description,
             owner=current_user.username,
             edit_policy=edit_policy,
             is_template=is_template,
+            tag_id=resolved_tag_id,
         )
         db.add(scenario)
         db.flush()
@@ -377,7 +412,13 @@ class ScenarioService:
             db.rollback()
             raise ConflictError("No se pudo crear el escenario (posible duplicado o conflicto).") from e
         db.refresh(scenario)
-        return scenario
+        _, base_scenario_name = ScenarioRepository.get_by_id_with_base_name(db, scenario.id)
+        return ScenarioService._to_public(
+            db,
+            scenario=scenario,
+            current_user=current_user,
+            base_scenario_name=base_scenario_name,
+        )
 
     @staticmethod
     def clone(
@@ -408,6 +449,7 @@ class ScenarioService:
             edit_policy=edit_policy,
             is_template=False,
             udc_config=source.udc_config,
+            tag_id=source.tag_id,
         )
         db.add(new_scenario)
         db.flush()
@@ -705,6 +747,16 @@ class ScenarioService:
 
         if new_edit_policy is not None and new_edit_policy != scenario.edit_policy:
             scenario.edit_policy = str(new_edit_policy)
+            touched = True
+
+        if "tag_id" in payload:
+            tid = payload.get("tag_id")
+            if tid is not None:
+                if db.get(ScenarioTag, tid) is None:
+                    raise NotFoundError("La etiqueta indicada no existe.")
+                scenario.tag_id = int(tid)
+            else:
+                scenario.tag_id = None
             touched = True
 
         if touched:

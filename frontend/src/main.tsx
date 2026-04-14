@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "@/app/styles/global.css";
+/** Registra exporting / offline-exporting antes de cualquier gráfica (un solo bundle Highcharts). */
+import "@/shared/charts/highchartsSetup";
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
@@ -34,4 +36,3 @@ async function bootstrap() {
 }
 
 void bootstrap();
-

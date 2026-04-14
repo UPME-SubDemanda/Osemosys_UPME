@@ -42,9 +42,11 @@ export function UploadProgress({
         if (startedAt) setElapsed(Date.now() - startedAt);
       }, 500);
     } else if (phase === "done" || phase === "error") {
-      if (startedAt) setElapsed(Date.now() - startedAt);
+      queueMicrotask(() => {
+        if (startedAt) setElapsed(Date.now() - startedAt);
+      });
     } else {
-      setElapsed(0);
+      queueMicrotask(() => setElapsed(0));
     }
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);

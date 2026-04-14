@@ -3,6 +3,7 @@
  * Rutas públicas: login. Rutas protegidas: /app/* con RequireAuth.
  * Guards anidados: RequireUserManager, RequireCatalogManager, RequireOfficialDataImporter.
  */
+/* eslint-disable react-refresh/only-export-components -- helpers locales (Suspense, rutas) junto al router */
 import { lazy, Suspense } from "react";
 import { Navigate, Outlet, createBrowserRouter, useParams } from "react-router-dom";
 import { AppLayout } from "@/layouts/AppLayout";

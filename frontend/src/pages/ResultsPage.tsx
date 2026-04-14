@@ -18,6 +18,7 @@ import { simulationApi } from "@/features/simulation/api/simulationApi";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { DataTable } from "@/shared/components/DataTable";
+import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
 import { getSimulationRunStatusDisplay } from "@/features/simulation/simulationRunStatus";
 import { paths } from "@/routes/paths";
 import type { Scenario, SimulationRun } from "@/types/domain";
@@ -149,6 +150,14 @@ export function ResultsPage() {
               (r.scenario_id === null
                 ? (r.input_name ?? "CSV upload")
                 : (scenarioMap[r.scenario_id]?.name ?? `#${r.scenario_id}`)),
+          },
+          {
+            key: "scenario_tag",
+            header: "Etiqueta",
+            render: (r) => {
+              const tag = r.scenario_tag ?? (r.scenario_id != null ? scenarioMap[r.scenario_id]?.tag : null);
+              return tag ? <ScenarioTagChip tag={tag} /> : <span style={{ opacity: 0.65 }}>—</span>;
+            },
           },
           {
             key: "status",

@@ -12,7 +12,7 @@
  *
  * Los badges son clicables para alternar cada permiso.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useToast } from "@/app/providers/useToast";
 import { usersApi } from "@/features/users/api/usersApi";
 import { Badge } from "@/shared/components/Badge";
@@ -38,7 +38,7 @@ export function UsersAdminPage() {
   });
 
   /** Recarga la lista de usuarios */
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoading(true);
     try {
       setUsers(await usersApi.listUsers());
@@ -47,11 +47,11 @@ export function UsersAdminPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [push]);
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
 
   /** Crea usuario con email, username, password y permisos del formulario */
   async function createUser() {

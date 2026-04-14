@@ -22,7 +22,8 @@ import { TextField } from "@/shared/components/TextField";
 import { SandExportVerificationPanel } from "@/shared/components/SandExportVerificationPanel";
 import { UploadProgress, type UploadPhase } from "@/shared/components/UploadProgress";
 import { paths } from "@/routes/paths";
-import type { Scenario, ScenarioEditPolicy, ScenarioOperationJob } from "@/types/domain";
+import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
+import type { Scenario, ScenarioEditPolicy, ScenarioOperationJob, ScenarioTag } from "@/types/domain";
 
 const editPolicyHelp: Record<ScenarioEditPolicy, string> = {
   OWNER_ONLY: "Solo el propietario administra permisos y edición.",
@@ -36,7 +37,40 @@ const editPolicyLabel: Record<ScenarioEditPolicy, string> = {
   RESTRICTED: "Restringida",
 };
 
+/** Misma regla que editar metadatos del escenario (propietario o edición directa explícita). */
+function canAssignScenarioTag(row: Scenario): boolean {
+  const a = row.effective_access;
+  if (!a) return false;
+  return Boolean(a.is_owner || a.can_edit_direct);
+}
+
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+
+/** Colores predefinidos para etiquetas (legibles con texto blanco en el chip). */
+const SCENARIO_TAG_COLOR_PALETTE = [
+  "#3B82F6",
+  "#2563EB",
+  "#0EA5E9",
+  "#06B6D4",
+  "#14B8A6",
+  "#22C55E",
+  "#65A30D",
+  "#EAB308",
+  "#F59E0B",
+  "#EA580C",
+  "#DC2626",
+  "#EC4899",
+  "#A855F7",
+  "#7C3AED",
+  "#6366F1",
+  "#64748B",
+] as const;
+
+function normalizeTagHex(value: string): string {
+  const v = value.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(v)) return v.toUpperCase();
+  return v;
+}
 
 const SAND_CONFLICT_KEY_DIMS = [
   "Parameter",
@@ -177,6 +211,18 @@ export function ScenariosPage() {
   const [cloning, setCloning] = useState(false);
   const [cloneJobs, setCloneJobs] = useState<ScenarioOperationJob[]>([]);
   const [downloadingScenarioId, setDownloadingScenarioId] = useState<number | null>(null);
+  const [tagModalScenario, setTagModalScenario] = useState<Scenario | null>(null);
+  const [tagModalSelection, setTagModalSelection] = useState("");
+  const [tagModalSaving, setTagModalSaving] = useState(false);
+
+  const [scenarioTags, setScenarioTags] = useState<ScenarioTag[]>([]);
+  const [tagSelectCreate, setTagSelectCreate] = useState("");
+  const [tagSelectExcel, setTagSelectExcel] = useState("");
+  const [openTagsCatalog, setOpenTagsCatalog] = useState(false);
+  const [tagCatName, setTagCatName] = useState("");
+  const [tagCatColor, setTagCatColor] = useState("#3B82F6");
+  const [tagCatSort, setTagCatSort] = useState("0");
+  const [savingCatalogTag, setSavingCatalogTag] = useState(false);
 
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [excelSheets, setExcelSheets] = useState<string[]>([]);
@@ -226,9 +272,23 @@ export function ScenariosPage() {
     }
   }, [ownerFilter, page, pageSize, policyFilter, push, search, user]);
 
+  const loadScenarioTags = useCallback(async () => {
+    if (!user) return;
+    try {
+      const data = await scenariosApi.listScenarioTags();
+      setScenarioTags(data);
+    } catch {
+      setScenarioTags([]);
+    }
+  }, [user]);
+
   useEffect(() => {
     void fetchScenarios();
   }, [fetchScenarios]);
+
+  useEffect(() => {
+    void loadScenarioTags();
+  }, [loadScenarioTags]);
 
   const refreshCloneJobs = useCallback(async () => {
     if (!user) return;
@@ -278,11 +338,13 @@ export function ScenariosPage() {
         name: name.trim(),
         description: description.trim(),
         edit_policy: editPolicy,
+        ...(tagSelectCreate ? { tag_id: Number(tagSelectCreate) } : {}),
       });
       setOpenCreate(false);
       setName("");
       setDescription("");
       setEditPolicy("OWNER_ONLY");
+      setTagSelectCreate("");
       setPage(1);
       await fetchScenarios();
       push("Escenario creado correctamente.", "success");
@@ -362,6 +424,7 @@ export function ScenariosPage() {
           scenario_name: name.trim(),
           description: description.trim(),
           edit_policy: editPolicy,
+          ...(tagSelectExcel ? { tag_id: Number(tagSelectExcel) } : {}),
         },
         (percent) => {
           setExcelUploadPercent(percent);
@@ -396,10 +459,106 @@ export function ScenariosPage() {
     setName("");
     setDescription("");
     setEditPolicy("OWNER_ONLY");
+    setTagSelectExcel("");
     setExcelUploadPhase("idle");
     setExcelUploadPercent(0);
     setExcelUploadStartedAt(null);
     createdScenarioIdRef.current = null;
+  }
+
+  async function handleAddCatalogTag() {
+    if (!tagCatName.trim()) {
+      push("El nombre de la etiqueta es obligatorio.", "error");
+      return;
+    }
+    const hex = normalizeTagHex(tagCatColor);
+    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+      push("Elige un color.", "error");
+      return;
+    }
+    setSavingCatalogTag(true);
+    try {
+      await scenariosApi.createScenarioTag({
+        name: tagCatName.trim(),
+        color: hex,
+        sort_order: Number(tagCatSort) || 0,
+      });
+      setTagCatName("");
+      setTagCatColor("#3B82F6");
+      setTagCatSort("0");
+      await loadScenarioTags();
+      void fetchScenarios();
+      push("Etiqueta creada.", "success");
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudo crear la etiqueta.", "error");
+    } finally {
+      setSavingCatalogTag(false);
+    }
+  }
+
+  async function handleDeleteCatalogTag(tagId: number) {
+    if (!window.confirm("¿Eliminar esta etiqueta? Los escenarios asociados quedarán sin etiqueta.")) return;
+    try {
+      await scenariosApi.deleteScenarioTag(tagId);
+      await loadScenarioTags();
+      void fetchScenarios();
+      if (tagSelectCreate === String(tagId)) setTagSelectCreate("");
+      if (tagSelectExcel === String(tagId)) setTagSelectExcel("");
+      push("Etiqueta eliminada.", "success");
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudo eliminar la etiqueta.", "error");
+    }
+  }
+
+  function openScenarioTagModal(row: Scenario) {
+    setTagModalScenario(row);
+    setTagModalSelection(row.tag ? String(row.tag.id) : "");
+  }
+
+  function closeScenarioTagModal() {
+    setTagModalScenario(null);
+    setTagModalSelection("");
+    setTagModalSaving(false);
+  }
+
+  async function saveScenarioTagModal() {
+    if (!tagModalScenario) return;
+    if (!scenarioTags.length && tagModalSelection !== "") {
+      push("No hay etiquetas en el catálogo.", "error");
+      return;
+    }
+    const nextId = tagModalSelection === "" ? null : Number(tagModalSelection);
+    const currentId = tagModalScenario.tag?.id ?? null;
+    if (nextId === currentId) {
+      closeScenarioTagModal();
+      return;
+    }
+    setTagModalSaving(true);
+    try {
+      await scenariosApi.updateScenario(tagModalScenario.id, { tag_id: nextId });
+      await fetchScenarios();
+      push(nextId === null ? "Etiqueta quitada." : "Etiqueta actualizada.", "success");
+      closeScenarioTagModal();
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudo guardar la etiqueta.", "error");
+    } finally {
+      setTagModalSaving(false);
+    }
+  }
+
+  async function removeScenarioTagFromModal() {
+    if (!tagModalScenario) return;
+    setTagModalSaving(true);
+    try {
+      await scenariosApi.updateScenario(tagModalScenario.id, { tag_id: null });
+      await fetchScenarios();
+      push("Etiqueta quitada.", "success");
+      closeScenarioTagModal();
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudo quitar la etiqueta.", "error");
+    } finally {
+      setTagModalSaving(false);
+    }
   }
 
   async function handleDownloadExcel(row: Scenario) {
@@ -664,6 +823,21 @@ export function ScenariosPage() {
           </p>
         </div>
         <div className="scenariosPage__actions">
+          <Button
+            variant="primary"
+            onClick={() => {
+              setTagSelectCreate("");
+              setOpenCreate(true);
+            }}
+            className="scenariosPage__actionButton"
+          >
+            Crear escenario
+          </Button>
+          {user?.can_manage_catalogs ? (
+            <Button variant="ghost" onClick={() => setOpenTagsCatalog(true)} className="scenariosPage__actionButton">
+              Etiquetas
+            </Button>
+          ) : null}
           <Button variant="ghost" onClick={() => setOpenExcel(true)} className="scenariosPage__actionButton">
             Crear desde Excel
           </Button>
@@ -726,7 +900,7 @@ export function ScenariosPage() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead style={{ background: "rgba(255,255,255,0.03)" }}>
             <tr>
-              {["Escenario", "Descripción", "Política", "Propietario", "Creado", "Proceso", ""].map((header) => (
+              {["Escenario", "Etiqueta", "Descripción", "Política", "Propietario", "Creado", "Proceso", ""].map((header) => (
                 <th key={header} style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
                   {header}
                 </th>
@@ -736,13 +910,13 @@ export function ScenariosPage() {
           <tbody>
             {loadingRows ? (
               <tr>
-                <td colSpan={7} style={{ padding: 14, opacity: 0.75 }}>
+                <td colSpan={8} style={{ padding: 14, opacity: 0.75 }}>
                   Cargando escenarios...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ padding: 14, opacity: 0.75 }}>
+                <td colSpan={8} style={{ padding: 14, opacity: 0.75 }}>
                   Sin registros.
                 </td>
               </tr>
@@ -772,6 +946,15 @@ export function ScenariosPage() {
                         Hijo de {row.base_scenario_name ?? `#${row.base_scenario_id}`}
                       </div>
                     ) : null}
+                  </td>
+                  <td style={{ padding: "10px 12px", verticalAlign: "top" }}>
+                    <div className="scenariosPage__tagCell">
+                      {row.tag ? (
+                        <ScenarioTagChip tag={row.tag} />
+                      ) : (
+                        <span className="scenariosPage__tagCellEmpty">—</span>
+                      )}
+                    </div>
                   </td>
                   <td style={{ padding: "10px 12px" }}>{row.description ?? "—"}</td>
                   <td style={{ padding: "10px 12px" }}>
@@ -824,6 +1007,17 @@ export function ScenariosPage() {
                       >
                         Copiar
                       </Button>
+                      {canAssignScenarioTag(row) ? (
+                        <Button
+                          variant="ghost"
+                          type="button"
+                          onClick={() => openScenarioTagModal(row)}
+                          disabled={tagModalSaving}
+                          style={{ padding: "4px 10px", fontSize: "0.85rem" }}
+                        >
+                          Etiqueta
+                        </Button>
+                      ) : null}
                     </div>
                   </td>
                       </>
@@ -922,6 +1116,89 @@ export function ScenariosPage() {
             </select>
           </label>
           <small style={{ opacity: 0.75 }}>{editPolicyHelp[editPolicy]}</small>
+          <label className="field">
+            <span className="field__label">Etiqueta (opcional)</span>
+            <select
+              className="field__input"
+              value={tagSelectCreate}
+              onChange={(e) => setTagSelectCreate(e.target.value)}
+            >
+              <option value="">Sin etiqueta</option>
+              {scenarioTags.map((t) => (
+                <option key={t.id} value={String(t.id)}>
+                  {t.name} (prioridad {t.sort_order})
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </Modal>
+
+      <Modal
+        open={tagModalScenario !== null}
+        title={tagModalScenario ? `Etiqueta — ${tagModalScenario.name}` : "Etiqueta"}
+        onClose={closeScenarioTagModal}
+        footer={
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 8,
+              width: "100%",
+            }}
+          >
+            <div>
+              {tagModalScenario?.tag ? (
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={() => void removeScenarioTagFromModal()}
+                  disabled={tagModalSaving}
+                  style={{ color: "rgba(248,113,113,0.95)" }}
+                >
+                  Quitar etiqueta
+                </Button>
+              ) : null}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button variant="ghost" onClick={closeScenarioTagModal} disabled={tagModalSaving}>
+                Cancelar
+              </Button>
+              <Button variant="primary" onClick={() => void saveScenarioTagModal()} disabled={tagModalSaving}>
+                {tagModalSaving ? "Guardando..." : "Guardar"}
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <div style={{ display: "grid", gap: 14 }}>
+          {tagModalScenario?.tag ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, opacity: 0.75 }}>Etiqueta actual</span>
+              <ScenarioTagChip tag={tagModalScenario.tag} />
+            </div>
+          ) : null}
+          <label className="field">
+            <span className="field__label">{tagModalScenario?.tag ? "Cambiar a" : "Asignar"}</span>
+            <select
+              className="field__input"
+              value={tagModalSelection}
+              onChange={(e) => setTagModalSelection(e.target.value)}
+              disabled={!scenarioTags.length}
+            >
+              <option value="">Sin etiqueta</option>
+              {scenarioTags.map((t) => (
+                <option key={t.id} value={String(t.id)}>
+                  {t.name} (prioridad {t.sort_order})
+                </option>
+              ))}
+            </select>
+          </label>
+          {!scenarioTags.length ? (
+            <p style={{ margin: 0, fontSize: 12, opacity: 0.75 }}>Crea entradas en el catálogo con «Etiquetas».</p>
+          ) : null}
         </div>
       </Modal>
 
@@ -996,6 +1273,21 @@ export function ScenariosPage() {
             </select>
           </label>
           <small style={{ opacity: 0.75 }}>{editPolicyHelp[editPolicy]}</small>
+          <label className="field">
+            <span className="field__label">Etiqueta (opcional)</span>
+            <select
+              className="field__input"
+              value={tagSelectExcel}
+              onChange={(e) => setTagSelectExcel(e.target.value)}
+            >
+              <option value="">Sin etiqueta</option>
+              {scenarioTags.map((t) => (
+                <option key={t.id} value={String(t.id)}>
+                  {t.name} (prioridad {t.sort_order})
+                </option>
+              ))}
+            </select>
+          </label>
 
           {excelUploadPhase !== "idle" ? (
             <UploadProgress
@@ -1005,6 +1297,136 @@ export function ScenariosPage() {
               startedAt={excelUploadStartedAt}
             />
           ) : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={openTagsCatalog}
+        title="Catálogo de etiquetas"
+        onClose={() => setOpenTagsCatalog(false)}
+        footer={
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Button variant="ghost" onClick={() => setOpenTagsCatalog(false)}>
+              Cerrar
+            </Button>
+          </div>
+        }
+      >
+        <div style={{ display: "grid", gap: 14 }}>
+          <p style={{ margin: 0, fontSize: 13, opacity: 0.85 }}>
+            Las etiquetas definen prioridad en listados (menor número = más arriba) y color en la interfaz. Solo
+            administradores de catálogo pueden crear o eliminar etiquetas; cualquier usuario con permiso de edición
+            del escenario puede asignarlas.
+          </p>
+          <div style={{ display: "grid", gap: 8, padding: 12, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10 }}>
+            <strong style={{ fontSize: 13 }}>Nueva etiqueta</strong>
+            <TextField label="Nombre" value={tagCatName} onChange={(e) => setTagCatName(e.target.value)} />
+            <div className="field" style={{ margin: 0 }}>
+              <span className="field__label">Color</span>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(8, minmax(0, 1fr))",
+                  gap: 8,
+                  marginTop: 6,
+                }}
+              >
+                {SCENARIO_TAG_COLOR_PALETTE.map((hex) => {
+                  const selected = normalizeTagHex(tagCatColor) === hex;
+                  return (
+                    <button
+                      key={hex}
+                      type="button"
+                      title={hex}
+                      onClick={() => setTagCatColor(hex)}
+                      aria-label={`Color ${hex}`}
+                      aria-pressed={selected}
+                      style={{
+                        width: "100%",
+                        aspectRatio: "1",
+                        maxWidth: 36,
+                        borderRadius: 8,
+                        border: selected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.2)",
+                        boxShadow: selected ? "0 0 0 2px rgba(59,130,246,0.5)" : "none",
+                        backgroundColor: hex,
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    />
+                  );
+                })}
+              </div>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  marginTop: 12,
+                  fontSize: 13,
+                  opacity: 0.9,
+                }}
+              >
+                <span>Otro color</span>
+                <input
+                  type="color"
+                  aria-label="Elegir otro color"
+                  value={/^#[0-9A-Fa-f]{6}$/i.test(tagCatColor.trim()) ? tagCatColor.trim().slice(0, 7) : "#3B82F6"}
+                  onChange={(e) => setTagCatColor(e.target.value.toUpperCase())}
+                  style={{
+                    width: 44,
+                    height: 32,
+                    padding: 0,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    background: "transparent",
+                  }}
+                />
+              </label>
+            </div>
+            <TextField label="Orden (prioridad)" value={tagCatSort} onChange={(e) => setTagCatSort(e.target.value)} />
+            <Button variant="primary" onClick={() => void handleAddCatalogTag()} disabled={savingCatalogTag}>
+              {savingCatalogTag ? "Guardando..." : "Crear etiqueta"}
+            </Button>
+          </div>
+          <div style={{ display: "grid", gap: 6 }}>
+            <strong style={{ fontSize: 13 }}>Existentes</strong>
+            {scenarioTags.length === 0 ? (
+              <span style={{ opacity: 0.7 }}>No hay etiquetas.</span>
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 8 }}>
+                {scenarioTags.map((t) => (
+                  <li key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <ScenarioTagChip tag={t} />
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontSize: 12,
+                        opacity: 0.75,
+                      }}
+                    >
+                      orden {t.sort_order}
+                      <span
+                        title={t.color}
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: 4,
+                          backgroundColor: t.color,
+                          border: "1px solid rgba(255,255,255,0.25)",
+                        }}
+                      />
+                    </span>
+                    <Button variant="ghost" type="button" onClick={() => void handleDeleteCatalogTag(t.id)} style={{ padding: "2px 8px" }}>
+                      Eliminar
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </Modal>
 

@@ -1,13 +1,19 @@
 import React, { useMemo } from 'react';
 import Highcharts from './highchartsSetup';
+import { onHighchartsExportError } from './chartExportingShared';
 import HighchartsReact from 'highcharts-react-official';
 import type { CompareChartResponse } from '../../types/domain';
 
 interface CompareChartProps {
   data: CompareChartResponse;
+  barOrientation?: 'vertical' | 'horizontal';
 }
 
-export const CompareChart: React.FC<CompareChartProps> = ({ data }) => {
+export const CompareChart: React.FC<CompareChartProps> = ({
+  data,
+  barOrientation = 'vertical',
+}) => {
+  const inverted = barOrientation === 'horizontal';
   const options = useMemo<Highcharts.Options>(() => {
     const numSubplots = data.subplots.length;
 
@@ -56,6 +62,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({ data }) => {
             textOutline: 'none',
             fontSize: '10px',
           },
+          // eslint-disable-next-line react-hooks/unsupported-syntax -- API de Highcharts (`this`)
           formatter: function (this: Highcharts.StackItemObject) {
             return Highcharts.numberFormat(this.total, 2, '.', ',');
           },
@@ -83,7 +90,8 @@ export const CompareChart: React.FC<CompareChartProps> = ({ data }) => {
     return {
       chart: {
         type: 'column',
-        height: 550,
+        height: inverted ? 620 : 550,
+        inverted,
         style: { fontFamily: 'Verdana, sans-serif' },
         backgroundColor: 'transparent',
       },
@@ -107,6 +115,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({ data }) => {
         sourceHeight: 1080,
         scale: 1,
         fallbackToExportServer: false,
+        error: onHighchartsExportError,
         chartOptions: {
           chart: { backgroundColor: '#FFFFFF' },
           title: { style: { color: '#1e293b', fontSize: '28px' } },
@@ -114,7 +123,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({ data }) => {
         },
         buttons: {
           contextButton: {
-            menuItems: ['downloadPNG', 'downloadJPEG', 'downloadSVG', 'separator', 'downloadCSV'],
+            menuItems: ['downloadSVG'],
           },
         },
       },
@@ -127,7 +136,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({ data }) => {
         itemHoverStyle: { color: '#f8fafc' },
       },
     };
-  }, [data]);
+  }, [data, inverted]);
 
   return (
     <div style={{ width: '100%' }}>

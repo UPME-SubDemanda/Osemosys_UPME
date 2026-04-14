@@ -329,6 +329,7 @@ class ScenarioOperationService:
             edit_policy=str(payload.get("edit_policy") or "OWNER_ONLY"),
             is_template=False,
             udc_config=source.udc_config,
+            tag_id=source.tag_id,
         )
         db.add(new_scenario)
         db.flush()

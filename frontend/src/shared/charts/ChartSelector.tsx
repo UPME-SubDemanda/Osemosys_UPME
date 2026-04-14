@@ -44,7 +44,6 @@ const CAPACITY_VARIABLES: { value: string; label: string }[] = [
 const UNITS = ['PJ', 'GW', 'MW', 'TWh', 'Gpc'] as const;
 
 const EMISSION_CHART_IDS = new Set(['emisiones_total', 'emisiones_sectorial']);
-const EMISSION_UNIT = 'MtCO₂eq';  // solo informativo, no se envía al backend
 
 /** Código → nombre legible de combustible (para dropdowns de sub-filtro). */
 const FUEL_LABELS: Record<string, string> = {
@@ -294,9 +293,10 @@ function showsAgrupacion(item: ChartItem | undefined): boolean {
 // ─── Componente ──────────────────────────────────────────────────────────────
 
 export function ChartSelector({ value, onChange }: Props) {
-  const initialLocation = useMemo(() => findLocation(value.tipo), []);
-  const [activeModule,    setActiveModule]    = useState(initialLocation.moduleId);
-  const [activeSubsector, setActiveSubsector] = useState(initialLocation.subsectorId ?? '');
+  const [activeModule, setActiveModule] = useState(() => findLocation(value.tipo).moduleId);
+  const [activeSubsector, setActiveSubsector] = useState(
+    () => findLocation(value.tipo).subsectorId ?? '',
+  );
 
   const currentModule: Module =
     MENU.find((m) => m.id === activeModule) ?? FIRST_MODULE;
@@ -307,11 +307,13 @@ export function ChartSelector({ value, onChange }: Props) {
   const flatCharts: ChartItem[] = currentModule.charts ?? [];
 
   const subsectorCharts: ChartItem[] = useMemo(() => {
-    if (subsectors.length === 0) return [];
-    const sub: Subsector | undefined =
-      subsectors.find((s) => s.id === activeSubsector) ?? subsectors[0];
-    return sub?.charts ?? [];
-  }, [subsectors, activeSubsector]);
+    const mod = MENU.find((m) => m.id === activeModule) ?? FIRST_MODULE;
+    const subs = mod.subsectors;
+    if (!subs || subs.length === 0) return [];
+    const sub = subs.find((s) => s.id === activeSubsector) ?? subs[0];
+    if (!sub) return [];
+    return sub.charts ?? [];
+  }, [activeModule, activeSubsector]);
 
   const chartsToShow = subsectors.length > 0 ? subsectorCharts : flatCharts;
 

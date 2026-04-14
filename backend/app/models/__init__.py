@@ -19,6 +19,7 @@ from .parameter_value import ParameterValue
 from .region import Region
 from .relation_categorie import RelationCategorie
 from .scenario import Scenario
+from .scenario_tag import ScenarioTag
 from .scenario_operation_job import ScenarioOperationJob
 from .scenario_operation_job_event import ScenarioOperationJobEvent
 from .scenario_permission import ScenarioPermission
@@ -36,6 +37,7 @@ from .core.user import User
 
 __all__ = [
     "Scenario",
+    "ScenarioTag",
     "ScenarioOperationJob",
     "ScenarioOperationJobEvent",
     "Parameter",

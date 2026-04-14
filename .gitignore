@@ -50,6 +50,25 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.pnpm-store/
+**/.vite/
+**/.turbo/
+*.tsbuildinfo
+.eslintcache
+coverage/
+frontend/dist/
+
+# ──────────────────────────────────────────────
+# Cursor / planes locales (no versionar)
+# ──────────────────────────────────────────────
+.cursor/plans/
+.cursor/**/agent-transcripts/
+
+# ──────────────────────────────────────────────
+# Otros temporales
+# ──────────────────────────────────────────────
+*.orig
+*.rej
 
 # ──────────────────────────────────────────────
 # Environment & Secrets

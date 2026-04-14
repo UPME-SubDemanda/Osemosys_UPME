@@ -1,6 +1,9 @@
 import React, { useMemo } from 'react';
 import Highcharts from './highchartsSetup';
-import { onHighchartsExportError } from './chartExportingShared';
+import {
+  EXPORTING_CONTEXT_BUTTON_DARK,
+  onHighchartsExportError,
+} from './chartExportingShared';
 import HighchartsReact from 'highcharts-react-official';
 import type { CompareChartResponse } from '../../types/domain';
 
@@ -58,7 +61,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({
           enabled: true,
           style: {
             fontWeight: 'bold',
-            color: '#cbd5e1',
+            color: '#94a3b8',
             textOutline: 'none',
             fontSize: '10px',
           },
@@ -78,6 +81,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({
           xAxis: `x-${idx}`,
           yAxis: `y-${idx}`,
           stacking: 'normal',
+          borderWidth: 0,
           showInLegend: idx === 0,
           tooltip: {
             valueDecimals: 2,
@@ -94,6 +98,9 @@ export const CompareChart: React.FC<CompareChartProps> = ({
         inverted,
         style: { fontFamily: 'Verdana, sans-serif' },
         backgroundColor: 'transparent',
+        borderWidth: 0,
+        plotBorderWidth: 0,
+        plotShadow: false,
       },
       title: {
         text: data.title,
@@ -105,6 +112,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({
       plotOptions: {
         column: {
           stacking: 'normal',
+          borderWidth: 0,
           dataLabels: { enabled: false },
         },
       },
@@ -124,6 +132,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({
         buttons: {
           contextButton: {
             menuItems: ['downloadSVG'],
+            ...EXPORTING_CONTEXT_BUTTON_DARK,
           },
         },
       },

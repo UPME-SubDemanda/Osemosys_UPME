@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { toPng } from "html-to-image";
+import { ImageDown } from "lucide-react";
+import { useToast } from "@/app/providers/useToast";
+import { Button } from "@/shared/components/Button";
 import Highcharts from "./highchartsSetup";
-import { onHighchartsExportError } from "./chartExportingShared";
+import {
+  EXPORTING_CONTEXT_BUTTON_DARK,
+  onHighchartsExportError,
+} from "./chartExportingShared";
 import HighchartsReact from "highcharts-react-official";
 import type { CompareChartFacetResponse, FacetData } from "../../types/domain";
 import type {
@@ -8,6 +15,20 @@ import type {
   ChartFacetLegendMode,
   ChartFacetPlacement,
 } from "./chartLayoutPreferences";
+
+function useMediaMinWidth(px: number): boolean {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(`(min-width: ${px}px)`).matches : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(min-width: ${px}px)`);
+    const onChange = () => setMatches(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [px]);
+  return matches;
+}
 
 interface CompareChartFacetProps {
   data: CompareChartFacetResponse;
@@ -73,6 +94,7 @@ function FacetChart({
       stacking: "normal" as const,
       stack: s.stack,
       visible: !hiddenSeriesNames.has(s.name),
+      borderWidth: 0,
     }));
 
     return {
@@ -120,7 +142,7 @@ function FacetChart({
           enabled: true,
           style: {
             fontWeight: "bold",
-            color: "#cbd5e1",
+            color: "#94a3b8",
             textOutline: "none",
             fontSize: "10px",
           },
@@ -161,7 +183,12 @@ function FacetChart({
               }
             : {},
         },
-        column: { stacking: "normal", dataLabels: { enabled: false } },
+        column: {
+          stacking: "normal",
+          borderWidth: 0,
+          groupPadding: 0.08,
+          dataLabels: { enabled: false },
+        },
       },
       series: series as Highcharts.SeriesOptionsType[],
       chart: {
@@ -170,6 +197,9 @@ function FacetChart({
         inverted,
         style: { fontFamily: "Verdana, sans-serif" },
         backgroundColor: "transparent",
+        borderWidth: 0,
+        plotBorderWidth: 0,
+        plotShadow: false,
         events: {
           load() {
             (this as Highcharts.Chart & { __facetSyncGroup?: string }).__facetSyncGroup =
@@ -203,6 +233,7 @@ function FacetChart({
         buttons: {
           contextButton: {
             menuItems: ["downloadSVG"],
+            ...EXPORTING_CONTEXT_BUTTON_DARK,
           },
         },
       },
@@ -308,8 +339,11 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
     if (inverted) {
       return Math.min(680, 260 + catLen * 16);
     }
+    // Con varias facetas en fila, un poco menos de alto ayuda a que quepan sin scroll.
+    if (n >= 4) return 360;
+    if (n >= 3) return 380;
     return 420;
-  }, [data.facets, inverted]);
+  }, [data.facets, inverted, n]);
 
   const sharedLegendItems = useMemo(
     () => buildSharedLegendItems(data.facets),
@@ -333,16 +367,61 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
 
   const isStacked = facetPlacement === "stacked";
   const useSharedLegendPanel = legendMode === "shared" && sharedLegendItems.length > 0;
+  const isLg = useMediaMinWidth(1024);
+  const exportRootRef = useRef<HTMLDivElement>(null);
+  const { push } = useToast();
+  const [exportingPng, setExportingPng] = useState(false);
+
+  const handleExportCombinedPng = async () => {
+    const el = exportRootRef.current;
+    if (!el) return;
+    setExportingPng(true);
+    try {
+      const dataUrl = await toPng(el, {
+        pixelRatio: 2,
+        backgroundColor: "#0f172a",
+        cacheBust: true,
+        filter: (node) =>
+          !(node instanceof HTMLElement && node.dataset.noExport !== undefined),
+      });
+      const link = document.createElement("a");
+      const safe = data.title
+        .replace(/[^a-zA-Z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 80);
+      link.download = `comparativa-facet-${safe || "graficos"}-${new Date().toISOString().slice(0, 10)}.png`;
+      link.href = dataUrl;
+      link.click();
+      push("Imagen descargada (todas las facetas visibles).", "success");
+    } catch (err) {
+      console.error(err);
+      push("No se pudo generar la imagen. Prueba cerrar menús o recargar la página.", "error");
+    } finally {
+      setExportingPng(false);
+    }
+  };
 
   return (
     <div className="w-full space-y-4">
-      <h3
-        className="text-base font-bold text-slate-100"
-        style={{ fontSize: "16px" }}
-      >
-        {data.title}
-      </h3>
-      {useSharedLegendPanel ? (
+      <div ref={exportRootRef} className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <h3 className="m-0 min-w-0 text-base font-bold text-slate-100" style={{ fontSize: "16px" }}>
+            {data.title}
+          </h3>
+          <div data-no-export="">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={exportingPng}
+              onClick={() => void handleExportCombinedPng()}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-600 hover:bg-slate-800/80 disabled:opacity-50"
+            >
+              <ImageDown className="h-4 w-4 shrink-0" aria-hidden />
+              {exportingPng ? "Generando PNG…" : "Descargar imagen (facetas)"}
+            </Button>
+          </div>
+        </div>
+        {useSharedLegendPanel ? (
         <div
           className="rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-3"
           role="group"
@@ -400,57 +479,47 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
             })}
           </div>
         </div>
-      ) : null}
-      <div
-        className={
-          isStacked
-            ? "w-full pb-2"
-            : "w-full overflow-x-auto pb-2"
-        }
-      >
-        <div
-          className={
-            isStacked
-              ? "flex flex-col gap-4 w-full"
-              : "flex flex-nowrap items-stretch gap-4 w-full min-w-full"
-          }
-          style={
-            isStacked
-              ? undefined
-              : {
-                  width: n === 1 ? "100%" : "max-content",
-                  minWidth: n === 1 ? "100%" : "100%",
-                }
-          }
-        >
-          {data.facets.map((facet, idx) => (
-            <div
-              key={facet.job_id}
-              className="bg-[#1e293b]/30 rounded-lg p-2 border border-slate-700/30 shrink-0"
-              style={
-                isStacked || n === 1
-                  ? { width: "100%", minWidth: 0 }
-                  : { flex: "0 0 720px", width: 720, maxWidth: "calc(100vw - 220px)" }
-              }
-            >
-              <FacetChart
-                facet={facet}
-                yAxisLabel={data.yAxisLabel}
-                sharedYAxisMax={sharedYAxisMax}
-                syncGroup={data.title}
-                hiddenSeriesNames={hiddenSeriesNames}
-                onLegendToggle={handleLegendToggle}
-                inverted={inverted}
-                chartHeight={facetChartHeight}
-                showHighchartsLegend={
-                  legendMode === "perFacet" && idx === 0
-                }
-                hoveredSeriesName={
-                  useSharedLegendPanel ? effectiveLegendHover : null
-                }
-              />
-            </div>
-          ))}
+        ) : null}
+        <div className="w-full pb-2">
+          <div
+            className={
+              isStacked
+                ? "flex w-full flex-col gap-4"
+                : "grid w-full gap-4"
+            }
+            style={
+              isStacked
+                ? undefined
+                : {
+                    gridTemplateColumns:
+                      n === 1 || !isLg ? "minmax(0, 1fr)" : `repeat(${n}, minmax(0, 1fr))`,
+                  }
+            }
+          >
+            {data.facets.map((facet, idx) => (
+              <div
+                key={facet.job_id}
+                className="min-w-0 rounded-lg border border-slate-800/80 bg-[#1e293b]/30 p-2"
+              >
+                <FacetChart
+                  facet={facet}
+                  yAxisLabel={data.yAxisLabel}
+                  sharedYAxisMax={sharedYAxisMax}
+                  syncGroup={data.title}
+                  hiddenSeriesNames={hiddenSeriesNames}
+                  onLegendToggle={handleLegendToggle}
+                  inverted={inverted}
+                  chartHeight={facetChartHeight}
+                  showHighchartsLegend={
+                    legendMode === "perFacet" && idx === 0
+                  }
+                  hoveredSeriesName={
+                    useSharedLegendPanel ? effectiveLegendHover : null
+                  }
+                />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

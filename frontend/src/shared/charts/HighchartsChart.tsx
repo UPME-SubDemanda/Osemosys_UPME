@@ -1,6 +1,9 @@
 import React, { useMemo } from 'react';
 import Highcharts from './highchartsSetup';
-import { onHighchartsExportError } from './chartExportingShared';
+import {
+  EXPORTING_CONTEXT_BUTTON_DARK,
+  onHighchartsExportError,
+} from './chartExportingShared';
 import HighchartsReact from 'highcharts-react-official';
 import type { ChartDataResponse } from '../../types/domain';
 
@@ -23,6 +26,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
       color: s.color,
       stacking: 'normal' as const,
       stack: s.stack,
+      borderWidth: 0,
     }));
 
     return {
@@ -32,6 +36,9 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
         inverted,
         style: { fontFamily: 'Verdana, sans-serif' },
         backgroundColor: 'transparent',
+        borderWidth: 0,
+        plotBorderWidth: 0,
+        plotShadow: false,
       },
       title: {
         text: data.title,
@@ -60,7 +67,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
           enabled: true,
           style: {
             fontWeight: 'bold',
-            color: '#cbd5e1',
+            color: '#94a3b8',
             textOutline: 'none',
             fontSize: '10px',
           },
@@ -83,6 +90,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
       plotOptions: {
         column: {
           stacking: 'normal',
+          borderWidth: 0,
           dataLabels: { enabled: false },
         },
       },
@@ -113,6 +121,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
         buttons: {
           contextButton: {
             menuItems: ['downloadSVG'],
+            ...EXPORTING_CONTEXT_BUTTON_DARK,
           },
         },
       },

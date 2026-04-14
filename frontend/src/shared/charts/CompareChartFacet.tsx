@@ -1,13 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { toPng } from "html-to-image";
-import { ImageDown } from "lucide-react";
+import { FileDown } from "lucide-react";
 import { useToast } from "@/app/providers/useToast";
 import { Button } from "@/shared/components/Button";
+import { downloadBlob } from "@/shared/utils/downloadBlob";
 import Highcharts from "./highchartsSetup";
 import {
   EXPORTING_CONTEXT_BUTTON_DARK,
+  HIGHCHARTS_GETSVG_MERGE_OPTIONS,
   onHighchartsExportError,
 } from "./chartExportingShared";
+import {
+  buildCombinedFacetSvgDocument,
+  extractSvgRootInnerXml,
+  remapSvgFragmentIds,
+} from "./mergeFacetChartsSvg";
 import HighchartsReact from "highcharts-react-official";
 import type { CompareChartFacetResponse, FacetData } from "../../types/domain";
 import type {
@@ -15,6 +21,10 @@ import type {
   ChartFacetLegendMode,
   ChartFacetPlacement,
 } from "./chartLayoutPreferences";
+
+function stackLabelFormatter(this: Highcharts.StackItemObject): string {
+  return Highcharts.numberFormat(this.total, 2, ".", ",");
+}
 
 function useMediaMinWidth(px: number): boolean {
   const [matches, setMatches] = useState(() =>
@@ -49,6 +59,8 @@ function FacetChart({
   chartHeight,
   showHighchartsLegend,
   hoveredSeriesName = null,
+  facetChartIndex,
+  facetChartsRef,
 }: {
   facet: FacetData;
   yAxisLabel: string;
@@ -61,9 +73,18 @@ function FacetChart({
   showHighchartsLegend: boolean;
   /** Resaltado sincronizado con leyenda compartida (hover). */
   hoveredSeriesName?: string | null;
+  facetChartIndex: number;
+  facetChartsRef: React.MutableRefObject<(Highcharts.Chart | null)[]>;
 }) {
   const chartRef = useRef<Highcharts.Chart | null>(null);
   const [chartGeneration, setChartGeneration] = useState(0);
+
+  useEffect(() => {
+    const idx = facetChartIndex;
+    return () => {
+      facetChartsRef.current[idx] = null; // eslint-disable-line react-hooks/exhaustive-deps -- leer .current al desmontar
+    };
+  }, [facetChartIndex, facetChartsRef]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -146,10 +167,7 @@ function FacetChart({
             textOutline: "none",
             fontSize: "10px",
           },
-          // eslint-disable-next-line react-hooks/unsupported-syntax -- API de Highcharts (`this`)
-          formatter: function (this: Highcharts.StackItemObject) {
-            return Highcharts.numberFormat(this.total, 2, ".", ",");
-          },
+          formatter: stackLabelFormatter,
         },
       },
       tooltip: {
@@ -214,22 +232,7 @@ function FacetChart({
         scale: 1,
         fallbackToExportServer: false,
         error: onHighchartsExportError,
-        chartOptions: {
-          chart: { backgroundColor: "#FFFFFF" },
-          title: { style: { color: "#1e293b", fontSize: "28px" } },
-          xAxis: {
-            labels: { style: { color: "#334155", fontSize: "20px" } },
-            lineColor: "#cbd5e1",
-            tickColor: "#cbd5e1",
-          },
-          yAxis: {
-            labels: { style: { color: "#334155", fontSize: "20px" } },
-            title: { style: { color: "#334155", fontSize: "22px" } },
-            gridLineColor: "#e2e8f0",
-            stackLabels: { style: { color: "#1e293b", fontSize: "16px" } },
-          },
-          legend: { itemStyle: { color: "#334155", fontSize: "20px" } },
-        },
+        chartOptions: HIGHCHARTS_GETSVG_MERGE_OPTIONS as Highcharts.Options,
         buttons: {
           contextButton: {
             menuItems: ["downloadSVG"],
@@ -265,6 +268,7 @@ function FacetChart({
       options={options}
       callback={(chart: Highcharts.Chart) => {
         chartRef.current = chart;
+        facetChartsRef.current[facetChartIndex] = chart;
         setChartGeneration((g) => g + 1);
       }}
       containerProps={{ style: { width: "100%" } }}
@@ -368,56 +372,105 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
   const isStacked = facetPlacement === "stacked";
   const useSharedLegendPanel = legendMode === "shared" && sharedLegendItems.length > 0;
   const isLg = useMediaMinWidth(1024);
-  const exportRootRef = useRef<HTMLDivElement>(null);
+  const facetChartsRef = useRef<(Highcharts.Chart | null)[]>([]);
+  if (facetChartsRef.current.length !== n) {
+    const prev = facetChartsRef.current;
+    facetChartsRef.current = Array.from({ length: n }, (_, i) => prev[i] ?? null);
+  }
   const { push } = useToast();
-  const [exportingPng, setExportingPng] = useState(false);
+  const [exportingFacetSvg, setExportingFacetSvg] = useState(false);
 
-  const handleExportCombinedPng = async () => {
-    const el = exportRootRef.current;
-    if (!el) return;
-    setExportingPng(true);
+  const handleExportCombinedSvg = () => {
+    setExportingFacetSvg(true);
     try {
-      const dataUrl = await toPng(el, {
-        pixelRatio: 2,
-        backgroundColor: "#0f172a",
-        cacheBust: true,
-        filter: (node) =>
-          !(node instanceof HTMLElement && node.dataset.noExport !== undefined),
+      const refs = facetChartsRef.current;
+      if (refs.length !== n || refs.some((c) => !c)) {
+        push("Espera a que todas las gráficas terminen de cargar.", "error");
+        return;
+      }
+      const layout = isStacked ? "column" : "row";
+      const totalBaseW = 1920;
+      let sliceW: number;
+      let sliceH: number;
+      if (layout === "row") {
+        const padding = 24 * 2;
+        const gaps = Math.max(0, n - 1) * 16;
+        sliceW = Math.floor((totalBaseW - padding - gaps) / n);
+        sliceH = 1080;
+      } else {
+        sliceW = totalBaseW - 48;
+        sliceH = Math.floor((1080 - Math.max(0, n - 1) * 16) / Math.max(n, 1));
+      }
+
+      const innerXmls: string[] = [];
+      for (let i = 0; i < n; i += 1) {
+        const chart = refs[i]!;
+        const raw = chart.getSVG({
+          ...HIGHCHARTS_GETSVG_MERGE_OPTIONS,
+          chart: {
+            ...(HIGHCHARTS_GETSVG_MERGE_OPTIONS.chart as Record<string, unknown>),
+            width: sliceW,
+            height: sliceH,
+            backgroundColor: "#FFFFFF",
+          },
+          exporting: {
+            sourceWidth: sliceW,
+            sourceHeight: sliceH,
+          },
+        } as Highcharts.Options);
+        const fixed = i === 0 ? raw : remapSvgFragmentIds(raw, `f${i}_`);
+        innerXmls.push(extractSvgRootInnerXml(fixed));
+      }
+
+      const exportLegendItems =
+        sharedLegendItems.length > 0
+          ? sharedLegendItems.map(({ name, color }) => ({
+              name,
+              color,
+              hidden: hiddenSeriesNames.has(name),
+            }))
+          : undefined;
+
+      const doc = buildCombinedFacetSvgDocument({
+        mainTitle: data.title,
+        fragmentInnerXmls: innerXmls,
+        layout,
+        sliceW,
+        sliceH,
+        ...(exportLegendItems ? { legendItems: exportLegendItems } : {}),
       });
-      const link = document.createElement("a");
       const safe = data.title
         .replace(/[^a-zA-Z0-9]+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 80);
-      link.download = `comparativa-facet-${safe || "graficos"}-${new Date().toISOString().slice(0, 10)}.png`;
-      link.href = dataUrl;
-      link.click();
-      push("Imagen descargada (todas las facetas visibles).", "success");
+      const filename = `comparativa-facet-${safe || "graficos"}-${new Date().toISOString().slice(0, 10)}.svg`;
+      downloadBlob(new Blob([doc], { type: "image/svg+xml;charset=utf-8" }), filename);
+      push("SVG combinado descargado (misma apariencia que exportar una gráfica).", "success");
     } catch (err) {
       console.error(err);
-      push("No se pudo generar la imagen. Prueba cerrar menús o recargar la página.", "error");
+      push("No se pudo generar el SVG combinado.", "error");
     } finally {
-      setExportingPng(false);
+      setExportingFacetSvg(false);
     }
   };
 
   return (
     <div className="w-full space-y-4">
-      <div ref={exportRootRef} className="space-y-4">
+      <div className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <h3 className="m-0 min-w-0 text-base font-bold text-slate-100" style={{ fontSize: "16px" }}>
             {data.title}
           </h3>
-          <div data-no-export="">
+          <div>
             <Button
               type="button"
               variant="ghost"
-              disabled={exportingPng}
-              onClick={() => void handleExportCombinedPng()}
+              disabled={exportingFacetSvg}
+              onClick={handleExportCombinedSvg}
               className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-600 hover:bg-slate-800/80 disabled:opacity-50"
             >
-              <ImageDown className="h-4 w-4 shrink-0" aria-hidden />
-              {exportingPng ? "Generando PNG…" : "Descargar imagen (facetas)"}
+              <FileDown className="h-4 w-4 shrink-0" aria-hidden />
+              {exportingFacetSvg ? "Generando SVG…" : "Descargar SVG (todas las facetas)"}
             </Button>
           </div>
         </div>
@@ -516,6 +569,8 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
                   hoveredSeriesName={
                     useSharedLegendPanel ? effectiveLegendHover : null
                   }
+                  facetChartIndex={idx}
+                  facetChartsRef={facetChartsRef}
                 />
               </div>
             ))}

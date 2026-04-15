@@ -5,18 +5,32 @@ import type Highcharts from "highcharts";
  * Se reutiliza en Chart#getSVG para la descarga combinada de facetas.
  */
 export const HIGHCHARTS_GETSVG_MERGE_OPTIONS: Partial<Highcharts.Options> = {
-  chart: { backgroundColor: "#FFFFFF" },
+  chart: {
+    backgroundColor: "#FFFFFF",
+    plotBorderWidth: 1,
+    plotBorderColor: "#94a3b8",
+  },
   title: { style: { color: "#1e293b", fontSize: "28px" } },
   xAxis: {
-    labels: { style: { color: "#334155", fontSize: "20px" } },
-    lineColor: "#cbd5e1",
-    tickColor: "#cbd5e1",
+    labels: {
+      style: { color: "#334155", fontSize: "24px" },
+      rotation: -90,
+      align: "right",
+      /** Sin esto Highcharts fuerza -45° al exportar. `false` es válido en runtime (tipos incompletos). */
+      autoRotation: false,
+    } as unknown as Highcharts.XAxisLabelsOptions,
+    lineColor: "#334155",
+    lineWidth: 1,
+    tickColor: "#334155",
+    tickWidth: 1,
   },
   yAxis: {
-    labels: { style: { color: "#334155", fontSize: "20px" } },
-    title: { style: { color: "#334155", fontSize: "22px" } },
+    labels: { style: { color: "#334155", fontSize: "22px" } },
+    title: { style: { color: "#334155", fontSize: "24px" } },
+    lineColor: "#334155",
+    lineWidth: 1,
     gridLineColor: "#e2e8f0",
-    stackLabels: { style: { color: "#1e293b", fontSize: "16px" } },
+    stackLabels: { style: { color: "#1e293b", fontSize: "18px" } },
   },
   legend: { itemStyle: { color: "#334155", fontSize: "20px" } },
 };

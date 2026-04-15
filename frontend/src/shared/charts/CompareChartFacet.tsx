@@ -26,6 +26,28 @@ function stackLabelFormatter(this: Highcharts.StackItemObject): string {
   return Highcharts.numberFormat(this.total, 2, ".", ",");
 }
 
+/** Tamaño de fuente de categorías en eje X (barras verticales). */
+const FACET_X_LABEL_FONT_PX = 16;
+/** Etiquetas del eje Y (valores) en pantalla. */
+const FACET_Y_LABEL_FONT_PX = 14;
+
+function maxCategoryCharLength(categories: string[]): number {
+  if (categories.length === 0) return 1;
+  return Math.max(1, ...categories.map((c) => String(c).length));
+}
+
+/**
+ * Margen inferior para etiquetas en vertical: escala con la etiqueta más larga y el tamaño de fuente.
+ */
+function facetMarginBottomForVerticalCategoryLabels(
+  categories: string[],
+  fontPx: number,
+): number {
+  const len = maxCategoryCharLength(categories);
+  const perChar = fontPx * 0.62;
+  return Math.round(Math.min(32 + len * perChar, 300));
+}
+
 function useMediaMinWidth(px: number): boolean {
   const [matches, setMatches] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia(`(min-width: ${px}px)`).matches : false,
@@ -118,6 +140,10 @@ function FacetChart({
       borderWidth: 0,
     }));
 
+    const marginBottomVert = !inverted
+      ? facetMarginBottomForVerticalCategoryLabels(facet.categories, FACET_X_LABEL_FONT_PX)
+      : undefined;
+
     return {
       title: {
         text: facet.scenario_name,
@@ -126,9 +152,30 @@ function FacetChart({
       xAxis: {
         categories: facet.categories,
         crosshair: { color: "#334155" },
-        labels: { style: { color: "#94a3b8", fontSize: "13px" } },
-        lineColor: "#334155",
-        tickColor: "#334155",
+        lineWidth: 1,
+        tickWidth: 1,
+        labels: (
+          inverted
+            ? {
+                style: { color: "#94a3b8", fontSize: `${FACET_X_LABEL_FONT_PX}px` },
+                autoRotation: false,
+              }
+            : {
+                rotation: -90,
+                align: "right",
+                x: 4,
+                y: -2,
+                reserveSpace: true,
+                autoRotation: false,
+                style: {
+                  color: "#94a3b8",
+                  fontSize: `${FACET_X_LABEL_FONT_PX}px`,
+                  whiteSpace: "nowrap",
+                },
+              }
+        ) as unknown as Highcharts.XAxisLabelsOptions,
+        lineColor: "#64748b",
+        tickColor: "#64748b",
         events: {
           afterSetExtremes(event) {
             const evt = event as Highcharts.AxisSetExtremesEventObject & {
@@ -156,8 +203,13 @@ function FacetChart({
       yAxis: {
         min: 0,
         max: sharedYAxisMax > 0 ? sharedYAxisMax : null,
-        title: { text: yAxisLabel, style: { color: "#94a3b8", fontSize: "14px" } },
-        labels: { style: { color: "#94a3b8", fontSize: "13px" } },
+        lineWidth: 1,
+        lineColor: "#64748b",
+        title: {
+          text: yAxisLabel,
+          style: { color: "#94a3b8", fontSize: `${FACET_Y_LABEL_FONT_PX + 1}px` },
+        },
+        labels: { style: { color: "#94a3b8", fontSize: `${FACET_Y_LABEL_FONT_PX}px` } },
         gridLineColor: "#334155",
         stackLabels: {
           enabled: true,
@@ -165,7 +217,7 @@ function FacetChart({
             fontWeight: "bold",
             color: "#94a3b8",
             textOutline: "none",
-            fontSize: "10px",
+            fontSize: "12px",
           },
           formatter: stackLabelFormatter,
         },
@@ -213,10 +265,12 @@ function FacetChart({
         type: "column",
         height: chartHeight,
         inverted,
+        ...(marginBottomVert !== undefined ? { marginBottom: marginBottomVert } : {}),
         style: { fontFamily: "Verdana, sans-serif" },
         backgroundColor: "transparent",
         borderWidth: 0,
-        plotBorderWidth: 0,
+        plotBorderWidth: 1,
+        plotBorderColor: "rgba(148, 163, 184, 0.45)",
         plotShadow: false,
         events: {
           load() {
@@ -341,12 +395,12 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
       1,
     );
     if (inverted) {
-      return Math.min(680, 260 + catLen * 16);
+      return Math.min(640, 240 + catLen * 15);
     }
-    // Con varias facetas en fila, un poco menos de alto ayuda a que quepan sin scroll.
-    if (n >= 4) return 360;
-    if (n >= 3) return 380;
-    return 420;
+    // Altura algo menor; el margen inferior dinámico reserva sitio para etiquetas verticales.
+    if (n >= 4) return 320;
+    if (n >= 3) return 335;
+    return 360;
   }, [data.facets, inverted, n]);
 
   const sharedLegendItems = useMemo(
@@ -402,6 +456,15 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
         sliceH = Math.floor((1080 - Math.max(0, n - 1) * 16) / Math.max(n, 1));
       }
 
+      const exportXLabelPx = 24;
+      const maxCatLenExport = Math.max(
+        ...data.facets.map((f) => maxCategoryCharLength(f.categories)),
+        1,
+      );
+      const exportMarginBottom = !inverted
+        ? Math.round(Math.min(44 + maxCatLenExport * exportXLabelPx * 0.62, 340))
+        : undefined;
+
       const innerXmls: string[] = [];
       for (let i = 0; i < n; i += 1) {
         const chart = refs[i]!;
@@ -412,11 +475,33 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
             width: sliceW,
             height: sliceH,
             backgroundColor: "#FFFFFF",
+            ...(exportMarginBottom !== undefined ? { marginBottom: exportMarginBottom } : {}),
           },
           exporting: {
             sourceWidth: sliceW,
             sourceHeight: sliceH,
           },
+          ...(!inverted
+            ? {
+                xAxis: {
+                  labels: {
+                    rotation: -90,
+                    align: "right",
+                    reserveSpace: true,
+                    autoRotation: false,
+                    style: { color: "#334155", fontSize: `${exportXLabelPx}px` },
+                  } as unknown as Highcharts.XAxisLabelsOptions,
+                  lineWidth: 1,
+                  lineColor: "#334155",
+                  tickWidth: 1,
+                  tickColor: "#334155",
+                },
+                yAxis: {
+                  lineWidth: 1,
+                  lineColor: "#334155",
+                },
+              }
+            : {}),
         } as Highcharts.Options);
         const fixed = i === 0 ? raw : remapSvgFragmentIds(raw, `f${i}_`);
         innerXmls.push(extractSvgRootInnerXml(fixed));

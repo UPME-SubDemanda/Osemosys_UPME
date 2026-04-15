@@ -1,5 +1,19 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import type { LucideIcon } from 'lucide-react';
+import {
+  AlignLeft,
+  BarChart3,
+  DollarSign,
+  GalleryHorizontal,
+  GalleryVertical,
+  LayoutGrid,
+  Layers,
+  Leaf,
+  List,
+  PanelBottom,
+  Zap,
+} from 'lucide-react';
 import { simulationApi } from '../features/simulation/api/simulationApi';
 import { scenariosApi } from '../features/scenarios/api/scenariosApi';
 import type {
@@ -16,13 +30,168 @@ import {
   type ScenarioParamsForDiagnostics,
 } from '../features/simulation/components/InfeasibilityDiagnosticsPanel';
 import { ChartSelector, type ChartSelection } from '../shared/charts/ChartSelector';
+import { getDefaultChartSelection } from '../shared/charts/defaultChartSelection';
 import { ScenarioComparer, type CompareViewMode } from '../shared/charts/ScenarioComparer';
 import { HighchartsChart } from '../shared/charts/HighchartsChart';
 import { LineChart } from '../shared/charts/LineChart';
 import { CompareChart } from '../shared/charts/CompareChart';
 import { CompareChartFacet } from '../shared/charts/CompareChartFacet';
+import type {
+  ChartBarOrientation,
+  ChartFacetLegendMode,
+  ChartFacetPlacement,
+} from '../shared/charts/chartLayoutPreferences';
+import {
+  loadChartBarOrientation,
+  loadChartFacetLegendMode,
+  loadChartFacetPlacement,
+  saveChartBarOrientation,
+  saveChartFacetLegendMode,
+  saveChartFacetPlacement,
+} from '../shared/charts/chartLayoutPreferences';
 import { Button } from '../shared/components/Button';
 import { Modal } from '../shared/components/Modal';
+import { downloadBlob } from '../shared/utils/downloadBlob';
+import { formatCompactNumber, formatPercent } from '../shared/utils/numberFormat';
+
+const MAX_COMPARE_COLUMNS = 4;
+const EXECUTIONS_TABLE_PAGE_SIZE = 10;
+
+const BADGE_OPTIMAL =
+  'inline-flex shrink-0 items-center px-2 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-bold border border-green-500/20';
+
+function getSolverStatusPresentation(statusRaw: string): { label: string; badgeClass: string } {
+  const trimmed = statusRaw.trim();
+  const label = (trimmed || 'UNKNOWN').toUpperCase();
+  const s = trimmed.toLowerCase();
+
+  const pill =
+    'inline-flex shrink-0 items-center px-2 py-1 rounded-full text-xs font-bold border';
+
+  if (s.includes('optimal')) {
+    return { label, badgeClass: BADGE_OPTIMAL };
+  }
+  if (s.includes('infeasible')) {
+    return {
+      label,
+      badgeClass: `${pill} bg-rose-500/10 text-rose-400 border-rose-500/20`,
+    };
+  }
+  if (s.includes('unbounded')) {
+    return {
+      label,
+      badgeClass: `${pill} bg-violet-500/10 text-violet-400 border-violet-500/20`,
+    };
+  }
+  if (s.includes('limit') || s.includes('interrupt') || s.includes('stopped')) {
+    return {
+      label,
+      badgeClass: `${pill} bg-amber-500/10 text-amber-400 border-amber-500/20`,
+    };
+  }
+  if (s.includes('fail') || s.includes('error')) {
+    return {
+      label,
+      badgeClass: `${pill} bg-red-500/10 text-red-400 border-red-500/20`,
+    };
+  }
+  return {
+    label,
+    badgeClass: `${pill} bg-slate-500/10 text-slate-400 border-slate-500/20`,
+  };
+}
+
+type ScenarioCardProps = {
+  summary: ResultSummaryResponse;
+  isCurrent?: boolean;
+};
+
+function ScenarioCard({ summary, isCurrent = false }: ScenarioCardProps) {
+  const status = getSolverStatusPresentation(summary.solver_status);
+  const title = summary.scenario_name?.trim() || `Job #${summary.job_id}`;
+
+  return (
+    <div
+      className={[
+        'bg-[#0f172a] border border-slate-800 rounded-xl p-5 shadow-2xl',
+        isCurrent ? 'ring-2 ring-cyan-500/35' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <header className="flex flex-col gap-3 pb-4 border-b border-slate-800/60 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+            Escenario
+          </p>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Link
+              to={`/app/results/${summary.job_id}`}
+              className="text-lg font-bold text-white hover:text-cyan-400 hover:underline break-words"
+            >
+              {title}
+            </Link>
+            {isCurrent ? (
+              <span className="inline-flex shrink-0 items-center rounded-full border border-cyan-500/25 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-400">
+                Actual
+              </span>
+            ) : null}
+          </div>
+          <p className="m-0 text-xs text-slate-500 font-mono">Job #{summary.job_id}</p>
+        </div>
+        <span className={`${status.badgeClass} self-start sm:mt-0.5`}>{status.label}</span>
+      </header>
+
+      <div className="pt-3 flex flex-col gap-1">
+        <ScenarioMetricRow
+          icon={DollarSign}
+          label="Objective Value (USD)"
+          value={formatCompactNumber(summary.objective_value, 2)}
+          highlight
+        />
+        <ScenarioMetricRow
+          icon={Zap}
+          label="Demand Coverage"
+          value={formatPercent(summary.coverage_ratio, 2)}
+        />
+        <ScenarioMetricRow
+          icon={Leaf}
+          label="CO₂ Emissions (MtCO₂eq)"
+          value={formatCompactNumber(summary.total_co2, 2)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ScenarioMetricRow({
+  icon: Icon,
+  label,
+  value,
+  highlight = false,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="flex justify-between items-center gap-4 py-2 border-b border-slate-800/50 last:border-0">
+      <span className="text-slate-400 text-sm flex items-center gap-2 min-w-0">
+        <Icon className="w-4 h-4 shrink-0 text-slate-500" aria-hidden />
+        {label}
+      </span>
+      <span
+        className={[
+          'font-mono font-bold tabular-nums text-right shrink-0',
+          highlight ? 'text-cyan-300 text-[15px]' : 'text-white',
+        ].join(' ')}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
 
 export function ResultDetailPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -40,17 +209,19 @@ export function ResultDetailPage() {
   // All summaries for comparison table
   const [allSummaries, setAllSummaries] = useState<ResultSummaryResponse[]>([]);
   const [loadingSummaries, setLoadingSummaries] = useState(true);
+  /** Hasta 4 jobs para la vista en columnas (independiente de la comparación de gráficos). */
+  const [selectedCompareColumnJobIds, setSelectedCompareColumnJobIds] = useState<number[]>([]);
+  /** Disposición de las tarjetas KPI: cuadrícula o lista compacta. */
+  const [scenarioCardsViewMode, setScenarioCardsViewMode] = useState<'grid' | 'list'>('grid');
+  /** Paginación de la tabla de ejecuciones (comparativa). */
+  const [executionsTablePage, setExecutionsTablePage] = useState(1);
+  /** Solo reinicia la selección por defecto al cambiar de run; no en cada nuevo array `allSummaries`. */
+  const compareColumnInitKeyRef = useRef<number | null>(null);
+  const selectedCompareColumnJobIdsRef = useRef(selectedCompareColumnJobIds);
+  selectedCompareColumnJobIdsRef.current = selectedCompareColumnJobIds;
 
-  // Chart selector
-  const [chartSelection, setChartSelection] = useState<ChartSelection>({
-    tipo: '',
-    un: 'PJ',
-    sub_filtro: '',
-    loc: '',
-    variable: '',
-    viewMode: 'column',
-    agrupar_por: 'TECNOLOGIA',
-  });
+  // Chart selector (tipo por defecto = primera gráfica del catálogo)
+  const [chartSelection, setChartSelection] = useState<ChartSelection>(() => getDefaultChartSelection());
 
   // Comparison state unificado (CompareMode enum)
   const [compareState, setCompareState] = useState<{
@@ -68,6 +239,28 @@ export function ResultDetailPage() {
   const [compareChartData, setCompareChartData] = useState<CompareChartResponse | null>(null);
   const [compareFacetData, setCompareFacetData] = useState<CompareChartFacetResponse | null>(null);
   const [loadingChart, setLoadingChart] = useState(false);
+
+  const [chartBarOrientation, setChartBarOrientation] = useState<ChartBarOrientation>(() =>
+    loadChartBarOrientation(),
+  );
+  const [chartFacetPlacement, setChartFacetPlacement] = useState<ChartFacetPlacement>(() =>
+    loadChartFacetPlacement(),
+  );
+  const [chartFacetLegendMode, setChartFacetLegendMode] = useState<ChartFacetLegendMode>(() =>
+    loadChartFacetLegendMode(),
+  );
+
+  useEffect(() => {
+    saveChartBarOrientation(chartBarOrientation);
+  }, [chartBarOrientation]);
+
+  useEffect(() => {
+    saveChartFacetPlacement(chartFacetPlacement);
+  }, [chartFacetPlacement]);
+
+  useEffect(() => {
+    saveChartFacetLegendMode(chartFacetLegendMode);
+  }, [chartFacetLegendMode]);
 
   // Export state: 'svg' | 'excel' mientras se descarga, null si no
   const [exportingType, setExportingType] = useState<'svg' | 'excel' | null>(null);
@@ -164,18 +357,81 @@ export function ResultDetailPage() {
       .finally(() => setLoadingSummaries(false));
   }, []);
 
+  useEffect(() => {
+    if (loadingSummaries || allSummaries.length === 0) return;
+    if (!currentRunId || Number.isNaN(currentRunId)) {
+      setSelectedCompareColumnJobIds([]);
+      compareColumnInitKeyRef.current = null;
+      return;
+    }
+    if (compareColumnInitKeyRef.current === currentRunId) return;
+
+    const head = allSummaries[0];
+    if (!head) return;
+
+    const hasCurrent = allSummaries.some((s) => Number(s.job_id) === Number(currentRunId));
+    const firstId = Number(head.job_id);
+    const defaultIds = hasCurrent ? [currentRunId] : [firstId];
+    setSelectedCompareColumnJobIds(defaultIds);
+    compareColumnInitKeyRef.current = currentRunId;
+  }, [loadingSummaries, allSummaries, currentRunId]);
+
+  useEffect(() => {
+    setExecutionsTablePage(1);
+  }, [currentRunId]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(allSummaries.length / EXECUTIONS_TABLE_PAGE_SIZE));
+    setExecutionsTablePage((p) => Math.min(p, maxPage));
+  }, [allSummaries.length]);
+
+  const toggleCompareColumnSelection = useCallback((jobId: number) => {
+    const id = Number(jobId);
+    setSelectedCompareColumnJobIds((prev) => {
+      const normalized = prev.map(Number);
+      if (normalized.includes(id)) {
+        return normalized.filter((j) => j !== id);
+      }
+      if (normalized.length >= MAX_COMPARE_COLUMNS) {
+        alert('Máximo 4 escenarios para la vista en columnas.');
+        return prev;
+      }
+      return [...normalized, id];
+    });
+  }, []);
+
+  const clearCompareColumnSelection = useCallback(() => {
+    setSelectedCompareColumnJobIds([]);
+  }, []);
+
+  /** ≥2 jobs marcados en la tabla comparativa → misma selección para gráficos en modo facet. */
+  const columnCompareJobIds = useMemo(
+    () => selectedCompareColumnJobIds.map(Number).filter((id) => !Number.isNaN(id) && id > 0),
+    [selectedCompareColumnJobIds],
+  );
+  const facetFromCompareTable = columnCompareJobIds.length >= 2;
+  const chartCompareMode: CompareMode = facetFromCompareTable ? 'facet' : compareState.mode;
+  const chartJobIds = useMemo(() => {
+    if (facetFromCompareTable) return columnCompareJobIds;
+    if (compareState.jobIds.length > 0) return compareState.jobIds;
+    return [currentRunId];
+  }, [facetFromCompareTable, columnCompareJobIds, compareState.jobIds, currentRunId]);
+  const chartYearsToPlot = compareState.yearsToPlot;
+
+  const showFacetPlacementControl =
+    chartCompareMode === 'facet' && chartJobIds.length > 1;
+
   // 3. Fetch chart data when selection or comparison changes
   useEffect(() => {
     if (!chartSelection.tipo) return;
-    const { mode, jobIds, yearsToPlot } = compareState;
-    if (jobIds.length === 0) return;
+    if (chartJobIds.length === 0) return;
 
     setLoadingChart(true);
-    const isCompare = mode !== 'off' && jobIds.length > 1;
+    const isCompare = chartCompareMode !== 'off' && chartJobIds.length > 1;
 
-    if (isCompare && mode === 'facet') {
+    if (isCompare && chartCompareMode === 'facet') {
       const params: Record<string, string> = {
-        job_ids: jobIds.join(','),
+        job_ids: chartJobIds.join(','),
         tipo: chartSelection.tipo,
         un: chartSelection.un,
       };
@@ -193,12 +449,12 @@ export function ResultDetailPage() {
         })
         .catch((err: unknown) => console.error('Error loading compare-facet data', err))
         .finally(() => setLoadingChart(false));
-    } else if (isCompare && mode === 'by-year') {
+    } else if (isCompare && chartCompareMode === 'by-year') {
       const params: Record<string, string> = {
-        job_ids: jobIds.join(','),
+        job_ids: chartJobIds.join(','),
         tipo: chartSelection.tipo,
         un: chartSelection.un,
-        years_to_plot: yearsToPlot.join(','),
+        years_to_plot: chartYearsToPlot.join(','),
       };
       if (chartSelection.sub_filtro) params.sub_filtro = chartSelection.sub_filtro;
       if (chartSelection.loc) params.loc = chartSelection.loc;
@@ -236,17 +492,21 @@ export function ResultDetailPage() {
         .catch((err: unknown) => console.error('Error loading chart data', err))
         .finally(() => setLoadingChart(false));
     }
-  }, [currentRunId, chartSelection, compareState]);
+  }, [currentRunId, chartSelection, chartCompareMode, chartJobIds, chartYearsToPlot]);
 
   // Toggle compare on/off
   const handleToggleCompare = useCallback(() => {
     setCompareState((prev) => {
       if (prev.mode !== 'off') {
+        if (selectedCompareColumnJobIdsRef.current.length >= 2) {
+          queueMicrotask(() => setSelectedCompareColumnJobIds([currentRunId]));
+        }
         return { mode: 'off', jobIds: [currentRunId], yearsToPlot: prev.yearsToPlot };
       }
+      const cols = selectedCompareColumnJobIdsRef.current.map(Number).filter((id) => id > 0);
       return {
         mode: 'facet',
-        jobIds: prev.jobIds,
+        jobIds: cols.length >= 2 ? cols : prev.jobIds,
         yearsToPlot: prev.yearsToPlot,
       };
     });
@@ -258,6 +518,9 @@ export function ResultDetailPage() {
       yearsToPlot: number[];
       compareViewMode?: CompareViewMode;
     }) => {
+      if (selectedCompareColumnJobIdsRef.current.length >= 2) {
+        setSelectedCompareColumnJobIds(selection.jobIds.slice(0, MAX_COMPARE_COLUMNS));
+      }
       setCompareState((prev) => {
         const newMode: CompareMode =
           prev.mode === 'off'
@@ -294,16 +557,10 @@ export function ResultDetailPage() {
       const blob = new Blob([response.data], {
         type: 'application/zip',
       });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
       const disposition = response.headers['content-disposition'] || '';
       const match = disposition.match(/filename="?([^"]+)"?/);
-      a.download = match?.[1] || `Graficas_${currentRunId}_${chartSelection.un}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const filename = match?.[1] || `Graficas_${currentRunId}_${chartSelection.un}.zip`;
+      downloadBlob(blob, filename);
     } catch (err) {
       console.error('Error exporting charts', err);
       alert('Error al generar el archivo. Intenta de nuevo.');
@@ -317,14 +574,7 @@ export function ResultDetailPage() {
     setExportingType('excel');
     try {
       const { blob, filename } = await simulationApi.exportRawData(currentRunId);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, filename);
     } catch (err: unknown) {
       console.error('Error exporting raw data', err);
       let msg = 'Error descargando los datos crudos.';
@@ -367,18 +617,40 @@ export function ResultDetailPage() {
     );
   }
 
+  const selectedCardsGridClass =
+    scenarioCardsViewMode === 'list'
+      ? 'flex flex-col gap-3'
+      : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4';
+
+  const executionsTotalPages = Math.max(
+    1,
+    Math.ceil(allSummaries.length / EXECUTIONS_TABLE_PAGE_SIZE),
+  );
+  const executionsPageSafe = Math.min(executionsTablePage, executionsTotalPages);
+  const executionsSliceStart = (executionsPageSafe - 1) * EXECUTIONS_TABLE_PAGE_SIZE;
+  const paginatedSummaries = allSummaries.slice(
+    executionsSliceStart,
+    executionsSliceStart + EXECUTIONS_TABLE_PAGE_SIZE,
+  );
+  const executionsRangeEnd = Math.min(
+    executionsSliceStart + EXECUTIONS_TABLE_PAGE_SIZE,
+    allSummaries.length,
+  );
+
+  /** Evita duplicar la misma tarjeta KPI arriba y en "KPIs seleccionados" cuando ya hay selección en la comparativa. */
+  const showHeroKpiCard =
+    Boolean(summary) &&
+    (loadingSummaries || allSummaries.length === 0 || selectedCompareColumnJobIds.length === 0);
+
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-200 p-4 sm:p-6 lg:p-8 space-y-5 font-sans">
+    <div className="min-h-screen bg-slate-950 text-slate-200 p-6 space-y-6 font-sans">
       {/* ─── HEADER ─── */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-white">
-            Resultados de Simulacion
+          <h1 className="text-2xl font-bold tracking-tight text-white">
+            Resultados de simulación
           </h1>
-          <p className="text-sm text-slate-400 mt-0.5">
-            #{currentRunId}
-            {summary?.scenario_name ? ` — ${summary.scenario_name}` : ''}
-          </p>
+          <p className="text-sm text-slate-500 mt-1 font-mono">#{currentRunId}</p>
         </div>
         <div className="flex gap-3 items-center flex-wrap">
           {isOptimal ? (
@@ -387,50 +659,50 @@ export function ResultDetailPage() {
                 type="button"
                 onClick={() => setShowExportMenu((v) => !v)}
                 disabled={exportingType !== null}
-                className="btn btn--primary inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-2 text-sm font-medium text-slate-200 backdrop-blur-sm hover:border-slate-600 hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {exportingType ? (
                   <>
                     <div className="w-4 h-4 rounded-full border-2 border-current/30 border-t-current animate-spin" />
-                    {exportingType === 'svg' ? 'Generando ZIP...' : 'Generando Excel...'}
+                    {exportingType === 'svg' ? 'Generando ZIP…' : 'Generando Excel…'}
                   </>
                 ) : (
                   <>
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                     Exportar
-                    <svg className={`w-4 h-4 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <svg className={`w-4 h-4 shrink-0 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                     </svg>
                   </>
                 )}
               </button>
               {showExportMenu && (
-                <div className="absolute right-0 top-full mt-2 flex flex-col gap-1.5 min-w-[240px] p-2 rounded-xl bg-[#1e293b]/95 border border-[rgba(255,255,255,0.1)] shadow-xl backdrop-blur-sm z-50">
+                <div className="absolute right-0 top-full mt-2 flex flex-col gap-1 min-w-[240px] rounded-xl border border-slate-800 bg-slate-900/95 p-2 shadow-xl backdrop-blur-md z-50">
                   <button
                     type="button"
                     onClick={handleExportSvg}
-                    className="btn btn--ghost justify-start gap-3 px-4 py-3 text-sm w-full"
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-200 hover:bg-slate-800/80"
                   >
-                    <span className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-500/15 text-emerald-400 shrink-0 border border-emerald-500/20">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
                     </span>
-                    <span>Graficos y Resultados (SVG/ZIP)</span>
+                    Gráficos (SVG / ZIP)
                   </button>
                   <button
                     type="button"
                     onClick={handleExportExcel}
-                    className="btn btn--ghost justify-start gap-3 px-4 py-3 text-sm w-full"
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-200 hover:bg-slate-800/80"
                   >
-                    <span className="w-8 h-8 rounded-lg flex items-center justify-center bg-blue-500/15 text-blue-400 shrink-0 border border-blue-500/20">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-cyan-500/20 bg-cyan-500/10 text-cyan-400">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                     </span>
-                    <span>Datos crudos (Excel)</span>
+                    Datos crudos (Excel)
                   </button>
                 </div>
               )}
@@ -440,81 +712,44 @@ export function ResultDetailPage() {
           <Link to="/app/results">
             <Button
               variant="ghost"
-              className="text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 text-sm"
+              className="text-slate-300 hover:text-white hover:bg-slate-800/80 border border-slate-800 text-sm rounded-lg"
             >
-              &larr; Volver a Tabla
+              ← Volver a tabla
             </Button>
           </Link>
         </div>
       </div>
 
-      {/* ─── KPI CARDS ─── */}
+      {/* ─── RESUMEN KPI (solo si no está ya cubierto por la zona de comparativa seleccionada) ─── */}
       {loadingSummary ? (
-        <div className="animate-pulse bg-[#1e293b] h-24 rounded-xl border border-slate-700/50" />
-      ) : summary ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <KpiCard
-            label="Estado del Solver"
-            value={`${summary.solver_name.toUpperCase()} ${summary.solver_status.toUpperCase()}`}
-            colorClass={
-              summary.solver_status.toLowerCase().includes('optimal')
-                ? 'text-emerald-400'
-                : 'text-amber-400'
-            }
-            borderColor={
-              summary.solver_status.toLowerCase().includes('optimal')
-                ? 'border-t-emerald-400'
-                : 'border-t-amber-400'
-            }
-          />
-          <KpiCard
-            label="Valor Objetivo"
-            value={summary.objective_value.toLocaleString(undefined, {
-              maximumFractionDigits: 2,
-            })}
-            colorClass="text-blue-400"
-            borderColor="border-t-blue-400"
-          />
-          <KpiCard
-            label="Cobertura de Demanda"
-            value={`${(summary.coverage_ratio * 100).toFixed(2)}%`}
-            colorClass="text-amber-400"
-            borderColor="border-t-amber-400"
-          />
-          <KpiCard
-            label="Emisiones CO2 (MtCO₂eq)"
-            value={summary.total_co2.toLocaleString(undefined, {
-              maximumFractionDigits: 2,
-            })}
-            colorClass="text-rose-400"
-            borderColor="border-t-rose-400"
-          />
-        </div>
+        <div className="animate-pulse rounded-xl border border-slate-800 bg-[#0f172a]/80 h-44" />
+      ) : summary && showHeroKpiCard ? (
+        <ScenarioCard summary={summary} isCurrent />
       ) : null}
 
       {isNonOptimal ? (
-        <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="grid gap-1 text-sm text-red-100">
-            <strong className="text-red-50">
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="grid gap-2 text-sm text-rose-100/90 max-w-3xl">
+            <strong className="text-rose-50">
               {hasInfeasibilityDetails
                 ? 'Esta simulación reporta infactibilidad o un estado no óptimo.'
                 : 'Esta simulación no terminó con una solución óptima.'}
             </strong>
-            <span>
+            <span className="text-slate-400">
               Estado del solver:{' '}
-              <span className="font-semibold uppercase">
+              <span className="font-mono font-semibold text-slate-200 uppercase">
                 {summary?.solver_name?.toUpperCase() ?? runResult?.solver_name?.toUpperCase() ?? 'SOLVER'}{' '}
                 {(summary?.solver_status ?? runResult?.solver_status ?? 'unknown').toUpperCase()}
               </span>
             </span>
-            {failureMessage ? <span>Detalle: {failureMessage}</span> : null}
+            {failureMessage ? <span className="text-slate-400">Detalle: {failureMessage}</span> : null}
             {!hasInfeasibilityDetails ? (
-              <span>
+              <span className="text-slate-500 text-xs">
                 No se pudieron recopilar diagnósticos detallados. Esto suele pasar cuando el worker se
                 termina de forma abrupta antes de persistir la infactibilidad.
               </span>
             ) : (
-              <span>
+              <span className="text-slate-500 text-xs">
                 Puedes abrir el diagnóstico detallado para revisar restricciones violadas y conflictos
                 de bounds.
               </span>
@@ -524,9 +759,9 @@ export function ResultDetailPage() {
             <Button
               type="button"
               onClick={() => setShowInfeasibilityModal(true)}
-              className="bg-red-600 hover:bg-red-500 text-white border border-red-500"
+              className="bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 rounded-lg shrink-0"
             >
-              Ver diagnóstico de infactibilidad
+              Ver diagnóstico
             </Button>
           ) : null}
         </div>
@@ -547,178 +782,384 @@ export function ResultDetailPage() {
         ) : null}
       </Modal>
 
-      {/* ─── COMPARISON TABLE ─── */}
+      {/* ─── COMPARATIVA ─── */}
       {!loadingSummaries && allSummaries.length > 0 && (
-        <div className="bg-[#1e293b] rounded-xl border border-slate-700/50 overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-700/50">
-            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-              Comparativa de Escenarios
-            </h3>
+        <section className="rounded-xl border border-slate-800 bg-slate-900/30 backdrop-blur-sm overflow-hidden">
+          <div className="p-6 border-b border-slate-800 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+                Comparativa de escenarios
+              </h2>
+              <p className="text-sm text-slate-500 m-0 max-w-2xl">
+                Selecciona hasta {MAX_COMPARE_COLUMNS} ejecuciones. Con dos o más, los gráficos comparan esos jobs (una faceta por escenario).
+              </p>
+            </div>
+            {selectedCompareColumnJobIds.length > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-slate-400 hover:text-white border border-slate-800 text-xs shrink-0 rounded-lg"
+                onClick={clearCompareColumnSelection}
+              >
+                Limpiar selección
+              </Button>
+            ) : null}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-700/50 text-left">
-                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Escenario
-                  </th>
-                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Solver State
-                  </th>
-                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400 text-right">
-                    Objective Value (USD)
-                  </th>
-                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400 text-right">
-                    Demand Coverage (%)
-                  </th>
-                  <th className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400 text-right">
-                    CO2 Emissions (MtCO₂eq)
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {allSummaries.map((s) => {
-                  const isCurrent = s.job_id === currentRunId;
+
+          {selectedCompareColumnJobIds.length > 0 ? (
+            <div className="border-b border-slate-800 bg-slate-950/30">
+              <div className="p-6 pb-0 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="m-0 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+                  KPIs seleccionados ({selectedCompareColumnJobIds.length})
+                </p>
+                <div
+                  className="inline-flex shrink-0 rounded-lg border border-slate-700/80 bg-slate-900/70 p-0.5"
+                  role="group"
+                  aria-label="Modo de vista de tarjetas"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setScenarioCardsViewMode('grid')}
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+                      scenarioCardsViewMode === 'grid'
+                        ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20'
+                        : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    <LayoutGrid className="h-4 w-4" aria-hidden />
+                    Cuadrícula
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScenarioCardsViewMode('list')}
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+                      scenarioCardsViewMode === 'list'
+                        ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20'
+                        : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    <List className="h-4 w-4" aria-hidden />
+                    Lista
+                  </button>
+                </div>
+              </div>
+              <div className={`p-6 pt-4 ${selectedCardsGridClass}`}>
+                {selectedCompareColumnJobIds.map((jobId) => {
+                  const colSummary = allSummaries.find((x) => Number(x.job_id) === Number(jobId));
+                  if (!colSummary) return null;
                   return (
-                    <tr
-                      key={s.job_id}
-                      className={`border-b border-slate-800 transition-colors ${
-                        isCurrent
-                          ? 'bg-blue-500/5'
-                          : 'hover:bg-slate-800/40'
-                      }`}
-                    >
-                      <td className="px-4 py-2.5">
-                        <Link
-                          to={`/app/results/${s.job_id}`}
-                          className={`hover:underline ${isCurrent ? 'text-blue-400 font-medium' : 'text-slate-300'}`}
-                        >
-                          {s.scenario_name || `Job #${s.job_id}`}
-                          {isCurrent && (
-                            <span className="ml-1.5 text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded">
-                              Actual
-                            </span>
-                          )}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span
-                          className={`text-xs font-semibold uppercase ${
-                            s.solver_status.toLowerCase().includes('optimal')
-                              ? 'text-emerald-400'
-                              : 'text-amber-400'
-                          }`}
-                        >
-                          {s.solver_status.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-slate-300 tabular-nums">
-                        {s.objective_value.toLocaleString(undefined, {
-                          maximumFractionDigits: 2,
-                        })}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-slate-300 tabular-nums">
-                        {(s.coverage_ratio * 100).toFixed(2)}%
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-slate-300 tabular-nums">
-                        {s.total_co2.toLocaleString(undefined, {
-                          maximumFractionDigits: 2,
-                        })}
-                      </td>
-                    </tr>
+                    <ScenarioCard
+                      key={jobId}
+                      summary={colSummary}
+                      isCurrent={Number(colSummary.job_id) === Number(currentRunId)}
+                    />
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </div>
+            </div>
+          ) : null}
+
+          <details open className="border-t border-slate-800">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-6 py-4 text-sm font-medium text-slate-400 transition-colors hover:text-slate-200 [&::-webkit-details-marker]:hidden">
+              <span>Tabla de ejecuciones</span>
+              <span className="shrink-0 text-xs text-slate-600">
+                Selección para comparar · {allSummaries.length} filas · {EXECUTIONS_TABLE_PAGE_SIZE} por página
+              </span>
+            </summary>
+            <div className="overflow-x-auto border-t border-slate-800/80 px-0 pb-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-950/50 text-left">
+                    <th className="w-10 p-4 text-center">
+                      <span className="sr-only">Comparar</span>
+                    </th>
+                    <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Escenario
+                    </th>
+                    <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Estado
+                    </th>
+                    <th className="p-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Objective (USD)
+                    </th>
+                    <th className="p-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Cobertura %
+                    </th>
+                    <th className="p-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      CO₂ (Mt)
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedSummaries.map((s) => {
+                    const isCurrent = Number(s.job_id) === Number(currentRunId);
+                    const isColSelected = selectedCompareColumnJobIds.map(Number).includes(Number(s.job_id));
+                    const st = getSolverStatusPresentation(s.solver_status);
+                    return (
+                      <tr
+                        key={s.job_id}
+                        className={`border-b border-slate-800/80 transition-colors ${
+                          isCurrent ? 'bg-emerald-500/[0.04]' : 'hover:bg-slate-900/50'
+                        }`}
+                      >
+                        <td className="p-4 text-center align-middle">
+                          <input
+                            type="checkbox"
+                            checked={isColSelected}
+                            onChange={() => toggleCompareColumnSelection(Number(s.job_id))}
+                            aria-label={`Incluir ${s.scenario_name || `Job ${s.job_id}`} en vista columnas`}
+                            className="h-4 w-4 cursor-pointer rounded border-slate-600 bg-slate-950 text-emerald-500 focus:ring-emerald-500/40"
+                          />
+                        </td>
+                        <td className="p-4">
+                          <Link
+                            to={`/app/results/${s.job_id}`}
+                            className={`font-medium hover:text-emerald-400 hover:underline ${
+                              isCurrent ? 'text-emerald-400' : 'text-slate-200'
+                            }`}
+                          >
+                            {s.scenario_name || `Job #${s.job_id}`}
+                            {isCurrent ? (
+                              <span className="ml-2 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
+                                Actual
+                              </span>
+                            ) : null}
+                          </Link>
+                        </td>
+                        <td className="p-4">
+                          <span className={st.badgeClass}>{st.label}</span>
+                        </td>
+                        <td className="p-4 text-right font-mono text-slate-200 tabular-nums">
+                          {formatCompactNumber(s.objective_value, 2)}
+                        </td>
+                        <td className="p-4 text-right font-mono text-slate-200 tabular-nums">
+                          {formatPercent(s.coverage_ratio, 2)}
+                        </td>
+                        <td className="p-4 text-right font-mono text-slate-200 tabular-nums">
+                          {formatCompactNumber(s.total_co2, 2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800/80 px-6 py-3">
+                <p className="m-0 text-xs text-slate-500">
+                  {allSummaries.length === 0
+                    ? 'Sin filas'
+                    : `${executionsSliceStart + 1}–${executionsRangeEnd} de ${allSummaries.length}`}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={executionsPageSafe <= 1}
+                    onClick={() => setExecutionsTablePage((p) => Math.max(1, p - 1))}
+                    className="text-xs rounded-lg border border-slate-800 px-3 py-1.5 disabled:opacity-40"
+                  >
+                    Anterior
+                  </Button>
+                  <span className="text-xs tabular-nums text-slate-400">
+                    Página {executionsPageSafe} / {executionsTotalPages}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={executionsPageSafe >= executionsTotalPages}
+                    onClick={() =>
+                      setExecutionsTablePage((p) => Math.min(executionsTotalPages, p + 1))
+                    }
+                    className="text-xs rounded-lg border border-slate-800 px-3 py-1.5 disabled:opacity-40"
+                  >
+                    Siguiente
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </details>
+        </section>
       )}
 
       {isOptimal ? (
         <>
-          {/* ─── CHART ─── */}
-          <div className="bg-[#1e293b] p-4 rounded-xl border border-slate-700/50 relative">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/30 backdrop-blur-sm p-6 relative">
             {loadingChart && (
-              <div className="absolute inset-0 z-10 bg-[#1e293b]/80 backdrop-blur-sm flex items-center justify-center rounded-xl">
-                <div className="flex flex-col items-center">
-                  <div className="w-7 h-7 rounded-full border-4 border-slate-600 border-t-blue-500 animate-spin mb-3" />
-                  <span className="text-blue-400 text-sm font-medium">Renderizando grafica...</span>
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-950/70 backdrop-blur-sm">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="h-8 w-8 rounded-full border-2 border-slate-700 border-t-emerald-500 animate-spin" />
+                  <span className="text-sm font-medium text-slate-400">Renderizando gráfico…</span>
                 </div>
               </div>
             )}
 
-            {compareState.mode === 'facet' && compareState.jobIds.length > 1 && compareFacetData ? (
-              <CompareChartFacet data={compareFacetData} />
-            ) : compareState.mode === 'by-year' && compareState.jobIds.length > 1 && compareChartData ? (
-              <CompareChart data={compareChartData} />
+            {chartCompareMode === 'facet' && chartJobIds.length > 1 && compareFacetData ? (
+              <CompareChartFacet
+                data={compareFacetData}
+                barOrientation={chartBarOrientation}
+                facetPlacement={chartFacetPlacement}
+                legendMode={chartFacetLegendMode}
+              />
+            ) : chartCompareMode === 'by-year' && chartJobIds.length > 1 && compareChartData ? (
+              <CompareChart data={compareChartData} barOrientation={chartBarOrientation} />
             ) : singleChartData ? (
               chartSelection.viewMode === 'line'
                 ? <LineChart data={singleChartData} />
-                : <HighchartsChart data={singleChartData} />
+                : <HighchartsChart data={singleChartData} barOrientation={chartBarOrientation} />
             ) : !loadingChart ? (
-              <div className="h-[400px] flex flex-col items-center justify-center text-slate-500 text-center px-4">
-                <div className="w-16 h-16 mb-3 rounded-full bg-slate-800 flex items-center justify-center">
-                  <svg
-                    className="w-8 h-8 text-slate-600"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                    />
+              <div className="flex h-[400px] flex-col items-center justify-center px-4 text-center text-slate-500">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-slate-800 bg-slate-900/50">
+                  <svg className="h-8 w-8 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                 </div>
-                <h3 className="text-base font-medium text-slate-400 mb-1">No hay datos para mostrar</h3>
-                <p className="text-sm">Selecciona una grafica en el panel inferior.</p>
+                <h3 className="mb-1 text-base font-medium text-slate-400">Sin datos para mostrar</h3>
+                <p className="text-sm text-slate-600">Elige un tipo de gráfico en el panel inferior.</p>
               </div>
             ) : null}
           </div>
 
-          {/* ─── CONFIGURATION ─── */}
-          <div className="bg-[#1e293b] p-4 rounded-xl border border-slate-700/50">
-            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">
-              Configuracion de Grafica
+          <div className="rounded-xl border border-slate-800 bg-slate-900/30 backdrop-blur-sm p-6 space-y-6">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Configuración de gráfico
             </h3>
+
+            <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-4 space-y-4">
+              <div>
+                <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                  Orientación de barras
+                </p>
+                <p className="mt-1 mb-3 text-xs text-slate-600">
+                  Aplica a gráficos de barras apiladas (una ejecución, comparación por año o por escenario).
+                  Las series en línea no cambian.
+                </p>
+                <div
+                  className="inline-flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900/60 p-0.5"
+                  role="group"
+                  aria-label="Orientación de barras"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setChartBarOrientation('vertical')}
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+                      chartBarOrientation === 'vertical'
+                        ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/25'
+                        : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                    }`}
+                  >
+                    <BarChart3 className="h-4 w-4 shrink-0" aria-hidden />
+                    Columnas (predeterminado)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChartBarOrientation('horizontal')}
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+                      chartBarOrientation === 'horizontal'
+                        ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/25'
+                        : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                    }`}
+                  >
+                    <AlignLeft className="h-4 w-4 shrink-0" aria-hidden />
+                    Barras horizontales
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                  Colocación de gráficas comparativas
+                </p>
+                <p className="mt-1 mb-3 text-xs text-slate-600">
+                  Solo cuando comparas varios escenarios en modo una gráfica por escenario (facetas).
+                </p>
+                <div
+                  className="inline-flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900/60 p-0.5"
+                  role="group"
+                  aria-label="Colocación de facetas"
+                >
+                  <button
+                    type="button"
+                    disabled={!showFacetPlacementControl}
+                    onClick={() => setChartFacetPlacement('inline')}
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                      chartFacetPlacement === 'inline'
+                        ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/25'
+                        : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                    }`}
+                  >
+                    <GalleryHorizontal className="h-4 w-4 shrink-0" aria-hidden />
+                    En fila (desplazamiento)
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!showFacetPlacementControl}
+                    onClick={() => setChartFacetPlacement('stacked')}
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                      chartFacetPlacement === 'stacked'
+                        ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/25'
+                        : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                    }`}
+                  >
+                    <GalleryVertical className="h-4 w-4 shrink-0" aria-hidden />
+                    Apiladas verticalmente
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                  Leyenda en comparación por escenario
+                </p>
+                <p className="mt-1 mb-3 text-xs text-slate-600">
+                  Panel único arriba (recomendado) o leyenda de Highcharts solo en la primera gráfica.
+                </p>
+                <div
+                  className="inline-flex flex-wrap gap-2 rounded-lg border border-slate-800 bg-slate-900/60 p-0.5"
+                  role="group"
+                  aria-label="Modo de leyenda en facetas"
+                >
+                  <button
+                    type="button"
+                    disabled={!showFacetPlacementControl}
+                    onClick={() => setChartFacetLegendMode('shared')}
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                      chartFacetLegendMode === 'shared'
+                        ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/25'
+                        : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                    }`}
+                  >
+                    <Layers className="h-4 w-4 shrink-0" aria-hidden />
+                    Panel compartido
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!showFacetPlacementControl}
+                    onClick={() => setChartFacetLegendMode('perFacet')}
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                      chartFacetLegendMode === 'perFacet'
+                        ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/25'
+                        : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                    }`}
+                  >
+                    <PanelBottom className="h-4 w-4 shrink-0" aria-hidden />
+                    Solo primera gráfica
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <ChartSelector value={chartSelection} onChange={setChartSelection} />
-            {/* ─── COMPARE TOGGLE + SCENARIO COMPARER ─── */}
             <ScenarioComparer
               currentRunId={currentRunId}
-              selectedJobIds={compareState.jobIds}
+              selectedJobIds={facetFromCompareTable ? columnCompareJobIds : compareState.jobIds}
               selectedYears={compareState.yearsToPlot}
               compareViewMode={compareState.mode === 'by-year' ? 'by-year' : 'facet'}
-              enabled={compareState.mode !== 'off'}
+              enabled={facetFromCompareTable || compareState.mode !== 'off'}
               onToggle={handleToggleCompare}
               onChange={handleCompareChange}
             />
           </div>
         </>
       ) : null}
-    </div>
-  );
-}
-
-/* ─── KPI Card sub-component ─── */
-function KpiCard({
-  label,
-  value,
-  colorClass,
-  borderColor,
-}: {
-  label: string;
-  value: string;
-  colorClass: string;
-  borderColor: string;
-}) {
-  return (
-    <div className={`bg-[#1e293b] px-5 py-4 rounded-xl shadow-lg border-t-4 border-x border-b border-slate-700/50 flex flex-col justify-center ${borderColor}`}>
-      <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">
-        {label}
-      </dt>
-      <dd className={`text-xl font-bold tracking-tight ${colorClass}`}>{value}</dd>
     </div>
   );
 }

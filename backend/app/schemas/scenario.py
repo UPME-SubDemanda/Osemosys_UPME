@@ -6,13 +6,62 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+import re
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.official_import import OfficialImportResult
 
 
 EditPolicy = Literal["OWNER_ONLY", "OPEN", "RESTRICTED"]
 ScenarioPermissionScope = Literal["mine", "readable", "editable", "readonly"]
+
+_HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+class ScenarioTagPublic(BaseModel):
+    """Etiqueta global asignable a un escenario."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    color: str
+    sort_order: int
+
+
+class ScenarioTagCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    color: str = Field(min_length=7, max_length=7)
+    sort_order: int = 0
+
+    @field_validator("color")
+    @classmethod
+    def _color_hex(cls, v: str) -> str:
+        if not _HEX_COLOR.match(v):
+            raise ValueError("color debe ser hexadecimal #RRGGBB.")
+        return v
+
+
+class ScenarioTagUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    color: str | None = Field(default=None, min_length=7, max_length=7)
+    sort_order: int | None = None
+
+    @field_validator("color")
+    @classmethod
+    def _color_hex(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not _HEX_COLOR.match(v):
+            raise ValueError("color debe ser hexadecimal #RRGGBB.")
+        return v
+
+    @model_validator(mode="after")
+    def _any_field(self):
+        if self.name is None and self.color is None and self.sort_order is None:
+            raise ValueError("Debes enviar al menos name, color o sort_order.")
+        return self
 
 
 class ScenarioCreate(BaseModel):
@@ -22,6 +71,7 @@ class ScenarioCreate(BaseModel):
     description: str | None = None
     edit_policy: EditPolicy = "OWNER_ONLY"
     is_template: bool = False
+    tag_id: int | None = None
 
 
 class ScenarioClone(BaseModel):
@@ -38,12 +88,7 @@ class ScenarioUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     edit_policy: EditPolicy | None = None
-
-    @model_validator(mode="after")
-    def _validate_any_field(self):
-        if self.name is None and self.description is None and self.edit_policy is None:
-            raise ValueError("Debes enviar al menos `name`, `description` o `edit_policy`.")
-        return self
+    tag_id: int | None = None
 
 
 class ScenarioAccessPublic(BaseModel):
@@ -71,6 +116,7 @@ class ScenarioPublic(BaseModel):
     edit_policy: str
     is_template: bool
     created_at: datetime
+    tag: ScenarioTagPublic | None = None
     effective_access: ScenarioAccessPublic | None = None
 
 

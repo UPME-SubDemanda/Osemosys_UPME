@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.scenario import ScenarioTagPublic
+
 SimulationStatus = Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
 SimulationSolver = Literal["highs", "glpk"]
 SimulationInputMode = Literal["SCENARIO", "CSV_UPLOAD"]
@@ -25,6 +27,7 @@ class SimulationJobPublic(BaseModel):
     id: int
     scenario_id: int | None = None
     scenario_name: str | None = None
+    scenario_tag: ScenarioTagPublic | None = None
     user_id: str
     username: str | None = None
     solver_name: SimulationSolver

@@ -28,6 +28,14 @@ export type User = {
   can_manage_users: boolean;
 };
 
+/** Etiqueta global de escenario (prioridad y color). */
+export type ScenarioTag = {
+  id: number;
+  name: string;
+  color: string;
+  sort_order: number;
+};
+
 export type Scenario = {
   id: number;
   name: string;
@@ -39,6 +47,7 @@ export type Scenario = {
   edit_policy: ScenarioEditPolicy;
   is_template: boolean;
   created_at: string;
+  tag?: ScenarioTag | null;
   effective_access?: {
     can_view: boolean;
     is_owner: boolean;
@@ -94,6 +103,7 @@ export type SimulationRun = {
   id: number;
   scenario_id: number | null;
   scenario_name?: string | null;
+  scenario_tag?: ScenarioTag | null;
   user_id: string;
   username?: string | null;
   solver_name: SimulationSolver;

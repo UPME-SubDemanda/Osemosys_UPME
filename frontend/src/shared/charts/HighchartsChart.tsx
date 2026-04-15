@@ -1,13 +1,23 @@
 import React, { useMemo } from 'react';
 import Highcharts from './highchartsSetup';
+import {
+  EXPORTING_CONTEXT_BUTTON_DARK,
+  onHighchartsExportError,
+} from './chartExportingShared';
 import HighchartsReact from 'highcharts-react-official';
 import type { ChartDataResponse } from '../../types/domain';
 
 interface HighchartsChartProps {
   data: ChartDataResponse;
+  /** Barras verticales (predeterminado) u horizontales (`inverted`). */
+  barOrientation?: 'vertical' | 'horizontal';
 }
 
-export const HighchartsChart: React.FC<HighchartsChartProps> = ({ data }) => {
+export const HighchartsChart: React.FC<HighchartsChartProps> = ({
+  data,
+  barOrientation = 'vertical',
+}) => {
+  const inverted = barOrientation === 'horizontal';
   const options = useMemo<Highcharts.Options>(() => {
     const series = data.series.map((s) => ({
       type: 'column' as const,
@@ -16,14 +26,19 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({ data }) => {
       color: s.color,
       stacking: 'normal' as const,
       stack: s.stack,
+      borderWidth: 0,
     }));
 
     return {
       chart: {
         type: 'column',
-        height: 500,
+        height: inverted ? Math.min(640, 320 + data.categories.length * 16) : 500,
+        inverted,
         style: { fontFamily: 'Verdana, sans-serif' },
         backgroundColor: 'transparent',
+        borderWidth: 0,
+        plotBorderWidth: 0,
+        plotShadow: false,
       },
       title: {
         text: data.title,
@@ -52,10 +67,12 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({ data }) => {
           enabled: true,
           style: {
             fontWeight: 'bold',
-            color: '#cbd5e1',
+            color: '#94a3b8',
             textOutline: 'none',
             fontSize: '10px',
           },
+          // Highcharts invoca el formatter con `this` como StackItemObject; no usar flecha.
+          // eslint-disable-next-line react-hooks/unsupported-syntax -- API de Highcharts
           formatter: function (this: Highcharts.StackItemObject) {
             return Highcharts.numberFormat(this.total, 2, '.', ',');
           },
@@ -73,6 +90,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({ data }) => {
       plotOptions: {
         column: {
           stacking: 'normal',
+          borderWidth: 0,
           dataLabels: { enabled: false },
         },
       },
@@ -83,6 +101,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({ data }) => {
         sourceHeight: 1080,
         scale: 1,
         fallbackToExportServer: false,
+        error: onHighchartsExportError,
         chartOptions: {
           chart: { backgroundColor: '#FFFFFF' },
           title: { style: { color: '#1e293b', fontSize: '28px' } },
@@ -101,7 +120,8 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({ data }) => {
         },
         buttons: {
           contextButton: {
-            menuItems: ['downloadPNG', 'downloadJPEG', 'downloadSVG', 'separator', 'downloadCSV'],
+            menuItems: ['downloadSVG'],
+            ...EXPORTING_CONTEXT_BUTTON_DARK,
           },
         },
       },
@@ -114,7 +134,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({ data }) => {
         itemHoverStyle: { color: '#f8fafc' },
       },
     };
-  }, [data]);
+  }, [data, inverted]);
 
   return (
     <div style={{ width: '100%' }}>

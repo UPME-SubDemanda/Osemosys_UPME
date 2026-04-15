@@ -91,7 +91,7 @@ function hlsToRgb(h: number, l: number, s: number): [number, number, number] {
 /** Genera n tonos de un color base (variando luminosidad) */
 function generarTonos(colorHex: string, n: number): string[] {
   const [r, g, b] = hexToRgb(colorHex);
-  const [h, l, s] = rgbToHls(r, g, b);
+  const [h, , s] = rgbToHls(r, g, b);
   const tonos: string[] = [];
   for (let i = 0; i < n; i++) {
     const li = 0.35 + (0.35 * i) / Math.max(1, n - 1);

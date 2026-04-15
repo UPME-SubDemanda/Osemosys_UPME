@@ -24,6 +24,7 @@ import { getSimulationRunStatusDisplay } from "@/features/simulation/simulationR
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { DataTable } from "@/shared/components/DataTable";
+import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
 import { Modal } from "@/shared/components/Modal";
 import { TextField } from "@/shared/components/TextField";
 import { paths } from "@/routes/paths";
@@ -163,19 +164,10 @@ function CsvResultTableSection({
 }) {
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(rows.length / CSV_PREVIEW_LIMIT));
-  const pageStart = (page - 1) * CSV_PREVIEW_LIMIT;
+  const clampedPage = Math.max(1, Math.min(page, totalPages));
+  const pageStart = (clampedPage - 1) * CSV_PREVIEW_LIMIT;
   const visibleRows = rows.slice(pageStart, pageStart + CSV_PREVIEW_LIMIT);
   const columns = getCsvColumns(visibleRows, preferredColumns);
-
-  useEffect(() => {
-    setPage(1);
-  }, [rows.length, title]);
-
-  useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
 
   return (
     <details
@@ -197,10 +189,14 @@ function CsvResultTableSection({
               Mostrando {pageStart + 1} a {pageStart + visibleRows.length} de {rows.length} filas.
             </small>
             <TablePagination
-              page={page}
+              page={clampedPage}
               totalPages={totalPages}
-              onPrevious={() => setPage((current) => Math.max(1, current - 1))}
-              onNext={() => setPage((current) => Math.min(totalPages, current + 1))}
+              onPrevious={() =>
+                setPage((current) => Math.max(1, Math.min(current, totalPages) - 1))
+              }
+              onNext={() =>
+                setPage((current) => Math.min(totalPages, Math.max(1, Math.min(current, totalPages)) + 1))
+              }
             />
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -538,7 +534,7 @@ export function SimulationPage() {
               <option value="">{loadingScenarios ? "Cargando escenarios..." : "Selecciona..."}</option>
               {scenarios.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}
+                  {s.tag ? `${s.tag.name} · ${s.name}` : s.name}
                 </option>
               ))}
             </select>
@@ -713,7 +709,8 @@ export function SimulationPage() {
                                 type="button"
                                 style={{ cursor: "pointer", border: "none", background: "none", color: "rgba(248,113,113,0.9)" }}
                                 onClick={() => {
-                                  const { [tech]: _, ...rest } = mult.tech_dict;
+                                  const rest = { ...mult.tech_dict };
+                                  delete rest[tech];
                                   const updated = [...udcConfig.multipliers];
                                   updated[mIdx] = { ...mult, tech_dict: rest };
                                   setUdcConfig({ ...udcConfig, multipliers: updated });
@@ -871,6 +868,16 @@ export function SimulationPage() {
                     ? "—"
                     : `#${r.scenario_id}`),
             },
+            {
+              key: "scenario_tag",
+              header: "Etiqueta",
+              render: (r) =>
+                r.scenario_tag ? (
+                  <ScenarioTagChip tag={r.scenario_tag} />
+                ) : (
+                  <span style={{ opacity: 0.65 }}>—</span>
+                ),
+            },
             { key: "user", header: "Usuario", render: (r) => r.username ?? r.user_id },
             {
               key: "solver",
@@ -1015,6 +1022,7 @@ export function SimulationPage() {
 
             <div style={{ display: "grid", gap: 12 }}>
               <CsvResultTableSection
+                key={`csv-dispatch-${csvResult.dispatch.length}`}
                 title="Dispatch"
                 rows={csvResult.dispatch}
                 preferredColumns={["region", "region_id", "year", "technology_name", "technology_id", "fuel_name", "dispatch", "cost"]}
@@ -1022,18 +1030,21 @@ export function SimulationPage() {
                 defaultOpen
               />
               <CsvResultTableSection
+                key={`csv-newcap-${csvResult.new_capacity.length}`}
                 title="New Capacity"
                 rows={csvResult.new_capacity}
                 preferredColumns={["region", "region_id", "year", "technology_name", "technology_id", "new_capacity"]}
                 emptyMessage="No se generaron filas de nueva capacidad."
               />
               <CsvResultTableSection
+                key={`csv-unmet-${csvResult.unmet_demand.length}`}
                 title="Unmet Demand"
                 rows={csvResult.unmet_demand}
                 preferredColumns={["region", "region_id", "year", "unmet_demand"]}
                 emptyMessage="No se registró demanda no atendida."
               />
               <CsvResultTableSection
+                key={`csv-emissions-${csvResult.annual_emissions.length}`}
                 title="Annual Emissions"
                 rows={csvResult.annual_emissions}
                 preferredColumns={["region", "region_id", "year", "emission_name", "annual_emissions"]}

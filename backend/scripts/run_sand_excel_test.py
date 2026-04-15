@@ -137,7 +137,7 @@ def main() -> int:
             print(f"  Datos OSeMOSYS del escenario existente borrados ({deleted} filas).")
 
         if not scenario:
-            scenario = ScenarioService.create(
+            created = ScenarioService.create(
                 session,
                 current_user=user,
                 name=args.scenario_name,
@@ -145,6 +145,10 @@ def main() -> int:
                 edit_policy="OWNER_ONLY",
                 is_template=False,
             )
+            sid = int(created["id"])
+            scenario = session.get(Scenario, sid)
+            if scenario is None:
+                raise RuntimeError(f"No se pudo cargar el escenario recién creado (id={sid}).")
             print(f"  Escenario creado: {scenario.name} (id={scenario.id})")
         else:
             print(f"  Usando escenario existente: {scenario.name} (id={scenario.id})")

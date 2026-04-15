@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
-from app.models import OsemosysOutputParamValue, User
+from app.models import OsemosysOutputParamValue, Scenario, ScenarioTag, User
 from app.repositories.simulation_repository import SimulationRepository
 from app.services.docker_metrics_service import DockerMetricsService
 from app.services.pagination import build_meta, normalize_pagination
@@ -19,6 +20,31 @@ _MAIN_VARIABLES = {"Dispatch", "NewCapacity", "UnmetDemand", "AnnualEmissions"}
 
 class SimulationService:
     """Capa de negocio para gestion de simulaciones."""
+
+    @staticmethod
+    def _batch_scenario_tags_by_scenario_ids(db: Session, scenario_ids: set[int]) -> dict[int, dict | None]:
+        if not scenario_ids:
+            return {}
+        rows = db.execute(select(Scenario).where(Scenario.id.in_(scenario_ids))).scalars().all()
+        tag_ids = {s.tag_id for s in rows if s.tag_id}
+        tags_by_id: dict[int, ScenarioTag] = {}
+        if tag_ids:
+            for t in db.execute(select(ScenarioTag).where(ScenarioTag.id.in_(tag_ids))).scalars():
+                tags_by_id[int(t.id)] = t
+        out: dict[int, dict | None] = {}
+        for s in rows:
+            sid = int(s.id)
+            if s.tag_id and s.tag_id in tags_by_id:
+                tr = tags_by_id[s.tag_id]
+                out[sid] = {
+                    "id": int(tr.id),
+                    "name": tr.name,
+                    "color": tr.color,
+                    "sort_order": int(tr.sort_order),
+                }
+            else:
+                out[sid] = None
+        return out
 
     @staticmethod
     def _is_infeasible_succeeded_job(job) -> bool:
@@ -46,6 +72,7 @@ class SimulationService:
         queue_position: int | None = None,
         username: str | None = None,
         scenario_name: str | None = None,
+        scenario_tag: dict | None = None,
     ) -> dict:
         effective_scenario_name = scenario_name
         if effective_scenario_name is None and getattr(job, "input_mode", "SCENARIO") == "CSV_UPLOAD":
@@ -55,6 +82,7 @@ class SimulationService:
             "id": job.id,
             "scenario_id": job.scenario_id,
             "scenario_name": effective_scenario_name,
+            "scenario_tag": scenario_tag,
             "user_id": str(job.user_id),
             "username": username,
             "solver_name": job.solver_name,
@@ -122,6 +150,9 @@ class SimulationService:
         db.commit()
         db.refresh(job)
 
+        tag_by_sid = SimulationService._batch_scenario_tags_by_scenario_ids(db, {int(scenario.id)})
+        scenario_tag = tag_by_sid.get(int(scenario.id))
+
         if sync_mode:
             task = run_simulation_job.apply(args=[job.id], throw=False)
             db.refresh(job)
@@ -141,6 +172,7 @@ class SimulationService:
                 queue_position=None,
                 username=current_user.username,
                 scenario_name=scenario.name,
+                scenario_tag=scenario_tag,
             )
 
         try:
@@ -178,6 +210,7 @@ class SimulationService:
             queue_position=SimulationRepository.queue_position(db, job_id=job.id),
             username=current_user.username,
             scenario_name=scenario.name,
+            scenario_tag=scenario_tag,
         )
 
     @staticmethod
@@ -291,11 +324,16 @@ class SimulationService:
         queue_position = (
             SimulationRepository.queue_position(db, job_id=job.id) if job.status == "QUEUED" else None
         )
+        tags_by_sid = SimulationService._batch_scenario_tags_by_scenario_ids(
+            db, {int(job.scenario_id)} if job.scenario_id else set()
+        )
+        scenario_tag = tags_by_sid.get(int(job.scenario_id)) if job.scenario_id else None
         return SimulationService._to_public(
             job,
             queue_position=queue_position,
             username=username,
             scenario_name=scenario_name,
+            scenario_tag=scenario_tag,
         )
 
     @staticmethod
@@ -324,6 +362,8 @@ class SimulationService:
             row_offset=row_offset,
             limit=page_size,
         )
+        scenario_ids = {j.scenario_id for j, _, _ in items if j.scenario_id}
+        tags_by_sid = SimulationService._batch_scenario_tags_by_scenario_ids(db, {int(x) for x in scenario_ids})
         data = [
             SimulationService._to_public(
                 job,
@@ -332,6 +372,7 @@ class SimulationService:
                 else None,
                 username=job_username,
                 scenario_name=job_scenario_name,
+                scenario_tag=tags_by_sid.get(int(job.scenario_id)) if job.scenario_id else None,
             )
             for job, job_username, job_scenario_name in items
         ]
@@ -360,7 +401,11 @@ class SimulationService:
         )
         db.commit()
         db.refresh(job)
-        return SimulationService._to_public(job)
+        tags_by_sid = SimulationService._batch_scenario_tags_by_scenario_ids(
+            db, {int(job.scenario_id)} if job.scenario_id else set()
+        )
+        scenario_tag = tags_by_sid.get(int(job.scenario_id)) if job.scenario_id else None
+        return SimulationService._to_public(job, scenario_tag=scenario_tag)
 
     @staticmethod
     def list_logs(

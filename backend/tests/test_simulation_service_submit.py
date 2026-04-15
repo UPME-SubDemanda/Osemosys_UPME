@@ -11,12 +11,37 @@ import app.services.simulation_service as simulation_service_module
 from app.services.simulation_service import SimulationService
 
 
+class _DummyScalarResult:
+    """Imita Result.scalars() para `execute` estilo SQLAlchemy 2."""
+
+    def __init__(self, rows: list) -> None:
+        self._rows = rows
+
+    def all(self) -> list:
+        return list(self._rows)
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+class _DummyExecuteResult:
+    def __init__(self, rows: list | None = None) -> None:
+        self._rows = rows if rows is not None else []
+
+    def scalars(self) -> _DummyScalarResult:
+        return _DummyScalarResult(self._rows)
+
+
 class DummyDbSession:
     def __init__(self) -> None:
         self.commit_calls = 0
         self.refresh_calls = 0
         self.rollback_calls = 0
         self.flush_calls = 0
+
+    def execute(self, _stmt) -> _DummyExecuteResult:
+        """submit() consulta tags de escenario; en estos tests no hace falta DB real."""
+        return _DummyExecuteResult([])
 
     def commit(self) -> None:
         self.commit_calls += 1

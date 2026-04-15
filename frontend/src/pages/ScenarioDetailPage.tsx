@@ -31,6 +31,7 @@ import { officialImportApi } from "@/features/officialImport/api/officialImportA
 import { catalogsApi } from "@/features/catalogs/api/catalogsApi";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
+import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
 import { DataTable } from "@/shared/components/DataTable";
 import { Modal } from "@/shared/components/Modal";
 import { TextField } from "@/shared/components/TextField";
@@ -41,6 +42,7 @@ import type {
   ScenarioEditPolicy,
   ScenarioOperationJob,
   ScenarioPermission,
+  ScenarioTag,
 } from "@/types/domain";
 
 type Tab = "values" | "permissions" | "pending";
@@ -160,20 +162,31 @@ export function ScenarioDetailPage() {
     can_propose: true,
     can_manage_values: false,
   });
+  const [scenarioTags, setScenarioTags] = useState<ScenarioTag[]>([]);
   const [metaForm, setMetaForm] = useState<{
     name: string;
     description: string;
     edit_policy: ScenarioEditPolicy;
+    tag_id: string;
   }>({
     name: "",
     description: "",
     edit_policy: "OWNER_ONLY",
+    tag_id: "",
   });
   // Para valores OSeMOSYS usamos el acceso efectivo calculado por backend.
   // Esto mantiene la semántica de OPEN: cualquier usuario autenticado puede editar valores.
   const canManagePermissions = Boolean(access?.isOwner || access?.can_edit_direct);
   const canManageValues = Boolean(access?.can_manage_values);
   const canEditScenarioMeta = Boolean(access?.isOwner || access?.can_edit_direct);
+
+  useEffect(() => {
+    if (!user) return;
+    void scenariosApi
+      .listScenarioTags()
+      .then(setScenarioTags)
+      .catch(() => setScenarioTags([]));
+  }, [user]);
 
   const refreshScenarioHeader = useCallback(
     async (scId: number) => {
@@ -306,6 +319,7 @@ export function ScenarioDetailPage() {
           name: sc.name,
           description: sc.description ?? "",
           edit_policy: sc.edit_policy,
+          tag_id: sc.tag ? String(sc.tag.id) : "",
         });
         setParentScenarioName(sc.base_scenario_name ?? null);
 
@@ -735,12 +749,14 @@ export function ScenarioDetailPage() {
         name: metaForm.name.trim(),
         description: metaForm.description.trim() || null,
         edit_policy: metaForm.edit_policy,
+        tag_id: metaForm.tag_id ? Number(metaForm.tag_id) : null,
       });
       setScenario(updated);
       setMetaForm({
         name: updated.name,
         description: updated.description ?? "",
         edit_policy: updated.edit_policy,
+        tag_id: updated.tag ? String(updated.tag.id) : "",
       });
       setParentScenarioName(updated.base_scenario_name ?? parentScenarioName);
       setOpenMetaModal(false);
@@ -804,12 +820,28 @@ export function ScenarioDetailPage() {
         <div>
           <h1 style={{ margin: 0 }}>{scenario.name}</h1>
           <p style={{ margin: "6px 0 0", opacity: 0.75 }}>{scenario.description}</p>
+          {scenario.tag ? (
+            <div style={{ marginTop: 8 }}>
+              <ScenarioTagChip tag={scenario.tag} />
+            </div>
+          ) : null}
           <small style={{ opacity: 0.7 }}>
             Política de edición: <strong>{policyLabel}</strong> · {policyExplanation}
           </small>
         </div>
         {canEditScenarioMeta ? (
-          <Button variant="ghost" onClick={() => setOpenMetaModal(true)}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setMetaForm({
+                name: scenario.name,
+                description: scenario.description ?? "",
+                edit_policy: scenario.edit_policy,
+                tag_id: scenario.tag ? String(scenario.tag.id) : "",
+              });
+              setOpenMetaModal(true);
+            }}
+          >
             Editar escenario
           </Button>
         ) : null}
@@ -1206,6 +1238,21 @@ export function ScenarioDetailPage() {
             </select>
           </label>
           <small style={{ opacity: 0.75 }}>{getPolicyExplanation(metaForm.edit_policy)}</small>
+          <label className="field">
+            <span className="field__label">Etiqueta</span>
+            <select
+              className="field__input"
+              value={metaForm.tag_id}
+              onChange={(e) => setMetaForm((prev) => ({ ...prev, tag_id: e.target.value }))}
+            >
+              <option value="">Sin etiqueta</option>
+              {scenarioTags.map((t) => (
+                <option key={t.id} value={String(t.id)}>
+                  {t.name} (prioridad {t.sort_order})
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </Modal>
 

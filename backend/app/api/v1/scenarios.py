@@ -141,7 +141,7 @@ def create_scenario(
     payload: ScenarioCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> Scenario:
+) -> dict:
     """Crea escenario y aplica reglas de ownership/política de edición.
 
     Método HTTP:
@@ -155,7 +155,10 @@ def create_scenario(
             description=payload.description,
             edit_policy=payload.edit_policy,
             is_template=payload.is_template,
+            tag_id=payload.tag_id,
         )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
@@ -167,6 +170,7 @@ def create_scenario_from_excel(
     scenario_name: str = Form(...),
     description: str | None = Form(default=None),
     edit_policy: str = Form(default="OWNER_ONLY"),
+    tag_id: int | None = Form(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -183,7 +187,7 @@ def create_scenario_from_excel(
         raise HTTPException(status_code=422, detail="El archivo está vacío.")
 
     try:
-        scenario = ScenarioService.create(
+        created = ScenarioService.create(
             db,
             current_user=current_user,
             name=scenario_name.strip(),
@@ -191,9 +195,14 @@ def create_scenario_from_excel(
             edit_policy=edit_policy,  # type: ignore[arg-type]
             is_template=False,
             skip_populate_defaults=True,
+            tag_id=tag_id,
         )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    sid = int(created["id"])
 
     try:
         import_dict = OfficialImportService.import_xlsm(
@@ -202,34 +211,19 @@ def create_scenario_from_excel(
             content=content,
             imported_by=current_user.username,
             selected_sheet_name=sheet_name,
-            scenario_id_override=int(scenario.id),
+            scenario_id_override=sid,
         )
-        ScenarioService.sync_catalogs_from_scenario_values(db, scenario_id=int(scenario.id))
-        ScenarioService.ensure_default_reserve_margin_udc(db, scenario_id=int(scenario.id))
+        ScenarioService.sync_catalogs_from_scenario_values(db, scenario_id=sid)
+        ScenarioService.ensure_default_reserve_margin_udc(db, scenario_id=sid)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    return {
-        "scenario": {
-            "id": scenario.id,
-            "name": scenario.name,
-            "description": scenario.description,
-            "owner": scenario.owner,
-            "base_scenario_id": scenario.base_scenario_id,
-            "base_scenario_name": None,
-            "edit_policy": scenario.edit_policy,
-            "is_template": scenario.is_template,
-            "created_at": str(scenario.created_at) if hasattr(scenario, "created_at") and scenario.created_at else None,
-            "effective_access": {
-                "can_view": True,
-                "is_owner": True,
-                "can_edit_direct": True,
-                "can_propose": True,
-                "can_manage_values": True,
-            },
-        },
-        "import_result": import_dict,
-    }
+    try:
+        scenario_public = ScenarioService.get_public(db, scenario_id=sid, current_user=current_user)
+    except (NotFoundError, ForbiddenError, ConflictError):
+        scenario_public = created
+
+    return {"scenario": scenario_public, "import_result": import_dict}
 
 
 def _form_bool_flag(value: str | None) -> bool:
@@ -504,12 +498,15 @@ def update_scenario(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Actualiza metadatos de escenario y registra auditoría."""
+    data = payload.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=422, detail="No hay campos para actualizar.")
     try:
         return ScenarioService.update_metadata(
             db,
             scenario_id=scenario_id,
             current_user=current_user,
-            payload=payload.model_dump(exclude_unset=True),
+            payload=data,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

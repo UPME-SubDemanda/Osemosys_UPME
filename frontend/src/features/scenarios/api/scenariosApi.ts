@@ -14,6 +14,7 @@ import type {
   ScenarioPermission,
   ScenarioOperationJob,
   ScenarioOperationLog,
+  ScenarioTag,
   User,
 } from "@/types/domain";
 import type { OfficialImportResult } from "@/features/officialImport/api/officialImportApi";
@@ -230,8 +231,24 @@ async function listScenarios(params: ScenarioListParams = {}) {
   return data;
 }
 
+async function listScenarioTags() {
+  const { data } = await httpClient.get<ScenarioTag[]>("/scenario-tags");
+  return data;
+}
+
 export const scenariosApi = {
   listScenarios,
+  listScenarioTags,
+
+  createScenarioTag: (input: { name: string; color: string; sort_order?: number }) =>
+    httpClient.post<ScenarioTag>("/scenario-tags", input).then((r) => r.data),
+
+  updateScenarioTag: (
+    id: number,
+    input: { name?: string; color?: string; sort_order?: number },
+  ) => httpClient.patch<ScenarioTag>(`/scenario-tags/${id}`, input).then((r) => r.data),
+
+  deleteScenarioTag: (id: number) => httpClient.delete(`/scenario-tags/${id}`),
 
   getScenarioById: (id: number) => httpClient.get<Scenario>(`/scenarios/${id}`).then((r) => r.data),
 
@@ -259,6 +276,7 @@ export const scenariosApi = {
     description: string;
     edit_policy: ScenarioEditPolicy;
     is_template?: boolean;
+    tag_id?: number | null;
   }) => httpClient.post<Scenario>("/scenarios", input).then((r) => r.data),
 
   listPermissions: (scenarioId: number) =>
@@ -281,6 +299,7 @@ export const scenariosApi = {
       scenario_name: string;
       description?: string;
       edit_policy: ScenarioEditPolicy;
+      tag_id?: number | null;
     },
     onUploadProgress?: (percent: number) => void,
     onUploadDone?: () => void,
@@ -292,6 +311,7 @@ export const scenariosApi = {
     form.append("scenario_name", input.scenario_name);
     form.append("edit_policy", input.edit_policy);
     if (input.description?.trim()) form.append("description", input.description.trim());
+    if (input.tag_id != null) form.append("tag_id", String(input.tag_id));
 
     const { data } = await httpClient.post<ScenarioExcelImportResponse>(
       "/scenarios/import-excel",
@@ -467,7 +487,12 @@ export const scenariosApi = {
 
   updateScenario: (
     scenarioId: number,
-    input: { name?: string; description?: string | null; edit_policy?: ScenarioEditPolicy },
+    input: {
+      name?: string;
+      description?: string | null;
+      edit_policy?: ScenarioEditPolicy;
+      tag_id?: number | null;
+    },
   ) => httpClient.patch<Scenario>(`/scenarios/${scenarioId}`, input).then((r) => r.data),
 
   listDefaults: () =>

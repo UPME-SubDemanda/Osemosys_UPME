@@ -7,10 +7,13 @@ a estado de dominio (`simulation_job`) persistido en base de datos.
 """
 
 import logging
+import shutil
+from pathlib import Path
 
 from celery.signals import task_failure
 from sqlalchemy import func, update
 
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models import SimulationJob
 from app.repositories.simulation_repository import SimulationRepository
@@ -18,6 +21,43 @@ from app.simulation.celery_app import celery_app
 from app.simulation.pipeline import run_pipeline, run_pipeline_from_csv
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_csv_upload_cleanup_root(input_ref: str | None) -> Path | None:
+    if not input_ref:
+        return None
+
+    uploads_root = (Path(get_settings().simulation_artifacts_dir).resolve() / "csv_upload_jobs").resolve()
+    candidate = Path(str(input_ref)).resolve()
+    try:
+        relative = candidate.relative_to(uploads_root)
+    except ValueError:
+        return None
+    if not relative.parts:
+        return None
+    return uploads_root / relative.parts[0]
+
+
+def _cleanup_csv_upload_artifacts(job: SimulationJob | None) -> None:
+    if job is None or getattr(job, "input_mode", "SCENARIO") != "CSV_UPLOAD":
+        return
+
+    cleanup_root = _resolve_csv_upload_cleanup_root(getattr(job, "input_ref", None))
+    if cleanup_root is None:
+        return
+
+    try:
+        shutil.rmtree(cleanup_root)
+        logger.info("Artefactos CSV temporales eliminados para job %s en %s", job.id, cleanup_root)
+    except FileNotFoundError:
+        return
+    except Exception:
+        logger.warning(
+            "No se pudieron eliminar artefactos CSV temporales del job %s en %s",
+            getattr(job, "id", "?"),
+            cleanup_root,
+            exc_info=True,
+        )
 
 
 def _is_worker_lost_error(exception: BaseException | None) -> bool:
@@ -190,6 +230,10 @@ def run_simulation_job(self, job_id: int) -> None:
                     progress=job.progress,
                 )
                 db.commit()
+    finally:
+        with SessionLocal() as db:
+            job = SimulationRepository.get_job_by_id(db, job_id=job_id)
+            _cleanup_csv_upload_artifacts(job)
 
 
 @task_failure.connect

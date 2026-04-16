@@ -36,7 +36,11 @@ def test_solve_model_uses_settings_for_tee_and_keepfiles(monkeypatch) -> None:
     monkeypatch.setattr(
         solver_module,
         "get_settings",
-        lambda: SimpleNamespace(sim_solver_tee=False, sim_solver_keepfiles=False),
+        lambda: SimpleNamespace(
+            sim_solver_tee=False,
+            sim_solver_keepfiles=False,
+            sim_solver_threads=0,
+        ),
     )
     monkeypatch.setattr(
         solver_module,
@@ -57,6 +61,65 @@ def test_solve_model_uses_settings_for_tee_and_keepfiles(monkeypatch) -> None:
     assert fake_solver.last_kwargs["tee"] is False
     assert fake_solver.last_kwargs["keepfiles"] is False
     assert fake_solver.last_kwargs["load_solutions"] is False
+
+
+def test_solve_model_sets_highs_threads_when_configured(monkeypatch) -> None:
+    fake_solver = _FakeSolver(status="optimal")
+    fake_solver.highs_options = {}
+    monkeypatch.setattr(
+        solver_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            sim_solver_tee=False,
+            sim_solver_keepfiles=False,
+            sim_solver_threads=8,
+        ),
+    )
+    monkeypatch.setattr(
+        solver_module,
+        "get_solver_availability",
+        lambda: {"glpk": False, "highs": True},
+    )
+    monkeypatch.setattr(
+        solver_module.pyo,
+        "SolverFactory",
+        lambda _factory_name: fake_solver,
+    )
+    monkeypatch.setattr(solver_module.pyo, "value", lambda _obj: 0.0)
+
+    result = solver_module.solve_model(_FakeInstance(), solver_name="highs")
+
+    assert result["solver_status"] == "optimal"
+    assert fake_solver.highs_options["threads"] == 8
+
+
+def test_solve_model_does_not_set_glpk_threads(monkeypatch) -> None:
+    fake_solver = _FakeSolver(status="optimal")
+    monkeypatch.setattr(
+        solver_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            sim_solver_tee=False,
+            sim_solver_keepfiles=False,
+            sim_solver_threads=8,
+        ),
+    )
+    monkeypatch.setattr(
+        solver_module,
+        "get_solver_availability",
+        lambda: {"glpk": True, "highs": False},
+    )
+    monkeypatch.setattr(
+        solver_module.pyo,
+        "SolverFactory",
+        lambda _factory_name: fake_solver,
+    )
+    monkeypatch.setattr(solver_module.pyo, "value", lambda _obj: 0.0)
+
+    result = solver_module.solve_model(_FakeInstance(), solver_name="glpk")
+
+    assert result["solver_status"] == "optimal"
+    assert not hasattr(fake_solver, "highs_options")
 
 
 class _FakeConstraint:

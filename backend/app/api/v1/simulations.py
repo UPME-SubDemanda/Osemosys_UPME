@@ -29,18 +29,60 @@ from app.schemas.simulation import (
     SimulationSubmit,
 )
 from app.services.simulation_service import SimulationService
+from app.simulation.core.data_processing import PARAM_INDEX
 
 router = APIRouter(prefix="/simulations")
 
+_REQUIRED_SET_CSVS = (
+    "YEAR.csv",
+    "REGION.csv",
+    "TECHNOLOGY.csv",
+    "TIMESLICE.csv",
+    "MODE_OF_OPERATION.csv",
+)
+_DEMAND_CSV_OPTIONS = ("SpecifiedAnnualDemand.csv", "AccumulatedAnnualDemand.csv")
+_ACTIVITY_RATIO_CSV_OPTIONS = ("OutputActivityRatio.csv", "InputActivityRatio.csv")
+
 
 def _find_csv_root(extract_root: Path) -> Path | None:
-    required = {"YEAR.csv", "REGION.csv", "TECHNOLOGY.csv"}
+    required = set(_REQUIRED_SET_CSVS)
     candidates = [extract_root, *[path for path in extract_root.rglob("*") if path.is_dir()]]
     for candidate in candidates:
         csv_names = {path.name for path in candidate.glob("*.csv")}
         if required.issubset(csv_names):
             return candidate
     return None
+
+
+def _validate_csv_root(csv_root: Path) -> list[str]:
+    csv_names = {path.name for path in csv_root.glob("*.csv")}
+    missing_sets = [name for name in _REQUIRED_SET_CSVS if name not in csv_names]
+    errors: list[str] = []
+
+    if missing_sets:
+        errors.append(
+            "Faltan CSV base requeridos: " + ", ".join(missing_sets) + "."
+        )
+
+    if not any(name in csv_names for name in _DEMAND_CSV_OPTIONS):
+        errors.append(
+            "Falta al menos un CSV de demanda: "
+            + " o ".join(_DEMAND_CSV_OPTIONS)
+            + "."
+        )
+
+    if not any(name in csv_names for name in _ACTIVITY_RATIO_CSV_OPTIONS):
+        errors.append(
+            "Falta al menos un CSV de activity ratio: "
+            + " o ".join(_ACTIVITY_RATIO_CSV_OPTIONS)
+            + "."
+        )
+
+    param_csv_names = {f"{param_name}.csv" for param_name in PARAM_INDEX}
+    if not any(name in csv_names for name in param_csv_names):
+        errors.append("No se encontraron CSV de parámetros OSeMOSYS reconocidos.")
+
+    return errors
 
 
 def _extract_zip_to_dir(upload: UploadFile, target_dir: Path) -> None:
@@ -134,8 +176,17 @@ async def submit_simulation_from_csv(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
                     "No se encontró un directorio válido con CSV de entrada. "
-                    "El ZIP debe contener al menos YEAR.csv, REGION.csv y TECHNOLOGY.csv."
+                    "El ZIP debe contener al menos "
+                    + ", ".join(_REQUIRED_SET_CSVS)
+                    + "."
                 ),
+            )
+        validation_errors = _validate_csv_root(csv_root)
+        if validation_errors:
+            shutil.rmtree(artifact_root, ignore_errors=True)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=" ".join(validation_errors),
             )
         return SimulationService.submit_from_csv(
             db,

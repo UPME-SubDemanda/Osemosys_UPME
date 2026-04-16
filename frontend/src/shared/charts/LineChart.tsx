@@ -1,14 +1,20 @@
 import React, { useMemo } from 'react';
 import Highcharts from './highchartsSetup';
-import { onHighchartsExportError } from './chartExportingShared';
+import {
+  EXPORTING_CONTEXT_BUTTON_DARK,
+  buildChartExportMenuItems,
+  onHighchartsExportError,
+} from './chartExportingShared';
 import HighchartsReact from 'highcharts-react-official';
 import type { ChartDataResponse } from '../../types/domain';
+import type { ChartSelection } from './ChartSelector';
 
 interface LineChartProps {
   data: ChartDataResponse;
+  serverExport?: { jobId: number; selection: ChartSelection };
 }
 
-export const LineChart: React.FC<LineChartProps> = ({ data }) => {
+export const LineChart: React.FC<LineChartProps> = ({ data, serverExport }) => {
   const options = useMemo<Highcharts.Options>(() => {
     const series = data.series.map((s) => ({
       type: 'line' as const,
@@ -89,7 +95,8 @@ export const LineChart: React.FC<LineChartProps> = ({ data }) => {
         },
         buttons: {
           contextButton: {
-            menuItems: ['downloadSVG'],
+            menuItems: buildChartExportMenuItems(serverExport) as string[],
+            ...EXPORTING_CONTEXT_BUTTON_DARK,
           },
         },
       },
@@ -102,7 +109,7 @@ export const LineChart: React.FC<LineChartProps> = ({ data }) => {
         itemHoverStyle: { color: '#f8fafc' },
       },
     };
-  }, [data]);
+  }, [data, serverExport]);
 
   return (
     <div style={{ width: '100%' }}>

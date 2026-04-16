@@ -13,7 +13,7 @@
  *   - Localización
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -282,6 +282,16 @@ function findLocation(tipo: string): { moduleId: string; subsectorId?: string } 
   return { moduleId: FIRST_MODULE.id };
 }
 
+function chartTipoBelongsToModule(tipo: string, moduleId: string): boolean {
+  const mod = MENU.find((m) => m.id === moduleId);
+  if (!mod) return false;
+  if (mod.charts?.some((c) => c.id === tipo)) return true;
+  if (mod.subsectors) {
+    return mod.subsectors.some((sub) => sub.charts.some((c) => c.id === tipo));
+  }
+  return false;
+}
+
 /** Determina si la gráfica activa debe mostrar el selector de agrupación */
 function showsAgrupacion(item: ChartItem | undefined): boolean {
   if (!item) return false;
@@ -293,10 +303,9 @@ function showsAgrupacion(item: ChartItem | undefined): boolean {
 // ─── Componente ──────────────────────────────────────────────────────────────
 
 export function ChartSelector({ value, onChange }: Props) {
-  const [activeModule, setActiveModule] = useState(() => findLocation(value.tipo).moduleId);
-  const [activeSubsector, setActiveSubsector] = useState(
-    () => findLocation(value.tipo).subsectorId ?? '',
-  );
+  const loc = findLocation(value.tipo);
+  const activeModule = loc.moduleId;
+  const activeSubsector = loc.subsectorId ?? '';
 
   const currentModule: Module =
     MENU.find((m) => m.id === activeModule) ?? FIRST_MODULE;
@@ -355,27 +364,27 @@ export function ChartSelector({ value, onChange }: Props) {
   }
 
   function handleModuleChange(moduleId: string): void {
-    setActiveModule(moduleId);
     const mod = MENU.find((m) => m.id === moduleId);
     if (!mod) return;
+    if (chartTipoBelongsToModule(value.tipo, moduleId)) return;
 
     if (mod.subsectors && mod.subsectors.length > 0) {
       const firstSub: Subsector | undefined = mod.subsectors[0];
       if (!firstSub) return;
-      setActiveSubsector(firstSub.id);
       const firstChart: ChartItem | undefined = firstSub.charts[0];
       if (firstChart) selectChart(firstChart);
     } else if (mod.charts && mod.charts.length > 0) {
-      setActiveSubsector('');
       const firstChart: ChartItem | undefined = mod.charts[0];
       if (firstChart) selectChart(firstChart);
     }
   }
 
   function handleSubsectorChange(subsectorId: string): void {
-    setActiveSubsector(subsectorId);
     const sub = currentModule.subsectors?.find((s) => s.id === subsectorId);
     if (!sub) return;
+    if (sub.charts.some((c) => c.id === value.tipo)) {
+      return;
+    }
     const firstChart: ChartItem | undefined = sub.charts[0];
     if (firstChart) selectChart(firstChart);
   }

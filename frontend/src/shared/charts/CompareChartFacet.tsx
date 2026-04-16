@@ -7,6 +7,7 @@ import Highcharts from "./highchartsSetup";
 import {
   EXPORTING_CONTEXT_BUTTON_DARK,
   HIGHCHARTS_GETSVG_MERGE_OPTIONS,
+  INDIVIDUAL_CHART_EXPORT_MENU_ITEMS,
   onHighchartsExportError,
 } from "./chartExportingShared";
 import {
@@ -70,6 +71,33 @@ interface CompareChartFacetProps {
   legendMode?: ChartFacetLegendMode;
 }
 
+/** Metadatos en la instancia Chart para exportar sin depender de un array de refs (getSVG / update rompen ese enlace). */
+type HighchartsChartFacetExportMeta = Highcharts.Chart & {
+  __facetSyncGroup?: string;
+  __facetJobId?: number;
+  __facetExportInstanceId?: string;
+};
+
+function resolveFacetChartsForExport(
+  exportInstanceId: string,
+  facets: FacetData[],
+): Highcharts.Chart[] | null {
+  const byJob = new Map<number, Highcharts.Chart>();
+  for (const raw of Highcharts.charts) {
+    if (!raw) continue;
+    const c = raw as HighchartsChartFacetExportMeta;
+    if (c.__facetExportInstanceId !== exportInstanceId || c.__facetJobId == null) continue;
+    byJob.set(Number(c.__facetJobId), c);
+  }
+  const ordered: Highcharts.Chart[] = [];
+  for (const f of facets) {
+    const ch = byJob.get(Number(f.job_id));
+    if (!ch) return null;
+    ordered.push(ch);
+  }
+  return ordered;
+}
+
 function FacetChart({
   facet,
   yAxisLabel,
@@ -81,8 +109,7 @@ function FacetChart({
   chartHeight,
   showHighchartsLegend,
   hoveredSeriesName = null,
-  facetChartIndex,
-  facetChartsRef,
+  facetExportInstanceId,
 }: {
   facet: FacetData;
   yAxisLabel: string;
@@ -95,18 +122,17 @@ function FacetChart({
   showHighchartsLegend: boolean;
   /** Resaltado sincronizado con leyenda compartida (hover). */
   hoveredSeriesName?: string | null;
-  facetChartIndex: number;
-  facetChartsRef: React.MutableRefObject<(Highcharts.Chart | null)[]>;
+  /** Id estable del bloque CompareChartFacet (marcado en cada Chart en `load`). */
+  facetExportInstanceId: string;
 }) {
   const chartRef = useRef<Highcharts.Chart | null>(null);
   const [chartGeneration, setChartGeneration] = useState(0);
 
   useEffect(() => {
-    const idx = facetChartIndex;
     return () => {
-      facetChartsRef.current[idx] = null; // eslint-disable-line react-hooks/exhaustive-deps -- leer .current al desmontar
+      chartRef.current = null;
     };
-  }, [facetChartIndex, facetChartsRef]);
+  }, []);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -274,8 +300,10 @@ function FacetChart({
         plotShadow: false,
         events: {
           load() {
-            (this as Highcharts.Chart & { __facetSyncGroup?: string }).__facetSyncGroup =
-              syncGroup;
+            const ch = this as HighchartsChartFacetExportMeta;
+            ch.__facetSyncGroup = syncGroup;
+            ch.__facetJobId = facet.job_id;
+            ch.__facetExportInstanceId = facetExportInstanceId;
           },
         },
       },
@@ -289,7 +317,7 @@ function FacetChart({
         chartOptions: HIGHCHARTS_GETSVG_MERGE_OPTIONS as Highcharts.Options,
         buttons: {
           contextButton: {
-            menuItems: ["downloadSVG"],
+            menuItems: [...INDIVIDUAL_CHART_EXPORT_MENU_ITEMS],
             ...EXPORTING_CONTEXT_BUTTON_DARK,
           },
         },
@@ -314,6 +342,7 @@ function FacetChart({
     inverted,
     chartHeight,
     showHighchartsLegend,
+    facetExportInstanceId,
   ]);
 
   return (
@@ -322,7 +351,6 @@ function FacetChart({
       options={options}
       callback={(chart: Highcharts.Chart) => {
         chartRef.current = chart;
-        facetChartsRef.current[facetChartIndex] = chart;
         setChartGeneration((g) => g + 1);
       }}
       containerProps={{ style: { width: "100%" } }}
@@ -426,10 +454,12 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
   const isStacked = facetPlacement === "stacked";
   const useSharedLegendPanel = legendMode === "shared" && sharedLegendItems.length > 0;
   const isLg = useMediaMinWidth(1024);
-  const facetChartsRef = useRef<(Highcharts.Chart | null)[]>([]);
-  if (facetChartsRef.current.length !== n) {
-    const prev = facetChartsRef.current;
-    facetChartsRef.current = Array.from({ length: n }, (_, i) => prev[i] ?? null);
+  /** Id único por montaje: cada Chart marca `__facetExportInstanceId` en `load` para resolver exportaciones desde `Highcharts.charts`. */
+  const facetExportInstanceIdRef = useRef<string | null>(null);
+  if (facetExportInstanceIdRef.current == null) {
+    facetExportInstanceIdRef.current =
+      globalThis.crypto?.randomUUID?.() ??
+      `facet-export-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
   }
   const { push } = useToast();
   const [exportingFacetSvg, setExportingFacetSvg] = useState(false);
@@ -437,8 +467,13 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
   const handleExportCombinedSvg = () => {
     setExportingFacetSvg(true);
     try {
-      const refs = facetChartsRef.current;
-      if (refs.length !== n || refs.some((c) => !c)) {
+      const instanceId = facetExportInstanceIdRef.current;
+      if (instanceId == null) {
+        push("Espera a que todas las gráficas terminen de cargar.", "error");
+        return;
+      }
+      const charts = resolveFacetChartsForExport(instanceId, data.facets);
+      if (charts == null || charts.length !== n) {
         push("Espera a que todas las gráficas terminen de cargar.", "error");
         return;
       }
@@ -465,9 +500,19 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
         ? Math.round(Math.min(44 + maxCatLenExport * exportXLabelPx * 0.62, 340))
         : undefined;
 
+      /** Evita que las etiquetas del eje Y queden pegadas al borde en facetas estrechas. */
+      const yLabelCharEstimate = Math.max(
+        7,
+        String(Math.round(sharedYAxisMax > 0 ? sharedYAxisMax : 0)).length + 4,
+      );
+      const exportMarginLeft = Math.min(
+        175,
+        Math.max(108, Math.round(36 + yLabelCharEstimate * 10 + sliceW * 0.04)),
+      );
+
       const innerXmls: string[] = [];
       for (let i = 0; i < n; i += 1) {
-        const chart = refs[i]!;
+        const chart = charts[i]!;
         const raw = chart.getSVG({
           ...HIGHCHARTS_GETSVG_MERGE_OPTIONS,
           chart: {
@@ -475,6 +520,7 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
             width: sliceW,
             height: sliceH,
             backgroundColor: "#FFFFFF",
+            marginLeft: exportMarginLeft,
             ...(exportMarginBottom !== undefined ? { marginBottom: exportMarginBottom } : {}),
           },
           exporting: {
@@ -654,8 +700,7 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
                   hoveredSeriesName={
                     useSharedLegendPanel ? effectiveLegendHover : null
                   }
-                  facetChartIndex={idx}
-                  facetChartsRef={facetChartsRef}
+                  facetExportInstanceId={facetExportInstanceIdRef.current!}
                 />
               </div>
             ))}

@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import Highcharts from './highchartsSetup';
 import {
   EXPORTING_CONTEXT_BUTTON_DARK,
+  INDIVIDUAL_CHART_EXPORT_MENU_ITEMS,
   onHighchartsExportError,
 } from './chartExportingShared';
 import HighchartsReact from 'highcharts-react-official';
@@ -131,7 +132,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({
         },
         buttons: {
           contextButton: {
-            menuItems: ['downloadSVG'],
+            menuItems: [...INDIVIDUAL_CHART_EXPORT_MENU_ITEMS],
             ...EXPORTING_CONTEXT_BUTTON_DARK,
           },
         },

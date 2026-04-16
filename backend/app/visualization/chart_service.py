@@ -1093,6 +1093,100 @@ def _render_stacked_bar(
     return buf
 
 
+def _render_line_chart(
+    chart: ChartDataResponse,
+    title: str,
+    fmt: str = "svg",
+) -> "io.BytesIO":
+    """Renderiza un ChartDataResponse como gráfica de líneas con matplotlib."""
+    import io
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    categories = chart.categories
+    n_cats = len(categories)
+    x = np.arange(n_cats)
+
+    fig, ax = plt.subplots(figsize=(max(12, n_cats * 0.5), 7))
+
+    for s in chart.series:
+        values = np.array(s.data, dtype=float)
+        ax.plot(
+            x,
+            values,
+            marker="o",
+            markersize=4,
+            label=s.name,
+            color=s.color,
+            linewidth=2,
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        categories,
+        rotation=45 if n_cats > 15 else 0,
+        ha="right" if n_cats > 15 else "center",
+        fontsize=8,
+    )
+    ax.set_ylabel(chart.yAxisLabel, fontsize=10)
+    ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.15),
+        ncol=min(len(chart.series), 5),
+        fontsize=7,
+        frameon=False,
+    )
+    ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format=fmt, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def render_chart_visualization_bytes(
+    chart: ChartDataResponse,
+    fmt: str,
+    view_mode: str = "column",
+) -> bytes:
+    """Genera PNG o SVG con Matplotlib (sin navegador). ``view_mode``: ``column`` | ``line``."""
+    if fmt not in ("png", "svg"):
+        raise ValueError("fmt debe ser 'png' o 'svg'")
+    title = chart.title
+    if view_mode == "line":
+        buf = _render_line_chart(chart, title, fmt=fmt)
+    else:
+        buf = _render_stacked_bar(chart, title, fmt=fmt)
+    return buf.getvalue()
+
+
+def chart_data_to_csv_bytes(chart: ChartDataResponse) -> bytes:
+    """Tabla categorías × series como CSV UTF-8 con BOM (compatible con Excel)."""
+    import csv
+    import io
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["Categoria"] + [s.name for s in chart.series])
+    for i, cat in enumerate(chart.categories):
+        row: list[Any] = [cat]
+        for s in chart.series:
+            val = s.data[i] if i < len(s.data) else None
+            row.append(val)
+        writer.writerow(row)
+    return buffer.getvalue().encode("utf-8-sig")
+
+
 def _safe_filename(name: str) -> str:
     """Genera un nombre de archivo seguro."""
     clean = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in name)

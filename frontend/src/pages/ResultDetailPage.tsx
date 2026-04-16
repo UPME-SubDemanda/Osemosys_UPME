@@ -1003,8 +1003,19 @@ export function ResultDetailPage() {
               <CompareChart data={compareChartData} barOrientation={chartBarOrientation} />
             ) : singleChartData ? (
               chartSelection.viewMode === 'line'
-                ? <LineChart data={singleChartData} />
-                : <HighchartsChart data={singleChartData} barOrientation={chartBarOrientation} />
+                ? (
+                    <LineChart
+                      data={singleChartData}
+                      serverExport={{ jobId: currentRunId, selection: chartSelection }}
+                    />
+                  )
+                : (
+                    <HighchartsChart
+                      data={singleChartData}
+                      barOrientation={chartBarOrientation}
+                      serverExport={{ jobId: currentRunId, selection: chartSelection }}
+                    />
+                  )
             ) : !loadingChart ? (
               <div className="flex h-[400px] flex-col items-center justify-center px-4 text-center text-slate-500">
                 <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-slate-800 bg-slate-900/50">

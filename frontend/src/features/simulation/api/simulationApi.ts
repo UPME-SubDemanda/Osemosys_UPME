@@ -16,6 +16,7 @@ import type {
   SimulationRun, 
   SimulationSolver 
 } from "@/types/domain";
+import type { ChartSelection } from "@/shared/charts/ChartSelector";
 
 type ListRunsParams = {
   scope?: "mine" | "global";
@@ -92,9 +93,54 @@ export const simulationApi = {
     return data;
   },
 
-  async getChartData(jobId: number, params: { tipo: string, un?: string, sub_filtro?: string, loc?: string, variable?: string }) {
+  async getChartData(
+    jobId: number,
+    params: {
+      tipo: string;
+      un?: string;
+      sub_filtro?: string;
+      loc?: string;
+      variable?: string;
+      agrupar_por?: string;
+    },
+  ) {
     const { data } = await httpClient.get<ChartDataResponse>(`/visualizations/${jobId}/chart-data`, { params });
     return data;
+  },
+
+  /**
+   * Una gráfica como PNG/SVG (Matplotlib) o CSV; mismos filtros que chart-data.
+   */
+  async exportChart(
+    jobId: number,
+    selection: ChartSelection,
+    fmt: "png" | "svg" | "csv",
+  ): Promise<{ blob: Blob; filename: string }> {
+    const params: Record<string, string> = {
+      tipo: selection.tipo,
+      un: selection.un,
+      fmt,
+      view_mode: selection.viewMode ?? "column",
+    };
+    if (selection.sub_filtro) params.sub_filtro = selection.sub_filtro;
+    if (selection.loc) params.loc = selection.loc;
+    if (selection.variable) params.variable = selection.variable;
+    if (selection.agrupar_por) params.agrupar_por = selection.agrupar_por;
+
+    const response = await httpClient.get(`/visualizations/${jobId}/export-chart`, {
+      params,
+      responseType: "blob",
+      timeout: 5 * 60 * 1000,
+    });
+    const blob = response.data as Blob;
+    const disposition = response.headers["content-disposition"];
+    const ext = fmt === "csv" ? "csv" : fmt === "svg" ? "svg" : "png";
+    let filename = `grafica_${jobId}.${ext}`;
+    if (typeof disposition === "string") {
+      const match = /filename="?([^";\n]+)"?/i.exec(disposition);
+      if (match?.[1]) filename = match[1].trim();
+    }
+    return { blob, filename };
   },
 
   async getCompareData(params: { job_ids: string, tipo: string, un?: string, years_to_plot?: string, agrupacion?: string, sub_filtro?: string, loc?: string }) {

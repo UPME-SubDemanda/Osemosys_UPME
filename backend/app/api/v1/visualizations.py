@@ -6,6 +6,7 @@ comparación entre múltiples escenarios.
 
 from __future__ import annotations
 
+import io
 import logging
 from typing import List
 
@@ -30,6 +31,11 @@ from app.core.exceptions import NotFoundError
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/visualizations")
+
+
+def _safe_export_basename(name: str) -> str:
+    clean = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in name)
+    return clean.strip()[:80]
 
 
 @router.get("/chart-catalog", response_model=list[ChartCatalogItem])
@@ -195,6 +201,82 @@ def get_chart_data(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{job_id}/export-chart")
+def export_chart(
+    job_id: int,
+    tipo: str = Query(...),
+    un: str = Query("PJ"),
+    sub_filtro: str | None = Query(None),
+    loc: str | None = Query(None),
+    variable: str | None = Query(None),
+    agrupar_por: str | None = Query(None),
+    fmt: str = Query("png", description="Formato: png, svg o csv"),
+    view_mode: str = Query(
+        "column",
+        description="column (barras apiladas) o line (líneas); solo afecta png/svg",
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Exporta la gráfica actual como imagen (Matplotlib) o CSV, sin depender del navegador."""
+    if fmt not in ("png", "svg", "csv"):
+        raise HTTPException(status_code=400, detail="fmt debe ser 'png', 'svg' o 'csv'")
+    if view_mode not in ("column", "line"):
+        raise HTTPException(status_code=400, detail="view_mode debe ser 'column' o 'line'")
+
+    try:
+        job = SimulationService.get_by_id(db, current_user=current_user, job_id=job_id)
+        if job["status"] != "SUCCEEDED":
+            raise HTTPException(status_code=400, detail="Job no está en estado SUCCEEDED")
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Job no encontrado o sin acceso")
+
+    try:
+        chart = chart_service.build_chart_data(
+            db=db,
+            job_id=job["id"],
+            tipo=tipo,
+            un=un,
+            sub_filtro=sub_filtro,
+            loc=loc,
+            variable=variable,
+            agrupar_por=agrupar_por,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not chart.series:
+        raise HTTPException(status_code=404, detail="Sin datos para exportar con los filtros actuales")
+
+    base_name = _safe_export_basename(chart.title)
+    if fmt == "csv":
+        body = chart_service.chart_data_to_csv_bytes(chart)
+        filename = f"{base_name}.csv"
+        return StreamingResponse(
+            io.BytesIO(body),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    img_fmt = "svg" if fmt == "svg" else "png"
+    try:
+        img_bytes = chart_service.render_chart_visualization_bytes(
+            chart, fmt=img_fmt, view_mode=view_mode
+        )
+    except Exception as e:
+        logger.exception("Error renderizando gráfica para export")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    ext = img_fmt
+    filename = f"{base_name}.{ext}"
+    media = "image/svg+xml" if img_fmt == "svg" else "image/png"
+    return StreamingResponse(
+        io.BytesIO(img_bytes),
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{job_id}/export-all")

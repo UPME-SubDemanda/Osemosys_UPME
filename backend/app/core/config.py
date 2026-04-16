@@ -46,11 +46,20 @@ class Settings(BaseSettings):
     sim_user_active_limit: int = Field(default=1, alias="SIM_USER_ACTIVE_LIMIT")
     sim_solver_tee: bool = Field(default=False, alias="SIM_SOLVER_TEE")
     sim_solver_keepfiles: bool = Field(default=False, alias="SIM_SOLVER_KEEPFILES")
+    sim_solver_threads: int = Field(default=0, alias="SIM_SOLVER_THREADS")
     simulation_artifacts_dir: str = Field(default="/app/tmp", alias="SIMULATION_ARTIFACTS_DIR")
     docker_socket_path: str = Field(default="/var/run/docker.sock", alias="DOCKER_SOCKET_PATH")
     docker_metrics_services: str = Field(
         default="api,simulation-worker,db,redis,frontend",
         alias="DOCKER_METRICS_SERVICES",
+    )
+    docker_metrics_timeout_seconds: float = Field(
+        default=0.5,
+        alias="DOCKER_METRICS_TIMEOUT_SECONDS",
+    )
+    docker_metrics_cache_ttl_seconds: float = Field(
+        default=5.0,
+        alias="DOCKER_METRICS_CACHE_TTL_SECONDS",
     )
 
     # Auth

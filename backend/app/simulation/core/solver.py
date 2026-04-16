@@ -70,6 +70,29 @@ def write_lp_file(
     return lp_path
 
 
+def _apply_solver_runtime_options(solver: object, *, candidate: str, settings: object) -> None:
+    """Aplica opciones runtime no invasivas al solver seleccionado.
+
+    Por ahora solo configura `threads` para HiGHS cuando el deployment define
+    `SIM_SOLVER_THREADS > 0`. GLPK se mantiene sin cambios porque no soporta
+    paralelismo multihilo equivalente en este flujo.
+    """
+    solver_threads = int(getattr(settings, "sim_solver_threads", 0) or 0)
+    if candidate != "highs" or solver_threads <= 0:
+        return
+
+    highs_options = getattr(solver, "highs_options", None)
+    if isinstance(highs_options, dict):
+        highs_options["threads"] = solver_threads
+        logger.info("Configurando HiGHS con threads=%s", solver_threads)
+        return
+
+    logger.warning(
+        "No fue posible aplicar threads=%s a HiGHS: el solver no expone highs_options",
+        solver_threads,
+    )
+
+
 def _run_infeasibility_diagnostics(instance: pyo.ConcreteModel) -> None:
     """Analiza restricciones violadas y variable bounds conflictivos.
 
@@ -215,6 +238,7 @@ def solve_model(
 
         logger.info("Resolviendo con %s (SolverFactory('%s'))...", candidate, factory_name)
         solver = pyo.SolverFactory(factory_name)
+        _apply_solver_runtime_options(solver, candidate=candidate, settings=settings)
         results = solver.solve(
             instance,
             tee=settings.sim_solver_tee,

@@ -40,6 +40,21 @@ import type {
 
 const ACTIVE_STATUSES = new Set(["QUEUED", "RUNNING"]);
 const CSV_PREVIEW_LIMIT = 50;
+const CRITICAL_SIMULATION_LOG_STAGES = new Set(["create_instance", "solver"]);
+
+const SIMULATION_LOG_STAGE_LABELS: Record<string, string> = {
+  extract_data: "Leer insumos",
+  build_model: "Preparar modelo",
+  data_loaded: "Datos cargados",
+  declare_model: "Declarar modelo",
+  create_instance: "Crear la instancia",
+  solver_start: "Preparar el solver",
+  solver: "Resolver la optimización",
+  complete: "Cerrar ejecución",
+  persist_results: "Guardar resultados",
+  end: "Finalizar",
+  general: "General",
+};
 
 function getSolverStatusVariant(status: string) {
   const normalized = status.toLowerCase();
@@ -50,6 +65,53 @@ function getSolverStatusVariant(status: string) {
 
 function getSolverLabel(solverName: SimulationSolver) {
   return solverName === "highs" ? "HiGHS" : "GLPK";
+}
+
+function formatReadableDuration(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.round(totalSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+
+  if (hours > 0) return `${hours} h ${minutes} min ${seconds} s`;
+  if (minutes > 0) return `${minutes} min ${seconds} s`;
+  return `${seconds} s`;
+}
+
+function getSimulationLogDurationSeconds(log: SimulationLog, nextLog?: SimulationLog) {
+  const createdAt = new Date(log.created_at);
+  const nextCreatedAt = nextLog ? new Date(nextLog.created_at) : null;
+  if (!nextCreatedAt || !Number.isFinite(nextCreatedAt.getTime()) || !Number.isFinite(createdAt.getTime())) {
+    return null;
+  }
+  return Math.max(0, (nextCreatedAt.getTime() - createdAt.getTime()) / 1000);
+}
+
+function normalizeSimulationLogStage(stage: string | null) {
+  return (stage ?? "general").trim().toLowerCase();
+}
+
+function formatSimulationLogStage(stage: string | null) {
+  const key = normalizeSimulationLogStage(stage);
+  const mappedLabel = SIMULATION_LOG_STAGE_LABELS[key];
+  if (mappedLabel) return mappedLabel;
+
+  const normalized = key.replace(/_/g, " ").trim();
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function isCriticalSimulationLogStage(stage: string | null) {
+  return CRITICAL_SIMULATION_LOG_STAGES.has(normalizeSimulationLogStage(stage));
+}
+
+function getSimulationLogVariant(log: SimulationLog) {
+  const eventType = (log.event_type ?? "").toLowerCase();
+  if (eventType.includes("error")) return "danger" as const;
+  if (isCriticalSimulationLogStage(log.stage)) return "info" as const;
+  if (eventType.includes("warn")) return "warning" as const;
+  if (eventType.includes("info")) return "info" as const;
+  if (eventType.includes("stage")) return "neutral" as const;
+  return "neutral" as const;
 }
 
 function formatCsvValue(value: unknown) {
@@ -1069,14 +1131,107 @@ export function SimulationPage() {
             <div className="skeletonLine" />
           </div>
         ) : (
-          <pre style={{ whiteSpace: "pre-wrap", margin: 0, maxHeight: "60vh", overflow: "auto" }}>
-            {selectedLogs
-              .map(
-                (log) =>
-                  `[${new Date(log.created_at).toLocaleTimeString()}] ${log.stage ?? "general"}: ${log.message ?? ""}`,
-              )
-              .join("\n") || "Sin logs disponibles."}
-          </pre>
+          <div style={{ display: "grid", gap: 12 }}>
+            {selectedLogs.length ? (
+              <>
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 10,
+                    padding: 12,
+                    borderRadius: 14,
+                    border: "1px solid rgba(96,165,250,0.22)",
+                    background: "linear-gradient(180deg, rgba(37,99,235,0.12), rgba(15,23,42,0.28))",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 10,
+                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    }}
+                  >
+                    {selectedLogs
+                      .map((log, index) => ({
+                        log,
+                        durationSeconds: getSimulationLogDurationSeconds(log, selectedLogs[index + 1]),
+                      }))
+                      .filter(({ log }) => isCriticalSimulationLogStage(log.stage))
+                      .map(({ log, durationSeconds }) => (
+                        <article
+                          key={`critical-${log.id}`}
+                          style={{
+                            display: "grid",
+                            gap: 6,
+                            padding: 12,
+                            borderRadius: 12,
+                            border: "1px solid rgba(96,165,250,0.24)",
+                            background: "rgba(15,23,42,0.56)",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                            <span style={{ fontWeight: 700 }}>{formatSimulationLogStage(log.stage)}</span>
+                          </div>
+                          <div style={{ fontSize: 24, fontWeight: 800 }}>
+                            {durationSeconds !== null ? formatReadableDuration(durationSeconds) : "En curso"}
+                          </div>
+                          <div style={{ fontSize: 13, opacity: 0.78 }}>
+                            {new Date(log.created_at).toLocaleTimeString()}
+                            {log.progress !== null ? ` · ${Math.round(log.progress)}%` : ""}
+                          </div>
+                          <div style={{ lineHeight: 1.45 }}>{log.message ?? "Sin detalle adicional."}</div>
+                        </article>
+                      ))}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gap: 10, maxHeight: "48vh", overflow: "auto", paddingRight: 4 }}>
+                  {selectedLogs.map((log, index) => {
+                    const durationSeconds = getSimulationLogDurationSeconds(log, selectedLogs[index + 1]);
+                    const isCritical = isCriticalSimulationLogStage(log.stage);
+
+                    return (
+                      <article
+                        key={log.id}
+                        style={{
+                          display: "grid",
+                          gap: 8,
+                          padding: 12,
+                          borderRadius: 12,
+                          border: isCritical ? "1px solid rgba(96,165,250,0.26)" : "1px solid rgba(255,255,255,0.08)",
+                          background: isCritical ? "rgba(30,41,59,0.6)" : "rgba(255,255,255,0.03)",
+                          boxShadow: isCritical ? "inset 3px 0 0 rgba(96,165,250,0.9)" : "none",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 8,
+                            alignItems: "center",
+                          }}
+                        >
+                          <Badge variant={getSimulationLogVariant(log)}>{formatSimulationLogStage(log.stage)}</Badge>
+                          <span style={{ fontSize: 13, opacity: 0.78 }}>{new Date(log.created_at).toLocaleTimeString()}</span>
+                          {durationSeconds !== null ? (
+                            <span style={{ fontSize: 13, opacity: 0.9, fontWeight: isCritical ? 700 : 500 }}>
+                              Duración: {formatReadableDuration(durationSeconds)}
+                            </span>
+                          ) : null}
+                          {log.progress !== null ? (
+                            <span style={{ fontSize: 13, opacity: 0.78 }}>Progreso: {Math.round(log.progress)}%</span>
+                          ) : null}
+                        </div>
+                        <div style={{ lineHeight: 1.5 }}>{log.message ?? "Sin detalle adicional."}</div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div style={{ opacity: 0.78 }}>Sin logs disponibles.</div>
+            )}
+          </div>
         )}
       </Modal>
     </section>

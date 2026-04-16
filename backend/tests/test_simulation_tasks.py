@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -131,3 +132,129 @@ def test_handle_worker_lost_failure_ignores_non_workerlost(
         exception=RuntimeError("error funcional"),
         args=(777,),
     )
+
+
+def test_cleanup_csv_upload_artifacts_removes_job_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    uploads_root = tmp_path / "csv_upload_jobs"
+    job_root = uploads_root / "job-123"
+    csv_root = job_root / "input" / "model"
+    csv_root.mkdir(parents=True)
+    (csv_root / "YEAR.csv").write_text("VALUE\n2025\n", encoding="utf-8")
+    job = SimpleNamespace(id=123, input_mode="CSV_UPLOAD", input_ref=str(csv_root))
+
+    monkeypatch.setattr(
+        tasks_module,
+        "get_settings",
+        lambda: SimpleNamespace(simulation_artifacts_dir=str(tmp_path)),
+    )
+
+    tasks_module._cleanup_csv_upload_artifacts(job)
+
+    assert not job_root.exists()
+
+
+def test_cleanup_csv_upload_artifacts_ignores_paths_outside_upload_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    external_root = tmp_path / "other"
+    external_root.mkdir()
+    external_csv = external_root / "YEAR.csv"
+    external_csv.write_text("VALUE\n2025\n", encoding="utf-8")
+    job = SimpleNamespace(id=123, input_mode="CSV_UPLOAD", input_ref=str(external_root))
+
+    monkeypatch.setattr(
+        tasks_module,
+        "get_settings",
+        lambda: SimpleNamespace(simulation_artifacts_dir=str(tmp_path / "artifacts")),
+    )
+
+    tasks_module._cleanup_csv_upload_artifacts(job)
+
+    assert external_root.exists()
+
+
+def test_run_simulation_job_cleans_csv_upload_artifacts_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = DummyDbSession(rowcount=1)
+    job = SimpleNamespace(
+        id=123,
+        status="QUEUED",
+        progress=0.0,
+        input_mode="CSV_UPLOAD",
+        input_ref="/tmp/csv_upload_jobs/job-123/input",
+        finished_at=None,
+        error_message=None,
+    )
+    cleaned: list[object] = []
+
+    monkeypatch.setattr(tasks_module, "SessionLocal", DummySessionFactory(db))
+    monkeypatch.setattr(
+        tasks_module.SimulationRepository,
+        "get_job_by_id",
+        lambda _db, *, job_id: job,
+    )
+    monkeypatch.setattr(
+        tasks_module.SimulationRepository,
+        "add_event",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(tasks_module, "run_pipeline_from_csv", lambda _db, *, job_id: None)
+    monkeypatch.setattr(
+        tasks_module,
+        "_cleanup_csv_upload_artifacts",
+        lambda current_job: cleaned.append(current_job),
+    )
+
+    tasks_module.run_simulation_job.run(123)
+
+    assert cleaned == [job]
+    assert job.status == "SUCCEEDED"
+
+
+def test_run_simulation_job_cleans_csv_upload_artifacts_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = DummyDbSession(rowcount=1)
+    job = SimpleNamespace(
+        id=123,
+        status="QUEUED",
+        progress=0.0,
+        input_mode="CSV_UPLOAD",
+        input_ref="/tmp/csv_upload_jobs/job-123/input",
+        finished_at=None,
+        error_message=None,
+    )
+    cleaned: list[object] = []
+
+    monkeypatch.setattr(tasks_module, "SessionLocal", DummySessionFactory(db))
+    monkeypatch.setattr(
+        tasks_module.SimulationRepository,
+        "get_job_by_id",
+        lambda _db, *, job_id: job,
+    )
+    monkeypatch.setattr(
+        tasks_module.SimulationRepository,
+        "add_event",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        tasks_module,
+        "run_pipeline_from_csv",
+        lambda _db, *, job_id: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    monkeypatch.setattr(
+        tasks_module,
+        "_cleanup_csv_upload_artifacts",
+        lambda current_job: cleaned.append(current_job),
+    )
+
+    tasks_module.run_simulation_job.run(123)
+
+    assert cleaned == [job]
+    assert job.status == "FAILED"
+    assert job.error_message == "boom"

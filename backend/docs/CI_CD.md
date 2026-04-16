@@ -32,6 +32,10 @@
 - `vars.SIM_WORKER_REPLICAS`
 - `vars.SIM_MAX_CONCURRENCY`
 - `vars.SIM_USER_ACTIVE_LIMIT`
+- `vars.SIM_SOLVER_THREADS`
+- `vars.OMP_NUM_THREADS`
+- `vars.OPENBLAS_NUM_THREADS`
+- `vars.MKL_NUM_THREADS`
 - `vars.APP_USERS`
 - `vars.APP_ADMIN_USERS`
 
@@ -75,3 +79,4 @@ docker compose exec -T simulation-worker sh -lc \
 
 - `API_WORKERS=3` deja el API con 3 procesos `uvicorn` por defecto.
 - Sube ese valor si necesitas más concurrencia; no acelera mucho una sola importación pesada.
+- Para priorizar tiempo por simulación sobre throughput total, usa `SIM_WORKER_REPLICAS=1`, `SIM_MAX_CONCURRENCY=1`, `SIM_SOLVER_THREADS=12` y `OMP/OPENBLAS/MKL=4`.

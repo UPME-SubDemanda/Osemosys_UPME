@@ -103,6 +103,8 @@ export type SimulationRun = {
   id: number;
   scenario_id: number | null;
   scenario_name?: string | null;
+  /** Alias opcional de la corrida (resultados y exportación). */
+  display_name?: string | null;
   scenario_tag?: ScenarioTag | null;
   user_id: string;
   username?: string | null;
@@ -292,9 +294,14 @@ export type CompareChartResponse = {
 
 export type CompareMode = "off" | "facet" | "by-year";
 
+/** Modo del nombre de archivo al exportar comparación por facetas (PNG/SVG). */
+export type CompareFacetExportFilenameMode = "result" | "tags";
+
 export type FacetData = {
   scenario_name: string;
   job_id: number;
+  display_name?: string | null;
+  scenario_tag_name?: string | null;
   categories: string[];
   series: ChartSeries[];
 };
@@ -319,6 +326,9 @@ export type ResultSummaryResponse = {
   job_id: number;
   scenario_id: number | null;
   scenario_name: string | null;
+  scenario_tag?: ScenarioTag | null;
+  /** Alias opcional definido por el usuario para esta corrida. */
+  display_name?: string | null;
   solver_name: string;
   solver_status: string;
   objective_value: number;

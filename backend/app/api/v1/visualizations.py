@@ -33,9 +33,49 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/visualizations")
 
 
-def _safe_export_basename(name: str) -> str:
+def _safe_export_basename(name: str, max_len: int = 80) -> str:
     clean = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in name)
-    return clean.strip()[:80]
+    clean = clean.strip()
+    if max_len < 1:
+        return clean
+    return clean[:max_len]
+
+
+_COMPARE_FACET_FILENAME_MODES = frozenset({"result", "tags"})
+
+# Compatibilidad con clientes antiguos (antes solo existían chart / simulations / …).
+_LEGACY_COMPARE_FACET_FILENAME_MODES = frozenset(
+    {"chart", "simulations", "simulations_and_tags"}
+)
+
+
+def _normalize_compare_facet_filename_mode(mode: str) -> str:
+    m = (mode or "").strip()
+    if m in _LEGACY_COMPARE_FACET_FILENAME_MODES:
+        return "result"
+    return m
+
+
+def _compare_facet_export_basename(
+    facet_payload: CompareChartFacetResponse,
+    filename_mode: str,
+) -> str:
+    """Base del nombre de archivo para export-compare-facet (sin extensión)."""
+    facets = [f for f in facet_payload.facets if f.series]
+    if not facets:
+        return _safe_export_basename(facet_payload.title)
+    parts: list[str] = []
+    for f in facets:
+        sim_fallback = (f.scenario_name or f"job_{f.job_id}").strip()
+        result_name = (f.display_name or sim_fallback).strip()
+        if filename_mode == "tags":
+            tag = (f.scenario_tag_name or "").strip()
+            piece = tag if tag else result_name
+        else:
+            piece = result_name
+        parts.append(piece)
+    joined = "__".join(parts)
+    return _safe_export_basename(joined, max_len=140)
 
 
 @router.get("/chart-catalog", response_model=list[ChartCatalogItem])
@@ -116,27 +156,7 @@ def get_comparison_facet_data(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Datos para comparación por escenarios completos (un facet por escenario)."""
-    job_id_list = []
-    try:
-        job_id_list = [int(x.strip()) for x in job_ids.split(",") if x.strip()]
-    except ValueError:
-        raise HTTPException(status_code=400, detail="job_ids inválidos")
-
-    if not job_id_list:
-        raise HTTPException(status_code=400, detail="Debe proveer al menos un job_id")
-
-    if len(job_id_list) > 10:
-        raise HTTPException(status_code=400, detail="Máximo 10 jobs para comparar")
-
-    for jid in job_id_list:
-        try:
-            job = SimulationService.get_by_id(db, current_user=current_user, job_id=jid)
-            if job["status"] != "SUCCEEDED":
-                raise HTTPException(
-                    status_code=400, detail=f"Job {jid} no está en estado SUCCEEDED"
-                )
-        except NotFoundError:
-            raise HTTPException(status_code=404, detail=f"Job {jid} no encontrado o sin acceso")
+    job_id_list = _validate_compare_job_ids(job_ids, db, current_user)
 
     try:
         return chart_service.build_comparison_facet_data(
@@ -151,6 +171,107 @@ def get_comparison_facet_data(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+def _validate_compare_job_ids(
+    job_ids: str,
+    db: Session,
+    current_user: User,
+) -> list[int]:
+    try:
+        job_id_list = [int(x.strip()) for x in job_ids.split(",") if x.strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="job_ids inválidos")
+    if not job_id_list:
+        raise HTTPException(status_code=400, detail="Debe proveer al menos un job_id")
+    if len(job_id_list) > 10:
+        raise HTTPException(status_code=400, detail="Máximo 10 jobs para comparar")
+    for jid in job_id_list:
+        try:
+            job = SimulationService.get_by_id(db, current_user=current_user, job_id=jid)
+            if job["status"] != "SUCCEEDED":
+                raise HTTPException(
+                    status_code=400, detail=f"Job {jid} no está en estado SUCCEEDED"
+                )
+        except NotFoundError:
+            raise HTTPException(status_code=404, detail=f"Job {jid} no encontrado o sin acceso")
+    return job_id_list
+
+
+@router.get("/export-compare-facet")
+def export_comparison_facet_image(
+    job_ids: str = Query(..., description="Job IDs separados por coma (max 10)"),
+    tipo: str = Query(...),
+    un: str = Query("PJ"),
+    sub_filtro: str | None = Query(None),
+    loc: str | None = Query(None),
+    variable: str | None = Query(None),
+    agrupar_por: str | None = Query(None),
+    fmt: str = Query("png", description="png o svg"),
+    filename_mode: str = Query(
+        "result",
+        description=(
+            "result=nombre del resultado por faceta; "
+            "tags=etiqueta del escenario, o nombre del resultado si no hay etiqueta"
+        ),
+    ),
+    legend_title: str | None = Query(
+        None,
+        description="Título opcional sobre la leyenda (p. ej. Combustible / tecnología)",
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Exporta comparación por facetas en una sola imagen (mismo criterio que compare-facet)."""
+    if fmt not in ("png", "svg"):
+        raise HTTPException(status_code=400, detail="fmt debe ser 'png' o 'svg'")
+    filename_mode = _normalize_compare_facet_filename_mode(filename_mode)
+    if filename_mode not in _COMPARE_FACET_FILENAME_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail="filename_mode inválido; use result o tags",
+        )
+
+    job_id_list = _validate_compare_job_ids(job_ids, db, current_user)
+
+    try:
+        facet_payload = chart_service.build_comparison_facet_data(
+            db=db,
+            job_ids=job_id_list,
+            tipo=tipo,
+            un=un,
+            sub_filtro=sub_filtro,
+            loc=loc,
+            variable=variable,
+            agrupar_por=agrupar_por,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not facet_payload.facets or not any(f.series for f in facet_payload.facets):
+        raise HTTPException(status_code=404, detail="Sin datos para exportar con los filtros actuales")
+
+    try:
+        img_bytes = chart_service.render_comparison_facet_figure_bytes(
+            facet_payload,
+            fmt=fmt,
+            legend_title=legend_title,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Error renderizando export compare-facet")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    base_name = _compare_facet_export_basename(facet_payload, filename_mode)
+    ext = "svg" if fmt == "svg" else "png"
+    filename = f"{base_name}_facet.{ext}"
+    media = "image/svg+xml" if fmt == "svg" else "image/png"
+    return StreamingResponse(
+        io.BytesIO(img_bytes),
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{job_id}/result-summary", response_model=ResultSummaryResponse)

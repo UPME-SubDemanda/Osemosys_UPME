@@ -22,6 +22,16 @@ class SimulationService:
     """Capa de negocio para gestion de simulaciones."""
 
     @staticmethod
+    def _initial_job_display_name(label: str | None) -> str | None:
+        """Nombre visible por defecto (escenario, archivo CSV, etc.); máx. 255 caracteres."""
+        if not label:
+            return None
+        s = str(label).strip()
+        if not s:
+            return None
+        return s[:255]
+
+    @staticmethod
     def _batch_scenario_tags_by_scenario_ids(db: Session, scenario_ids: set[int]) -> dict[int, dict | None]:
         if not scenario_ids:
             return {}
@@ -83,6 +93,7 @@ class SimulationService:
             "scenario_id": job.scenario_id,
             "scenario_name": effective_scenario_name,
             "scenario_tag": scenario_tag,
+            "display_name": getattr(job, "display_name", None) or None,
             "user_id": str(job.user_id),
             "username": username,
             "solver_name": job.solver_name,
@@ -102,7 +113,12 @@ class SimulationService:
 
     @staticmethod
     def submit(
-        db: Session, *, current_user: User, scenario_id: int, solver_name: str = "highs"
+        db: Session,
+        *,
+        current_user: User,
+        scenario_id: int,
+        solver_name: str = "highs",
+        display_name: str | None = None,
     ) -> dict:
         """Encola una nueva simulacion para un escenario autorizado."""
         from app.services.scenario_service import ScenarioService
@@ -129,12 +145,16 @@ class SimulationService:
         if solver_name not in {"highs", "glpk"}:
             raise ConflictError("Solver invalido. Usa 'highs' o 'glpk'.")
 
+        user_dn = SimulationService._initial_job_display_name(display_name)
+        default_dn = SimulationService._initial_job_display_name(scenario.name)
+        job_display = user_dn if user_dn else default_dn
         job = SimulationRepository.create_job(
             db,
             user_id=current_user.id,
             scenario_id=scenario_id,
             solver_name=solver_name,
             input_mode="SCENARIO",
+            display_name=job_display,
         )
         # Necesario para obtener `job.id` antes de insertar eventos asociados.
         if hasattr(db, "flush"):
@@ -221,6 +241,7 @@ class SimulationService:
         solver_name: str = "highs",
         input_name: str,
         input_ref: str,
+        display_name: str | None = None,
     ) -> dict:
         """Encola una simulación cuyo input proviene de un ZIP de CSV."""
         active_jobs = SimulationRepository.count_user_active_jobs(db, user_id=current_user.id)
@@ -238,6 +259,9 @@ class SimulationService:
         if solver_name not in {"highs", "glpk"}:
             raise ConflictError("Solver invalido. Usa 'highs' o 'glpk'.")
 
+        user_dn = SimulationService._initial_job_display_name(display_name)
+        default_dn = SimulationService._initial_job_display_name(input_name)
+        job_display = user_dn if user_dn else default_dn
         job = SimulationRepository.create_job(
             db,
             user_id=current_user.id,
@@ -245,6 +269,7 @@ class SimulationService:
             input_mode="CSV_UPLOAD",
             input_name=input_name,
             input_ref=input_ref,
+            display_name=job_display,
         )
         if hasattr(db, "flush"):
             db.flush()
@@ -335,6 +360,24 @@ class SimulationService:
             scenario_name=scenario_name,
             scenario_tag=scenario_tag,
         )
+
+    @staticmethod
+    def patch_display_name(
+        db: Session,
+        *,
+        current_user: User,
+        job_id: int,
+        display_name: str | None,
+    ) -> dict:
+        """Actualiza el nombre visible del job (solo el dueño)."""
+        job = SimulationRepository.get_job_for_user(db, job_id=job_id, user_id=current_user.id)
+        if not job:
+            raise NotFoundError("Simulacion no encontrada.")
+        cleaned = (display_name or "").strip() or None
+        job.display_name = cleaned[:255] if cleaned else None
+        db.commit()
+        db.refresh(job)
+        return SimulationService.get_by_id(db, current_user=current_user, job_id=job_id)
 
     @staticmethod
     def list_jobs(

@@ -46,6 +46,8 @@ class SimulationJob(Base):
     )
     solver_name: Mapped[str] = mapped_column(String(20), nullable=False, default="highs")
     input_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="SCENARIO")
+    #: Nombre opcional definido por el usuario para identificar la corrida en resultados/exportación.
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     input_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     input_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="QUEUED")

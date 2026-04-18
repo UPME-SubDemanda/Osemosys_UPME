@@ -22,6 +22,7 @@ from app.db.session import get_db
 from app.models import User
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.simulation import (
+    SimulationJobDisplayNamePatch,
     SimulationJobPublic,
     SimulationLogPublic,
     SimulationOverviewPublic,
@@ -135,6 +136,7 @@ def submit_simulation(
             current_user=current_user,
             scenario_id=payload.scenario_id,
             solver_name=payload.solver_name,
+            display_name=payload.display_name,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -148,6 +150,10 @@ def submit_simulation(
 async def submit_simulation_from_csv(
     csv_zip: UploadFile = File(...),
     solver_name: str = Form("highs"),
+    display_name: str | None = Form(
+        default=None,
+        description="Nombre opcional para esta corrida; si se omite, se usa el nombre del archivo ZIP.",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -194,6 +200,7 @@ async def submit_simulation_from_csv(
             solver_name=solver_name,
             input_name=csv_zip.filename,
             input_ref=str(csv_root),
+            display_name=display_name,
         )
     except HTTPException:
         shutil.rmtree(artifact_root, ignore_errors=True)
@@ -262,6 +269,25 @@ def get_simulation(
     """
     try:
         return SimulationService.get_by_id(db, current_user=current_user, job_id=job_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.patch("/{job_id}", response_model=SimulationJobPublic)
+def patch_simulation(
+    job_id: int,
+    payload: SimulationJobDisplayNamePatch,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Actualiza metadatos del job (p. ej. nombre visible para resultados y exportación)."""
+    try:
+        return SimulationService.patch_display_name(
+            db,
+            current_user=current_user,
+            job_id=job_id,
+            display_name=payload.display_name,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 

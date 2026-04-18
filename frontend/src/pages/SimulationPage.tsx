@@ -32,10 +32,12 @@ import type {
   CsvSimulationResult,
   RunResult,
   Scenario,
+  ScenarioEditPolicy,
   SimulationLog,
   SimulationOverview,
   SimulationRun,
   SimulationSolver,
+  SimulationType,
 } from "@/types/domain";
 
 const ACTIVE_STATUSES = new Set(["QUEUED", "RUNNING"]);
@@ -328,6 +330,12 @@ export function SimulationPage() {
   const [solverName, setSolverName] = useState<SimulationSolver>("highs");
   const [csvSolverName, setCsvSolverName] = useState<SimulationSolver>("highs");
   const [csvZipFile, setCsvZipFile] = useState<File | null>(null);
+  const [csvInputName, setCsvInputName] = useState("");
+  const [csvSimulationType, setCsvSimulationType] = useState<SimulationType>("NATIONAL");
+  const [csvSaveAsScenario, setCsvSaveAsScenario] = useState(false);
+  const [csvScenarioName, setCsvScenarioName] = useState("");
+  const [csvScenarioDescription, setCsvScenarioDescription] = useState("");
+  const [csvScenarioEditPolicy, setCsvScenarioEditPolicy] = useState<ScenarioEditPolicy>("OWNER_ONLY");
   const [csvSubmitting, setCsvSubmitting] = useState(false);
   const [csvResult, setCsvResult] = useState<CsvSimulationResult | null>(null);
   const [csvResultOpen, setCsvResultOpen] = useState(false);
@@ -532,16 +540,32 @@ export function SimulationPage() {
       push("Selecciona un archivo ZIP con los CSV antes de ejecutar.", "error");
       return;
     }
+    if (csvSaveAsScenario && !csvScenarioName.trim()) {
+      push("El nombre del escenario es obligatorio cuando eliges guardar el ZIP como escenario.", "error");
+      return;
+    }
     setCsvSubmitting(true);
     setCsvResultOpen(false);
     setCsvResult(null);
     setCsvResultSourceJobId(null);
     setCsvTrackedJobId(null);
     try {
-      const job = await simulationApi.submitFromCsv(csvZipFile, csvSolverName);
+      const job = await simulationApi.submitFromCsv(csvZipFile, csvSolverName, {
+        input_name: csvInputName,
+        simulation_type: csvSimulationType,
+        save_as_scenario: csvSaveAsScenario,
+        scenario_name: csvScenarioName,
+        description: csvScenarioDescription,
+        edit_policy: csvScenarioEditPolicy,
+      });
       setCsvTrackedJobId(job.id);
       setRuns((prev) => [job, ...prev.filter((run) => run.id !== job.id)]);
-      push(`Simulación desde CSV encolada como job ${job.id}.`, "success");
+      push(
+        csvSaveAsScenario
+          ? `Escenario creado y simulación encolada como job ${job.id}.`
+          : `Simulación desde CSV encolada como job ${job.id}.`,
+        "success",
+      );
       await refreshRuns();
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Error ejecutando simulación desde CSV.";
@@ -632,7 +656,7 @@ export function SimulationPage() {
           style={{
             display: "grid",
             gap: 10,
-            gridTemplateColumns: "minmax(280px, 1fr) minmax(180px, 240px) auto",
+            gridTemplateColumns: "minmax(220px, 1fr) minmax(180px, 240px) minmax(180px, 220px) auto",
             alignItems: "end",
           }}
         >
@@ -646,6 +670,15 @@ export function SimulationPage() {
             />
           </label>
           <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">Nombre visible de la corrida</span>
+            <input
+              className="field__input"
+              value={csvInputName}
+              onChange={(e) => setCsvInputName(e.target.value)}
+              placeholder={csvZipFile?.name ?? "Ej: Modelo nacional abril"}
+            />
+          </label>
+          <label className="field" style={{ margin: 0 }}>
             <span className="field__label">Solver</span>
             <select
               className="field__input"
@@ -656,10 +689,70 @@ export function SimulationPage() {
               <option value="glpk">GLPK</option>
             </select>
           </label>
+          <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">Tipo de simulación</span>
+            <select
+              className="field__input"
+              value={csvSimulationType}
+              onChange={(e) => setCsvSimulationType(e.target.value as SimulationType)}
+            >
+              <option value="NATIONAL">Nacional</option>
+              <option value="REGIONAL">Regional</option>
+            </select>
+          </label>
           <Button variant="primary" onClick={runCsvSimulation} disabled={csvSubmitting || !csvZipFile}>
             {csvSubmitting ? "Encolando..." : "Ejecutar desde CSV"}
           </Button>
         </div>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={csvSaveAsScenario}
+            onChange={(e) => setCsvSaveAsScenario(e.target.checked)}
+          />
+          <span>Guardar estos CSV como escenario y correr sobre ese escenario</span>
+        </label>
+        {csvSaveAsScenario ? (
+          <div
+            style={{
+              display: "grid",
+              gap: 10,
+              gridTemplateColumns: "minmax(220px, 1fr) minmax(220px, 1fr) minmax(180px, 220px)",
+              alignItems: "end",
+            }}
+          >
+            <label className="field" style={{ margin: 0 }}>
+              <span className="field__label">Nombre del escenario</span>
+              <input
+                className="field__input"
+                value={csvScenarioName}
+                onChange={(e) => setCsvScenarioName(e.target.value)}
+                placeholder="Ej: Escenario nacional CSV"
+              />
+            </label>
+            <label className="field" style={{ margin: 0 }}>
+              <span className="field__label">Descripción</span>
+              <input
+                className="field__input"
+                value={csvScenarioDescription}
+                onChange={(e) => setCsvScenarioDescription(e.target.value)}
+                placeholder="Opcional"
+              />
+            </label>
+            <label className="field" style={{ margin: 0 }}>
+              <span className="field__label">Política de edición</span>
+              <select
+                className="field__input"
+                value={csvScenarioEditPolicy}
+                onChange={(e) => setCsvScenarioEditPolicy(e.target.value as ScenarioEditPolicy)}
+              >
+                <option value="OWNER_ONLY">Solo propietario</option>
+                <option value="OPEN">Abierta</option>
+                <option value="RESTRICTED">Restringida</option>
+              </select>
+            </label>
+          </div>
+        ) : null}
         {csvZipFile ? (
           <small style={{ opacity: 0.78 }}>
             Archivo seleccionado: <strong>{csvZipFile.name}</strong>

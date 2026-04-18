@@ -20,6 +20,7 @@ import { scenariosApi } from "@/features/scenarios/api/scenariosApi";
 import type { UdcConfig, UdcMultiplierEntry } from "@/features/scenarios/api/scenariosApi";
 import { simulationApi } from "@/features/simulation/api/simulationApi";
 import { InfeasibilityDiagnosticsPanel } from "@/features/simulation/components/InfeasibilityDiagnosticsPanel";
+import { RunDisplayNameEditor } from "@/features/simulation/components/RunDisplayNameEditor";
 import { getSimulationRunStatusDisplay } from "@/features/simulation/simulationRunStatus";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
@@ -326,7 +327,10 @@ export function SimulationPage() {
   const [statusFilter, setStatusFilter] = useState<SimulationRun["status"] | "ALL">("ALL");
   const [usernameFilter, setUsernameFilter] = useState("");
   const [solverName, setSolverName] = useState<SimulationSolver>("highs");
+  /** Nombre opcional al encolar desde escenario (si está vacío, el backend usa el nombre del escenario). */
+  const [newRunDisplayName, setNewRunDisplayName] = useState("");
   const [csvSolverName, setCsvSolverName] = useState<SimulationSolver>("highs");
+  const [csvRunDisplayName, setCsvRunDisplayName] = useState("");
   const [csvZipFile, setCsvZipFile] = useState<File | null>(null);
   const [csvSubmitting, setCsvSubmitting] = useState(false);
   const [csvResult, setCsvResult] = useState<CsvSimulationResult | null>(null);
@@ -483,8 +487,11 @@ export function SimulationPage() {
     }
     setSubmitting(true);
     try {
-      await simulationApi.submit(scenarioId, solverName);
+      await simulationApi.submit(scenarioId, solverName, {
+        display_name: newRunDisplayName.trim() || null,
+      });
       push("Simulación encolada correctamente.", "success");
+      setNewRunDisplayName("");
       await refreshRuns();
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Error enviando simulación.";
@@ -538,10 +545,13 @@ export function SimulationPage() {
     setCsvResultSourceJobId(null);
     setCsvTrackedJobId(null);
     try {
-      const job = await simulationApi.submitFromCsv(csvZipFile, csvSolverName);
+      const job = await simulationApi.submitFromCsv(csvZipFile, csvSolverName, {
+        display_name: csvRunDisplayName.trim() || null,
+      });
       setCsvTrackedJobId(job.id);
       setRuns((prev) => [job, ...prev.filter((run) => run.id !== job.id)]);
       push(`Simulación desde CSV encolada como job ${job.id}.`, "success");
+      setCsvRunDisplayName("");
       await refreshRuns();
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Error ejecutando simulación desde CSV.";
@@ -568,6 +578,10 @@ export function SimulationPage() {
     return runs.filter((run) => run.status === statusFilter);
   }, [runs, statusFilter]);
 
+  const handleRunDisplayNameSaved = useCallback((jobId: number, next: string | null) => {
+    setRuns((prev) => prev.map((r) => (r.id === jobId ? { ...r, display_name: next } : r)));
+  }, []);
+
   const selectedLogs = logsOpenForJob ? logsByJob[logsOpenForJob] ?? [] : [];
 
   return (
@@ -581,7 +595,8 @@ export function SimulationPage() {
           style={{
             display: "grid",
             gap: 10,
-            gridTemplateColumns: "minmax(260px, 1fr) minmax(180px, 240px) auto auto",
+            gridTemplateColumns:
+              "minmax(220px, 1.1fr) minmax(200px, 1fr) minmax(160px, 220px) auto auto",
             alignItems: "end",
           }}
         >
@@ -602,6 +617,19 @@ export function SimulationPage() {
             </select>
           </label>
           <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">Nombre del resultado (opcional)</span>
+            <input
+              className="field__input"
+              type="text"
+              maxLength={255}
+              value={newRunDisplayName}
+              onChange={(e) => setNewRunDisplayName(e.target.value)}
+              placeholder="Ej. Caso base 2030 — sensibilidad"
+              disabled={submitting}
+              autoComplete="off"
+            />
+          </label>
+          <label className="field" style={{ margin: 0 }}>
             <span className="field__label">Solver</span>
             <select
               className="field__input"
@@ -619,6 +647,9 @@ export function SimulationPage() {
             Refrescar estado
           </Button>
         </div>
+        <small style={{ opacity: 0.72, margin: 0 }}>
+          Si dejas el nombre vacío, se usará el nombre del escenario como etiqueta de la corrida.
+        </small>
       </article>
 
       <article className="pageSection" style={{ display: "grid", gap: 12 }}>
@@ -632,7 +663,7 @@ export function SimulationPage() {
           style={{
             display: "grid",
             gap: 10,
-            gridTemplateColumns: "minmax(280px, 1fr) minmax(180px, 240px) auto",
+            gridTemplateColumns: "minmax(260px, 1fr) minmax(200px, 1fr) minmax(160px, 220px) auto",
             alignItems: "end",
           }}
         >
@@ -643,6 +674,19 @@ export function SimulationPage() {
               type="file"
               accept=".zip,application/zip"
               onChange={(e) => setCsvZipFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">Nombre del resultado (opcional)</span>
+            <input
+              className="field__input"
+              type="text"
+              maxLength={255}
+              value={csvRunDisplayName}
+              onChange={(e) => setCsvRunDisplayName(e.target.value)}
+              placeholder="Ej. Prueba importación Q1"
+              disabled={csvSubmitting}
+              autoComplete="off"
             />
           </label>
           <label className="field" style={{ margin: 0 }}>
@@ -918,7 +962,18 @@ export function SimulationPage() {
           rows={filteredRuns}
           rowKey={(r) => String(r.id)}
           columns={[
-            { key: "id", header: "ID de ejecución", render: (r) => r.id },
+            {
+              key: "display_name",
+              header: "Nombre del resultado",
+              render: (r) => (
+                <RunDisplayNameEditor
+                  jobId={r.id}
+                  value={r.display_name ?? null}
+                  onSaved={handleRunDisplayNameSaved}
+                  compact
+                />
+              ),
+            },
             {
               key: "scenario",
               header: "Escenario",
@@ -929,6 +984,11 @@ export function SimulationPage() {
                   : r.scenario_id === null
                     ? "—"
                     : `#${r.scenario_id}`),
+            },
+            {
+              key: "id",
+              header: "ID ejecución",
+              render: (r) => <span style={{ fontFamily: "monospace", opacity: 0.75 }}>{r.id}</span>,
             },
             {
               key: "scenario_tag",
@@ -1019,7 +1079,9 @@ export function SimulationPage() {
               ),
             },
           ]}
-          searchableText={(r) => `${r.id} ${r.scenario_name ?? ""} ${r.input_name ?? ""} ${r.username ?? ""} ${r.status} ${r.queue_position ?? ""}`}
+          searchableText={(r) =>
+            `${r.id} ${r.display_name ?? ""} ${r.scenario_name ?? ""} ${r.input_name ?? ""} ${r.username ?? ""} ${r.status} ${r.queue_position ?? ""}`
+          }
         />
       </article>
 

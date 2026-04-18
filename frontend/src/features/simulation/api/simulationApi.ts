@@ -15,7 +15,8 @@ import type {
   SimulationLog, 
   SimulationOverview, 
   SimulationRun, 
-  SimulationSolver 
+  SimulationSolver,
+  SimulationType,
 } from "@/types/domain";
 import type { ChartSelection } from "@/shared/charts/ChartSelector";
 
@@ -52,12 +53,28 @@ export const simulationApi = {
   async submitFromCsv(
     file: File,
     solverName: SimulationSolver,
-    options?: { display_name?: string | null },
+    input: {
+      input_name?: string;
+      simulation_type: SimulationType;
+      save_as_scenario: boolean;
+      scenario_name?: string;
+      description?: string;
+      edit_policy?: "OWNER_ONLY" | "OPEN" | "RESTRICTED";
+      tag_id?: number | null;
+      display_name?: string | null;
+    },
   ) {
     const formData = new FormData();
     formData.append("csv_zip", file);
     formData.append("solver_name", solverName);
-    const dn = options?.display_name?.trim();
+    formData.append("simulation_type", input.simulation_type);
+    formData.append("save_as_scenario", input.save_as_scenario ? "true" : "false");
+    if (input.input_name?.trim()) formData.append("input_name", input.input_name.trim());
+    if (input.scenario_name?.trim()) formData.append("scenario_name", input.scenario_name.trim());
+    if (input.description?.trim()) formData.append("description", input.description.trim());
+    if (input.edit_policy) formData.append("edit_policy", input.edit_policy);
+    if (input.tag_id != null) formData.append("tag_id", String(input.tag_id));
+    const dn = input.display_name?.trim();
     if (dn) formData.append("display_name", dn.slice(0, 255));
     const { data } = await httpClient.post<SimulationRun>("/simulations/from-csv", formData, {
       headers: { "Content-Type": "multipart/form-data" },

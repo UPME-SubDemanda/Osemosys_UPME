@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.schemas.scenario import ScenarioTagPublic
+from app.schemas.scenario import ScenarioTagPublic, SimulationType
 
 SimulationStatus = Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
 SimulationSolver = Literal["highs", "glpk"]
@@ -49,6 +49,7 @@ class SimulationJobPublic(BaseModel):
     solver_name: SimulationSolver
     input_mode: SimulationInputMode = "SCENARIO"
     input_name: str | None = None
+    simulation_type: SimulationType = "NATIONAL"
     status: SimulationStatus
     progress: float
     cancel_requested: bool

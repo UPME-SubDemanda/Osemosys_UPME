@@ -33,6 +33,7 @@ from app.models import (
     Fuel,
     ModeOfOperation,
     Region,
+    Scenario,
     Season,
     StorageSet,
     Technology,
@@ -246,6 +247,14 @@ def _load_catalog_lookups(db: Session) -> dict[str, dict]:
         name_to_id = {v: k for k, v in id_to_name.items()}
         lookups[set_name] = {"id_to_name": id_to_name, "name_to_id": name_to_id}
     return lookups
+
+
+def _get_scenario_processing_mode(db: Session, *, scenario_id: int) -> str:
+    """Retorna el modo de procesamiento configurado para el escenario."""
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        return "STANDARD"
+    return str(getattr(scenario, "processing_mode", "STANDARD") or "STANDARD").upper()
 
 
 # ========================================================================
@@ -1300,6 +1309,13 @@ def run_data_processing(
     # 1. BD → CSVs base (sets + parámetros)
     result = export_scenario_to_csv(db, scenario_id=scenario_id, csv_dir=csv_dir)
     logger.info("Exportados %d registros de parámetros", result.param_count)
+
+    if _get_scenario_processing_mode(db, scenario_id=scenario_id) == "PREPROCESSED_CSV":
+        logger.info(
+            "Escenario %d marcado como PREPROCESSED_CSV; se omite reprocesamiento posterior a la exportación.",
+            scenario_id,
+        )
+        return result
 
     normalize_mode_of_operation_in_csv_dir(csv_dir)
 

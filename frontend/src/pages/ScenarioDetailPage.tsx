@@ -43,6 +43,7 @@ import type {
   ScenarioOperationJob,
   ScenarioPermission,
   ScenarioTag,
+  SimulationType,
 } from "@/types/domain";
 
 type Tab = "values" | "permissions" | "pending";
@@ -167,11 +168,13 @@ export function ScenarioDetailPage() {
     name: string;
     description: string;
     edit_policy: ScenarioEditPolicy;
+    simulation_type: SimulationType;
     tag_id: string;
   }>({
     name: "",
     description: "",
     edit_policy: "OWNER_ONLY",
+    simulation_type: "NATIONAL",
     tag_id: "",
   });
   // Para valores OSeMOSYS usamos el acceso efectivo calculado por backend.
@@ -315,12 +318,13 @@ export function ScenarioDetailPage() {
           return;
         }
         setScenario(sc);
-        setMetaForm({
-          name: sc.name,
-          description: sc.description ?? "",
-          edit_policy: sc.edit_policy,
-          tag_id: sc.tag ? String(sc.tag.id) : "",
-        });
+          setMetaForm({
+            name: sc.name,
+            description: sc.description ?? "",
+            edit_policy: sc.edit_policy,
+            simulation_type: sc.simulation_type,
+            tag_id: sc.tag ? String(sc.tag.id) : "",
+          });
         setParentScenarioName(sc.base_scenario_name ?? null);
 
         const myAccess = await scenariosApi.getEffectivePermission(sc, user);
@@ -749,6 +753,7 @@ export function ScenarioDetailPage() {
         name: metaForm.name.trim(),
         description: metaForm.description.trim() || null,
         edit_policy: metaForm.edit_policy,
+        simulation_type: metaForm.simulation_type,
         tag_id: metaForm.tag_id ? Number(metaForm.tag_id) : null,
       });
       setScenario(updated);
@@ -756,6 +761,7 @@ export function ScenarioDetailPage() {
         name: updated.name,
         description: updated.description ?? "",
         edit_policy: updated.edit_policy,
+        simulation_type: updated.simulation_type,
         tag_id: updated.tag ? String(updated.tag.id) : "",
       });
       setParentScenarioName(updated.base_scenario_name ?? parentScenarioName);
@@ -837,6 +843,7 @@ export function ScenarioDetailPage() {
                 name: scenario.name,
                 description: scenario.description ?? "",
                 edit_policy: scenario.edit_policy,
+                simulation_type: scenario.simulation_type,
                 tag_id: scenario.tag ? String(scenario.tag.id) : "",
               });
               setOpenMetaModal(true);
@@ -1235,6 +1242,22 @@ export function ScenarioDetailPage() {
               <option value="OWNER_ONLY">Solo propietario</option>
               <option value="OPEN">Abierta</option>
               <option value="RESTRICTED">Restringida</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="field__label">Tipo de simulación</span>
+            <select
+              className="field__input"
+              value={metaForm.simulation_type}
+              onChange={(e) =>
+                setMetaForm((prev) => ({
+                  ...prev,
+                  simulation_type: e.target.value as SimulationType,
+                }))
+              }
+            >
+              <option value="NATIONAL">Nacional</option>
+              <option value="REGIONAL">Regional</option>
             </select>
           </label>
           <small style={{ opacity: 0.75 }}>{getPolicyExplanation(metaForm.edit_policy)}</small>

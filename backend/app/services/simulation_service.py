@@ -22,6 +22,35 @@ class SimulationService:
     """Capa de negocio para gestion de simulaciones."""
 
     @staticmethod
+    def _is_sync_mode(settings) -> bool:
+        return (
+            settings.is_sync_simulation_mode()
+            if hasattr(settings, "is_sync_simulation_mode")
+            else str(getattr(settings, "simulation_mode", "async")).strip().lower() == "sync"
+        )
+
+    @staticmethod
+    def _validate_solver_name(solver_name: str) -> str:
+        if solver_name not in {"highs", "glpk"}:
+            raise ConflictError("Solver invalido. Usa 'highs' o 'glpk'.")
+        return solver_name
+
+    @staticmethod
+    def _normalize_simulation_type(simulation_type: str | None) -> str:
+        normalized = str(simulation_type or "NATIONAL").strip().upper()
+        if normalized not in {"NATIONAL", "REGIONAL"}:
+            raise ConflictError("simulation_type invalido. Usa 'NATIONAL' o 'REGIONAL'.")
+        return normalized
+
+    @staticmethod
+    def _parallel_weight_for_type(simulation_type: str) -> int:
+        settings = get_settings()
+        normalized = SimulationService._normalize_simulation_type(simulation_type)
+        if normalized == "REGIONAL":
+            return max(1, int(settings.sim_weight_regional))
+        return max(1, int(settings.sim_weight_national))
+
+    @staticmethod
     def _batch_scenario_tags_by_scenario_ids(db: Session, scenario_ids: set[int]) -> dict[int, dict | None]:
         if not scenario_ids:
             return {}
@@ -88,6 +117,7 @@ class SimulationService:
             "solver_name": job.solver_name,
             "input_mode": getattr(job, "input_mode", "SCENARIO"),
             "input_name": getattr(job, "input_name", None),
+            "simulation_type": getattr(job, "simulation_type", "NATIONAL"),
             "status": job.status,
             "progress": float(job.progress),
             "cancel_requested": bool(job.cancel_requested),
@@ -99,6 +129,63 @@ class SimulationService:
             "finished_at": job.finished_at,
             "is_infeasible_result": SimulationService._is_infeasible_succeeded_job(job),
         }
+
+    @staticmethod
+    def _dispatch_queued_jobs(db: Session, *, fail_fast_job_id: int | None = None) -> None:
+        settings = get_settings()
+        sync_mode = SimulationService._is_sync_mode(settings)
+        running_weight = SimulationRepository.get_reserved_parallel_weight(db)
+        total_limit = max(1, int(settings.sim_total_weight_limit))
+        pending_jobs = SimulationRepository.list_queued_undispatched_jobs(db, limit=500)
+
+        for job in pending_jobs:
+            job_weight = max(1, int(getattr(job, "parallel_weight", 1) or 1))
+            if running_weight + job_weight > total_limit:
+                continue
+
+            try:
+                if sync_mode:
+                    task = run_simulation_job.apply(args=[job.id], throw=False)
+                else:
+                    task = run_simulation_job.delay(job.id)
+            except Exception as exc:  # pragma: no cover - broker externo
+                db.rollback()
+                failed_job = SimulationRepository.get_job_by_id(db, job_id=job.id)
+                if failed_job and failed_job.status == "QUEUED":
+                    failed_job.status = "FAILED"
+                    failed_job.error_message = f"QUEUE_ENQUEUE_ERROR: {exc}"
+                    SimulationRepository.add_event(
+                        db,
+                        job_id=failed_job.id,
+                        event_type="ERROR",
+                        stage="queue",
+                        message=f"No se pudo encolar la simulacion: {exc}",
+                        progress=failed_job.progress,
+                    )
+                    db.commit()
+                if fail_fast_job_id == job.id:
+                    raise ConflictError("No se pudo encolar la simulacion. Intenta nuevamente.") from exc
+                continue
+
+            dispatched_job = SimulationRepository.get_job_by_id(db, job_id=job.id)
+            if dispatched_job is None or dispatched_job.status != "QUEUED":
+                continue
+            dispatched_job.celery_task_id = task.id
+            SimulationRepository.add_event(
+                db,
+                job_id=dispatched_job.id,
+                event_type="INFO",
+                stage="queue",
+                message="Simulacion encolada." if not sync_mode else "Simulacion ejecutada en modo sincrono local.",
+                progress=float(dispatched_job.progress),
+            )
+            db.commit()
+            running_weight += job_weight
+
+    @staticmethod
+    def dispatch_pending_jobs(db: Session) -> None:
+        """Despacha jobs pendientes respetando la capacidad ponderada total."""
+        SimulationService._dispatch_queued_jobs(db)
 
     @staticmethod
     def submit(
@@ -116,18 +203,15 @@ class SimulationService:
 
         active_jobs = SimulationRepository.count_user_active_jobs(db, user_id=current_user.id)
         settings = get_settings()
-        sync_mode = (
-            settings.is_sync_simulation_mode()
-            if hasattr(settings, "is_sync_simulation_mode")
-            else str(getattr(settings, "simulation_mode", "async")).strip().lower() == "sync"
-        )
         if active_jobs >= settings.sim_user_active_limit:
             raise ConflictError(
                 f"Ya alcanzaste el maximo de simulaciones activas ({settings.sim_user_active_limit})."
             )
-
-        if solver_name not in {"highs", "glpk"}:
-            raise ConflictError("Solver invalido. Usa 'highs' o 'glpk'.")
+        SimulationService._validate_solver_name(solver_name)
+        simulation_type = SimulationService._normalize_simulation_type(
+            getattr(scenario, "simulation_type", "NATIONAL")
+        )
+        parallel_weight = SimulationService._parallel_weight_for_type(simulation_type)
 
         job = SimulationRepository.create_job(
             db,
@@ -135,6 +219,8 @@ class SimulationService:
             scenario_id=scenario_id,
             solver_name=solver_name,
             input_mode="SCENARIO",
+            simulation_type=simulation_type,
+            parallel_weight=parallel_weight,
         )
         # Necesario para obtener `job.id` antes de insertar eventos asociados.
         if hasattr(db, "flush"):
@@ -148,66 +234,16 @@ class SimulationService:
             progress=0.0,
         )
         db.commit()
+        SimulationService._dispatch_queued_jobs(db, fail_fast_job_id=job.id)
         db.refresh(job)
 
         tag_by_sid = SimulationService._batch_scenario_tags_by_scenario_ids(db, {int(scenario.id)})
         scenario_tag = tag_by_sid.get(int(scenario.id))
-
-        if sync_mode:
-            task = run_simulation_job.apply(args=[job.id], throw=False)
-            db.refresh(job)
-            job.celery_task_id = task.id
-            SimulationRepository.add_event(
-                db,
-                job_id=job.id,
-                event_type="INFO",
-                stage="queue",
-                message="Simulacion ejecutada en modo sincrono local.",
-                progress=float(job.progress),
-            )
-            db.commit()
-            db.refresh(job)
-            return SimulationService._to_public(
-                job,
-                queue_position=None,
-                username=current_user.username,
-                scenario_name=scenario.name,
-                scenario_tag=scenario_tag,
-            )
-
-        try:
-            task = run_simulation_job.delay(job.id)
-        except Exception as exc:  # pragma: no cover - depende de broker externo
-            db.rollback()
-            failed_job = SimulationRepository.get_job_by_id(db, job_id=job.id)
-            if failed_job and failed_job.status == "QUEUED":
-                failed_job.status = "FAILED"
-                failed_job.error_message = f"QUEUE_ENQUEUE_ERROR: {exc}"
-                SimulationRepository.add_event(
-                    db,
-                    job_id=failed_job.id,
-                    event_type="ERROR",
-                    stage="queue",
-                    message=f"No se pudo encolar la simulacion: {exc}",
-                    progress=failed_job.progress,
-                )
-                db.commit()
-            raise ConflictError("No se pudo encolar la simulacion. Intenta nuevamente.") from exc
-
-        job.celery_task_id = task.id
-        SimulationRepository.add_event(
-            db,
-            job_id=job.id,
-            event_type="INFO",
-            stage="queue",
-            message="Simulacion encolada.",
-            progress=0.0,
-        )
-        db.commit()
-        db.refresh(job)
         return SimulationService._to_public(
             job,
-            queue_position=SimulationRepository.queue_position(db, job_id=job.id),
+            queue_position=SimulationRepository.queue_position(db, job_id=job.id)
+            if job.status == "QUEUED"
+            else None,
             username=current_user.username,
             scenario_name=scenario.name,
             scenario_tag=scenario_tag,
@@ -221,22 +257,18 @@ class SimulationService:
         solver_name: str = "highs",
         input_name: str,
         input_ref: str,
+        simulation_type: str = "NATIONAL",
     ) -> dict:
         """Encola una simulación cuyo input proviene de un ZIP de CSV."""
         active_jobs = SimulationRepository.count_user_active_jobs(db, user_id=current_user.id)
         settings = get_settings()
-        sync_mode = (
-            settings.is_sync_simulation_mode()
-            if hasattr(settings, "is_sync_simulation_mode")
-            else str(getattr(settings, "simulation_mode", "async")).strip().lower() == "sync"
-        )
         if active_jobs >= settings.sim_user_active_limit:
             raise ConflictError(
                 f"Ya alcanzaste el maximo de simulaciones activas ({settings.sim_user_active_limit})."
             )
-
-        if solver_name not in {"highs", "glpk"}:
-            raise ConflictError("Solver invalido. Usa 'highs' o 'glpk'.")
+        SimulationService._validate_solver_name(solver_name)
+        normalized_type = SimulationService._normalize_simulation_type(simulation_type)
+        parallel_weight = SimulationService._parallel_weight_for_type(normalized_type)
 
         job = SimulationRepository.create_job(
             db,
@@ -245,6 +277,8 @@ class SimulationService:
             input_mode="CSV_UPLOAD",
             input_name=input_name,
             input_ref=input_ref,
+            simulation_type=normalized_type,
+            parallel_weight=parallel_weight,
         )
         if hasattr(db, "flush"):
             db.flush()
@@ -257,61 +291,13 @@ class SimulationService:
             progress=0.0,
         )
         db.commit()
-        db.refresh(job)
-
-        if sync_mode:
-            task = run_simulation_job.apply(args=[job.id], throw=False)
-            db.refresh(job)
-            job.celery_task_id = task.id
-            SimulationRepository.add_event(
-                db,
-                job_id=job.id,
-                event_type="INFO",
-                stage="queue",
-                message="Simulacion CSV ejecutada en modo sincrono local.",
-                progress=float(job.progress),
-            )
-            db.commit()
-            db.refresh(job)
-            return SimulationService._to_public(
-                job,
-                queue_position=None,
-                username=current_user.username,
-            )
-
-        try:
-            task = run_simulation_job.delay(job.id)
-        except Exception as exc:  # pragma: no cover - depende de broker externo
-            db.rollback()
-            failed_job = SimulationRepository.get_job_by_id(db, job_id=job.id)
-            if failed_job and failed_job.status == "QUEUED":
-                failed_job.status = "FAILED"
-                failed_job.error_message = f"QUEUE_ENQUEUE_ERROR: {exc}"
-                SimulationRepository.add_event(
-                    db,
-                    job_id=failed_job.id,
-                    event_type="ERROR",
-                    stage="queue",
-                    message=f"No se pudo encolar la simulacion CSV: {exc}",
-                    progress=failed_job.progress,
-                )
-                db.commit()
-            raise ConflictError("No se pudo encolar la simulacion CSV. Intenta nuevamente.") from exc
-
-        job.celery_task_id = task.id
-        SimulationRepository.add_event(
-            db,
-            job_id=job.id,
-            event_type="INFO",
-            stage="queue",
-            message="Simulacion CSV encolada.",
-            progress=0.0,
-        )
-        db.commit()
+        SimulationService._dispatch_queued_jobs(db, fail_fast_job_id=job.id)
         db.refresh(job)
         return SimulationService._to_public(
             job,
-            queue_position=SimulationRepository.queue_position(db, job_id=job.id),
+            queue_position=SimulationRepository.queue_position(db, job_id=job.id)
+            if job.status == "QUEUED"
+            else None,
             username=current_user.username,
         )
 
@@ -400,6 +386,8 @@ class SimulationService:
             progress=job.progress,
         )
         db.commit()
+        if job.status == "CANCELLED":
+            SimulationService._dispatch_queued_jobs(db)
         db.refresh(job)
         tags_by_sid = SimulationService._batch_scenario_tags_by_scenario_ids(
             db, {int(job.scenario_id)} if job.scenario_id else set()

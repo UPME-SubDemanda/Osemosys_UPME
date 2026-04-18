@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm import Session
 
@@ -41,6 +41,8 @@ class SimulationRepository:
         input_mode: str = "SCENARIO",
         input_name: str | None = None,
         input_ref: str | None = None,
+        simulation_type: str = "NATIONAL",
+        parallel_weight: int = 1,
         display_name: str | None = None,
     ) -> SimulationJob:
         """Crea job en estado `QUEUED`."""
@@ -51,12 +53,44 @@ class SimulationRepository:
             input_mode=input_mode,
             input_name=input_name,
             input_ref=input_ref,
+            simulation_type=simulation_type,
+            parallel_weight=parallel_weight,
             display_name=display_name,
             status="QUEUED",
             progress=0.0,
         )
         db.add(job)
         return job
+
+    @staticmethod
+    def get_reserved_parallel_weight(db: Session) -> int:
+        """Suma peso de jobs ya ejecutando o ya despachados al worker."""
+        stmt = select(func.coalesce(func.sum(SimulationJob.parallel_weight), 0)).where(
+            or_(
+                SimulationJob.status == "RUNNING",
+                and_(
+                    SimulationJob.status == "QUEUED",
+                    SimulationJob.celery_task_id.is_not(None),
+                    SimulationJob.cancel_requested.is_(False),
+                ),
+            )
+        )
+        return int(db.scalar(stmt) or 0)
+
+    @staticmethod
+    def list_queued_undispatched_jobs(db: Session, *, limit: int = 100) -> list[SimulationJob]:
+        """Lista jobs `QUEUED` aún no enviados a Celery en FIFO."""
+        stmt = (
+            select(SimulationJob)
+            .where(
+                SimulationJob.status == "QUEUED",
+                SimulationJob.celery_task_id.is_(None),
+                SimulationJob.cancel_requested.is_(False),
+            )
+            .order_by(SimulationJob.queued_at.asc(), SimulationJob.id.asc())
+            .limit(limit)
+        )
+        return list(db.execute(stmt).scalars().all())
 
     @staticmethod
     def get_job_for_user(db: Session, *, job_id: int, user_id: uuid.UUID) -> SimulationJob | None:

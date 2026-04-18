@@ -723,169 +723,205 @@ export function SimulationPage() {
         ) : null}
       </article>
 
-      {selectedScenario && udcConfig ? (
+      {selectedScenario && udcConfig !== null ? (
         <article className="pageSection" style={{ display: "grid", gap: 10 }}>
           <div
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
             onClick={() => setUdcOpen(!udcOpen)}
           >
-            <h2 style={{ margin: 0 }}>Configuración UDC (Restricciones definidas por usuario)</h2>
+            <h2 style={{ margin: 0 }}>
+              UDC — Restricciones definidas por usuario
+              {udcConfig.enabled ? (
+                <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 400, color: "rgba(74,222,128,0.9)", verticalAlign: "middle" }}>● activo</span>
+              ) : (
+                <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 400, color: "rgba(156,163,175,0.7)", verticalAlign: "middle" }}>● inactivo</span>
+              )}
+            </h2>
             <span style={{ fontSize: 18 }}>{udcOpen ? "▲" : "▼"}</span>
           </div>
 
           {udcOpen ? (
-            <div style={{ display: "grid", gap: 12 }}>
-              <div style={{ display: "flex", gap: 16, alignItems: "end", flexWrap: "wrap" }}>
-                <label className="field" style={{ margin: 0, width: 200 }}>
-                  <span className="field__label">Tipo de restricción (UDCTag)</span>
-                  <select
-                    className="field__input"
-                    value={udcConfig.tag_value}
-                    onChange={(e) =>
-                      setUdcConfig({ ...udcConfig, tag_value: Number(e.target.value) as 0 | 1 })
-                    }
-                  >
-                    <option value={0}>0 — Desigualdad (≤)</option>
-                    <option value={1}>1 — Igualdad (=)</option>
-                  </select>
-                </label>
-              </div>
-
-              {udcConfig.multipliers.map((mult, mIdx) => (
-                <div key={mIdx} style={{ border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: 12, display: "grid", gap: 8 }}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "end" }}>
-                    <label className="field" style={{ margin: 0, width: 220 }}>
-                      <span className="field__label">Tipo de multiplicador</span>
-                      <select
-                        className="field__input"
-                        value={mult.type}
-                        onChange={(e) => {
-                          const updated = [...udcConfig.multipliers];
-                          updated[mIdx] = { ...mult, type: e.target.value as UdcMultiplierEntry["type"] };
-                          setUdcConfig({ ...udcConfig, multipliers: updated });
-                        }}
-                      >
-                        <option value="TotalCapacity">TotalCapacity</option>
-                        <option value="NewCapacity">NewCapacity</option>
-                        <option value="Activity">Activity</option>
-                      </select>
-                    </label>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        const updated = udcConfig.multipliers.filter((_, i) => i !== mIdx);
-                        setUdcConfig({ ...udcConfig, multipliers: updated });
-                      }}
-                    >
-                      Eliminar multiplicador
-                    </Button>
-                  </div>
-
-                  <div style={{ maxHeight: 300, overflow: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                      <thead>
-                        <tr>
-                          <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Tecnología</th>
-                          <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Valor</th>
-                          <th style={{ width: 40 }}></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(mult.tech_dict).map(([tech, val]) => (
-                          <tr key={tech}>
-                            <td style={{ padding: "2px 8px" }}>{tech}</td>
-                            <td style={{ padding: "2px 8px", textAlign: "right" }}>
-                              <input
-                                type="number"
-                                step="any"
-                                style={{ width: 100, textAlign: "right" }}
-                                value={val}
-                                onChange={(e) => {
-                                  const updated = [...udcConfig.multipliers];
-                                  updated[mIdx] = {
-                                    ...mult,
-                                    tech_dict: { ...mult.tech_dict, [tech]: Number(e.target.value) },
-                                  };
-                                  setUdcConfig({ ...udcConfig, multipliers: updated });
-                                }}
-                              />
-                            </td>
-                            <td>
-                              <button
-                                type="button"
-                                style={{ cursor: "pointer", border: "none", background: "none", color: "rgba(248,113,113,0.9)" }}
-                                onClick={() => {
-                                  const rest = { ...mult.tech_dict };
-                                  delete rest[tech];
-                                  const updated = [...udcConfig.multipliers];
-                                  updated[mIdx] = { ...mult, tech_dict: rest };
-                                  setUdcConfig({ ...udcConfig, multipliers: updated });
-                                }}
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
-                    <label className="field" style={{ margin: 0, flex: 1 }}>
-                      <span className="field__label">Agregar tecnología</span>
-                      <input
-                        className="field__input"
-                        placeholder="Ej: PWRNUC"
-                        value={udcNewTech}
-                        onChange={(e) => setUdcNewTech(e.target.value)}
-                      />
-                    </label>
-                    <label className="field" style={{ margin: 0, width: 120 }}>
-                      <span className="field__label">Valor</span>
-                      <input
-                        className="field__input"
-                        type="number"
-                        step="any"
-                        value={udcNewValue}
-                        onChange={(e) => setUdcNewValue(e.target.value)}
-                      />
-                    </label>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        if (!udcNewTech.trim()) return;
-                        const updated = [...udcConfig.multipliers];
-                        updated[mIdx] = {
-                          ...mult,
-                          tech_dict: { ...mult.tech_dict, [udcNewTech.trim()]: Number(udcNewValue) },
-                        };
-                        setUdcConfig({ ...udcConfig, multipliers: updated });
-                        setUdcNewTech("");
-                        setUdcNewValue("0");
-                      }}
-                    >
-                      Agregar
-                    </Button>
-                  </div>
-                </div>
-              ))}
-
-              <div style={{ display: "flex", gap: 8 }}>
-                <Button
-                  variant="ghost"
-                  onClick={() =>
+            <div style={{ display: "grid", gap: 16 }}>
+              {/* Toggle habilitar/deshabilitar UDC */}
+              <label style={{ display: "flex", gap: 10, alignItems: "center", cursor: "pointer", userSelect: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={udcConfig.enabled}
+                  style={{ width: 16, height: 16, cursor: "pointer" }}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
                     setUdcConfig({
                       ...udcConfig,
-                      multipliers: [
-                        ...udcConfig.multipliers,
-                        { type: "TotalCapacity", tech_dict: {} },
-                      ],
-                    })
-                  }
-                >
-                  + Agregar multiplicador
-                </Button>
+                      enabled,
+                      multipliers: enabled && udcConfig.multipliers.length === 0
+                        ? [{ type: "TotalCapacity", tech_dict: {} }]
+                        : udcConfig.multipliers,
+                    });
+                  }}
+                />
+                <span>Habilitar UDC en esta simulación</span>
+              </label>
+
+              {!udcConfig.enabled ? (
+                <p style={{ margin: 0, opacity: 0.6, fontSize: 13 }}>
+                  UDC desactivado. La simulación correrá sin restricciones definidas por usuario.
+                </p>
+              ) : (
+                <div style={{ display: "grid", gap: 12 }}>
+                  <div style={{ display: "flex", gap: 16, alignItems: "end", flexWrap: "wrap" }}>
+                    <label className="field" style={{ margin: 0, width: 200 }}>
+                      <span className="field__label">Tipo de restricción (UDCTag)</span>
+                      <select
+                        className="field__input"
+                        value={udcConfig.tag_value}
+                        onChange={(e) =>
+                          setUdcConfig({ ...udcConfig, tag_value: Number(e.target.value) as 0 | 1 })
+                        }
+                      >
+                        <option value={0}>0 — Desigualdad (≤)</option>
+                        <option value={1}>1 — Igualdad (=)</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  {udcConfig.multipliers.map((mult, mIdx) => (
+                    <div key={mIdx} style={{ border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: 12, display: "grid", gap: 8 }}>
+                      <div style={{ display: "flex", gap: 12, alignItems: "end" }}>
+                        <label className="field" style={{ margin: 0, width: 220 }}>
+                          <span className="field__label">Tipo de multiplicador</span>
+                          <select
+                            className="field__input"
+                            value={mult.type}
+                            onChange={(e) => {
+                              const updated = [...udcConfig.multipliers];
+                              updated[mIdx] = { ...mult, type: e.target.value as UdcMultiplierEntry["type"] };
+                              setUdcConfig({ ...udcConfig, multipliers: updated });
+                            }}
+                          >
+                            <option value="TotalCapacity">TotalCapacity</option>
+                            <option value="NewCapacity">NewCapacity</option>
+                            <option value="Activity">Activity</option>
+                          </select>
+                        </label>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            const updated = udcConfig.multipliers.filter((_, i) => i !== mIdx);
+                            setUdcConfig({ ...udcConfig, multipliers: updated });
+                          }}
+                        >
+                          Eliminar multiplicador
+                        </Button>
+                      </div>
+
+                      <div style={{ maxHeight: 300, overflow: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Tecnología</th>
+                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Valor</th>
+                              <th style={{ width: 40 }}></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(mult.tech_dict).map(([tech, val]) => (
+                              <tr key={tech}>
+                                <td style={{ padding: "2px 8px" }}>{tech}</td>
+                                <td style={{ padding: "2px 8px", textAlign: "right" }}>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    style={{ width: 100, textAlign: "right" }}
+                                    value={val}
+                                    onChange={(e) => {
+                                      const updated = [...udcConfig.multipliers];
+                                      updated[mIdx] = {
+                                        ...mult,
+                                        tech_dict: { ...mult.tech_dict, [tech]: Number(e.target.value) },
+                                      };
+                                      setUdcConfig({ ...udcConfig, multipliers: updated });
+                                    }}
+                                  />
+                                </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    style={{ cursor: "pointer", border: "none", background: "none", color: "rgba(248,113,113,0.9)" }}
+                                    onClick={() => {
+                                      const rest = { ...mult.tech_dict };
+                                      delete rest[tech];
+                                      const updated = [...udcConfig.multipliers];
+                                      updated[mIdx] = { ...mult, tech_dict: rest };
+                                      setUdcConfig({ ...udcConfig, multipliers: updated });
+                                    }}
+                                  >
+                                    ✕
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
+                        <label className="field" style={{ margin: 0, flex: 1 }}>
+                          <span className="field__label">Agregar tecnología</span>
+                          <input
+                            className="field__input"
+                            placeholder="Ej: PWRNUC"
+                            value={udcNewTech}
+                            onChange={(e) => setUdcNewTech(e.target.value)}
+                          />
+                        </label>
+                        <label className="field" style={{ margin: 0, width: 120 }}>
+                          <span className="field__label">Valor</span>
+                          <input
+                            className="field__input"
+                            type="number"
+                            step="any"
+                            value={udcNewValue}
+                            onChange={(e) => setUdcNewValue(e.target.value)}
+                          />
+                        </label>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            if (!udcNewTech.trim()) return;
+                            const updated = [...udcConfig.multipliers];
+                            updated[mIdx] = {
+                              ...mult,
+                              tech_dict: { ...mult.tech_dict, [udcNewTech.trim()]: Number(udcNewValue) },
+                            };
+                            setUdcConfig({ ...udcConfig, multipliers: updated });
+                            setUdcNewTech("");
+                            setUdcNewValue("0");
+                          }}
+                        >
+                          Agregar
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      setUdcConfig({
+                        ...udcConfig,
+                        multipliers: [
+                          ...udcConfig.multipliers,
+                          { type: "TotalCapacity", tech_dict: {} },
+                        ],
+                      })
+                    }
+                  >
+                    + Agregar multiplicador
+                  </Button>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8 }}>
                 <Button variant="primary" onClick={saveUdcConfig} disabled={udcSaving}>
                   {udcSaving ? "Guardando..." : "Guardar configuración UDC"}
                 </Button>

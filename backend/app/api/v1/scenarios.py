@@ -1057,33 +1057,25 @@ def get_udc_config(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Devuelve la configuración UDC del escenario."""
+    """Devuelve la configuración UDC del escenario.
+
+    Retorna siempre un objeto con campo 'enabled':
+    - {"enabled": false, "multipliers": [], "tag_value": 0} cuando UDC está desactivado.
+    - {"enabled": true, "multipliers": [...], "tag_value": 0|1} cuando está activo.
+    """
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(status_code=404, detail="Escenario no encontrado")
 
-    default_config = {
-        "multipliers": [
-            {
-                "type": "TotalCapacity",
-                "tech_dict": {
-                    "PWRAFR": -1.0, "PWRBGS": -1.0, "PWRCOA": -1.0,
-                    "PWRCOACCS": -1.0, "PWRCSP": 0.0, "PWRDSL": -1.0,
-                    "PWRFOIL": -1.0, "PWRGEO": -1.0, "PWRHYDDAM": -1.0,
-                    "PWRHYDROR": 0.0, "PWRHYDROR_NDC": 0.0, "PWRJET": -1.0,
-                    "PWRLPG": -1.0, "PWRNGS_CC": -1.0, "PWRNGS_CS": -1.0,
-                    "PWRNGSCCS": -1.0, "PWRNUC": -1.0, "PWRSOLRTP": 0.0,
-                    "PWRSOLRTP_ZNI": 0.0, "PWRSOLUGE": 0.0,
-                    "PWRSOLUGE_BAT": -1.0, "PWRSOLUPE": 0.0,
-                    "PWRSTD": 0.0, "PWRWAS": -1.0,
-                    "PWRWNDOFS_FIX": -1.0, "PWRWNDOFS_FLO": -1.0,
-                    "PWRWNDONS": -1.0, "GRDTYDELC": (1.0 / 0.9) * 1.2,
-                },
-            }
-        ],
-        "tag_value": 0,
-    }
-    return scenario.udc_config or default_config
+    if scenario.udc_config is None:
+        return {"enabled": False, "multipliers": [], "tag_value": 0}
+
+    cfg = dict(scenario.udc_config)
+    # Backward compat: configs anteriores sin campo "enabled" se tratan como habilitadas
+    cfg.setdefault("enabled", True)
+    cfg.setdefault("multipliers", [])
+    cfg.setdefault("tag_value", 0)
+    return cfg
 
 
 @router.put("/{scenario_id}/udc-config")
@@ -1095,18 +1087,22 @@ def update_udc_config(
 ):
     """Actualiza la configuración UDC del escenario.
 
-    Payload esperado:
-    {
-        "multipliers": [
-            {"type": "TotalCapacity", "tech_dict": {"TECH_A": -1.0, ...}},
-            {"type": "NewCapacity", "tech_dict": {...}},
-        ],
-        "tag_value": 0
-    }
+    Para deshabilitar UDC:
+        {"enabled": false}
+
+    Para habilitarlo:
+        {"enabled": true, "multipliers": [...], "tag_value": 0}
     """
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(status_code=404, detail="Escenario no encontrado")
+
+    enabled = payload.get("enabled", True)
+
+    if not enabled:
+        scenario.udc_config = None
+        db.commit()
+        return {"enabled": False, "multipliers": [], "tag_value": 0}
 
     multipliers = payload.get("multipliers", [])
     valid_types = {"TotalCapacity", "NewCapacity", "Activity"}
@@ -1126,9 +1122,13 @@ def update_udc_config(
     if tag_value is not None and tag_value not in (0, 1):
         raise HTTPException(status_code=422, detail="tag_value debe ser 0 o 1")
 
-    scenario.udc_config = payload
+    scenario.udc_config = {**payload, "enabled": True}
     db.commit()
-    return scenario.udc_config
+
+    cfg = dict(scenario.udc_config)
+    cfg.setdefault("multipliers", [])
+    cfg.setdefault("tag_value", 0)
+    return cfg
 
 
 # ============================================================================

@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FileDown } from "lucide-react";
 import { useToast } from "@/app/providers/useToast";
+import { simulationApi } from "@/features/simulation/api/simulationApi";
 import { Button } from "@/shared/components/Button";
 import { downloadBlob } from "@/shared/utils/downloadBlob";
 import Highcharts from "./highchartsSetup";
 import {
   EXPORTING_CONTEXT_BUTTON_DARK,
   HIGHCHARTS_GETSVG_MERGE_OPTIONS,
+  INDIVIDUAL_CHART_EXPORT_MENU_ITEMS,
   onHighchartsExportError,
 } from "./chartExportingShared";
 import {
@@ -15,12 +17,53 @@ import {
   remapSvgFragmentIds,
 } from "./mergeFacetChartsSvg";
 import HighchartsReact from "highcharts-react-official";
-import type { CompareChartFacetResponse, FacetData } from "../../types/domain";
+import type {
+  CompareChartFacetResponse,
+  CompareFacetExportFilenameMode,
+  FacetData,
+} from "../../types/domain";
 import type {
   ChartBarOrientation,
   ChartFacetLegendMode,
   ChartFacetPlacement,
 } from "./chartLayoutPreferences";
+import type { ChartSelection } from "./ChartSelector";
+
+/** Título de leyenda en PNG servidor según agrupación (similar a la referencia de exportación). */
+function safeExportBaseFromTitle(title: string, maxLen = 80): string {
+  const clean = title.replace(/[^a-zA-Z0-9 _-]+/g, "_").replace(/_+/g, "_").trim();
+  const base = clean || "grafico";
+  return base.length > maxLen ? base.slice(0, maxLen) : base;
+}
+
+function compareFacetClientFilenameBase(
+  data: CompareChartFacetResponse,
+  mode: CompareFacetExportFilenameMode,
+): string {
+  const facets = data.facets.filter((f) => f.series?.length);
+  if (facets.length === 0) {
+    return safeExportBaseFromTitle(data.title);
+  }
+  const parts = facets.map((f) => {
+    const simFb = (f.scenario_name || `job_${f.job_id}`).trim();
+    const resultName = (f.display_name?.trim() || simFb).trim();
+    if (mode === "tags") {
+      const tag = f.scenario_tag_name?.trim() || "";
+      return tag || resultName;
+    }
+    return resultName;
+  });
+  return safeExportBaseFromTitle(parts.join("__"), 140);
+}
+
+function facetExportLegendTitleFromSelection(sel: ChartSelection): string | undefined {
+  const a = sel.agrupar_por?.toUpperCase();
+  if (a === "FUEL" || a === "COMBUSTIBLE") return "Combustible / tecnología";
+  if (a === "TECNOLOGIA") return "Tecnología";
+  if (a === "GROUP") return "Familia / grupo";
+  if (a === "SECTOR") return "Sector";
+  return undefined;
+}
 
 function stackLabelFormatter(this: Highcharts.StackItemObject): string {
   return Highcharts.numberFormat(this.total, 2, ".", ",");
@@ -68,6 +111,39 @@ interface CompareChartFacetProps {
   facetPlacement?: ChartFacetPlacement;
   /** Predeterminado: leyenda compartida (panel React). */
   legendMode?: ChartFacetLegendMode;
+  /** Si se define, permite descargar PNG (y parámetros) desde el backend sin Highcharts. */
+  serverFacetExport?: {
+    jobIds: number[];
+    selection: ChartSelection;
+    legendTitle?: string;
+  };
+}
+
+/** Metadatos en la instancia Chart para exportar sin depender de un array de refs (getSVG / update rompen ese enlace). */
+type HighchartsChartFacetExportMeta = Highcharts.Chart & {
+  __facetSyncGroup?: string;
+  __facetJobId?: number;
+  __facetExportInstanceId?: string;
+};
+
+function resolveFacetChartsForExport(
+  exportInstanceId: string,
+  facets: FacetData[],
+): Highcharts.Chart[] | null {
+  const byJob = new Map<number, Highcharts.Chart>();
+  for (const raw of Highcharts.charts) {
+    if (!raw) continue;
+    const c = raw as HighchartsChartFacetExportMeta;
+    if (c.__facetExportInstanceId !== exportInstanceId || c.__facetJobId == null) continue;
+    byJob.set(Number(c.__facetJobId), c);
+  }
+  const ordered: Highcharts.Chart[] = [];
+  for (const f of facets) {
+    const ch = byJob.get(Number(f.job_id));
+    if (!ch) return null;
+    ordered.push(ch);
+  }
+  return ordered;
 }
 
 function FacetChart({
@@ -81,8 +157,7 @@ function FacetChart({
   chartHeight,
   showHighchartsLegend,
   hoveredSeriesName = null,
-  facetChartIndex,
-  facetChartsRef,
+  facetExportInstanceId,
 }: {
   facet: FacetData;
   yAxisLabel: string;
@@ -95,18 +170,17 @@ function FacetChart({
   showHighchartsLegend: boolean;
   /** Resaltado sincronizado con leyenda compartida (hover). */
   hoveredSeriesName?: string | null;
-  facetChartIndex: number;
-  facetChartsRef: React.MutableRefObject<(Highcharts.Chart | null)[]>;
+  /** Id estable del bloque CompareChartFacet (marcado en cada Chart en `load`). */
+  facetExportInstanceId: string;
 }) {
   const chartRef = useRef<Highcharts.Chart | null>(null);
   const [chartGeneration, setChartGeneration] = useState(0);
 
   useEffect(() => {
-    const idx = facetChartIndex;
     return () => {
-      facetChartsRef.current[idx] = null; // eslint-disable-line react-hooks/exhaustive-deps -- leer .current al desmontar
+      chartRef.current = null;
     };
-  }, [facetChartIndex, facetChartsRef]);
+  }, []);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -144,9 +218,13 @@ function FacetChart({
       ? facetMarginBottomForVerticalCategoryLabels(facet.categories, FACET_X_LABEL_FONT_PX)
       : undefined;
 
+    const simPart = facet.display_name?.trim() || facet.scenario_name;
+    const tagPart = facet.scenario_tag_name?.trim();
+    const facetTitleText = tagPart ? `${simPart} — ${tagPart}` : simPart;
+
     return {
       title: {
-        text: facet.scenario_name,
+        text: facetTitleText,
         style: { fontSize: "14px", fontWeight: "bold", color: "#f8fafc" },
       },
       xAxis: {
@@ -274,8 +352,10 @@ function FacetChart({
         plotShadow: false,
         events: {
           load() {
-            (this as Highcharts.Chart & { __facetSyncGroup?: string }).__facetSyncGroup =
-              syncGroup;
+            const ch = this as HighchartsChartFacetExportMeta;
+            ch.__facetSyncGroup = syncGroup;
+            ch.__facetJobId = facet.job_id;
+            ch.__facetExportInstanceId = facetExportInstanceId;
           },
         },
       },
@@ -289,7 +369,7 @@ function FacetChart({
         chartOptions: HIGHCHARTS_GETSVG_MERGE_OPTIONS as Highcharts.Options,
         buttons: {
           contextButton: {
-            menuItems: ["downloadSVG"],
+            menuItems: [...INDIVIDUAL_CHART_EXPORT_MENU_ITEMS],
             ...EXPORTING_CONTEXT_BUTTON_DARK,
           },
         },
@@ -314,6 +394,7 @@ function FacetChart({
     inverted,
     chartHeight,
     showHighchartsLegend,
+    facetExportInstanceId,
   ]);
 
   return (
@@ -322,7 +403,6 @@ function FacetChart({
       options={options}
       callback={(chart: Highcharts.Chart) => {
         chartRef.current = chart;
-        facetChartsRef.current[facetChartIndex] = chart;
         setChartGeneration((g) => g + 1);
       }}
       containerProps={{ style: { width: "100%" } }}
@@ -345,6 +425,7 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
   barOrientation = "vertical",
   facetPlacement = "inline",
   legendMode = "shared",
+  serverFacetExport,
 }) => {
   const inverted = barOrientation === "horizontal";
   const n = data.facets.length;
@@ -426,19 +507,63 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
   const isStacked = facetPlacement === "stacked";
   const useSharedLegendPanel = legendMode === "shared" && sharedLegendItems.length > 0;
   const isLg = useMediaMinWidth(1024);
-  const facetChartsRef = useRef<(Highcharts.Chart | null)[]>([]);
-  if (facetChartsRef.current.length !== n) {
-    const prev = facetChartsRef.current;
-    facetChartsRef.current = Array.from({ length: n }, (_, i) => prev[i] ?? null);
+  /** Id único por montaje: cada Chart marca `__facetExportInstanceId` en `load` para resolver exportaciones desde `Highcharts.charts`. */
+  const facetExportInstanceIdRef = useRef<string | null>(null);
+  if (facetExportInstanceIdRef.current == null) {
+    facetExportInstanceIdRef.current =
+      globalThis.crypto?.randomUUID?.() ??
+      `facet-export-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
   }
   const { push } = useToast();
   const [exportingFacetSvg, setExportingFacetSvg] = useState(false);
+  const [exportingFacetPng, setExportingFacetPng] = useState(false);
+  const [facetExportFilenameMode, setFacetExportFilenameMode] =
+    useState<CompareFacetExportFilenameMode>("result");
+  const exportBusy = exportingFacetSvg || exportingFacetPng;
+  const exportFilenameSelectId = React.useId();
+
+  const handleExportFacetPngServer = async () => {
+    if (!serverFacetExport || serverFacetExport.jobIds.length < 2) {
+      push("Se necesitan al menos dos escenarios seleccionados.", "error");
+      return;
+    }
+    setExportingFacetPng(true);
+    try {
+      const sel = serverFacetExport.selection;
+      const legend_title =
+        serverFacetExport.legendTitle ?? facetExportLegendTitleFromSelection(sel);
+      const payload: Parameters<typeof simulationApi.exportCompareFacet>[0] = {
+        job_ids: serverFacetExport.jobIds.join(","),
+        tipo: sel.tipo,
+        un: sel.un,
+      };
+      if (sel.sub_filtro) payload.sub_filtro = sel.sub_filtro;
+      if (sel.loc) payload.loc = sel.loc;
+      if (sel.variable) payload.variable = sel.variable;
+      if (sel.agrupar_por) payload.agrupar_por = sel.agrupar_por;
+      if (legend_title) payload.legend_title = legend_title;
+      payload.filename_mode = facetExportFilenameMode;
+      const { blob, filename } = await simulationApi.exportCompareFacet(payload, "png");
+      downloadBlob(blob, filename);
+      push("PNG descargado (todas las facetas en una imagen).", "success");
+    } catch (err) {
+      console.error(err);
+      push("No se pudo generar el PNG en el servidor.", "error");
+    } finally {
+      setExportingFacetPng(false);
+    }
+  };
 
   const handleExportCombinedSvg = () => {
     setExportingFacetSvg(true);
     try {
-      const refs = facetChartsRef.current;
-      if (refs.length !== n || refs.some((c) => !c)) {
+      const instanceId = facetExportInstanceIdRef.current;
+      if (instanceId == null) {
+        push("Espera a que todas las gráficas terminen de cargar.", "error");
+        return;
+      }
+      const charts = resolveFacetChartsForExport(instanceId, data.facets);
+      if (charts == null || charts.length !== n) {
         push("Espera a que todas las gráficas terminen de cargar.", "error");
         return;
       }
@@ -465,9 +590,19 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
         ? Math.round(Math.min(44 + maxCatLenExport * exportXLabelPx * 0.62, 340))
         : undefined;
 
+      /** Evita que las etiquetas del eje Y queden pegadas al borde en facetas estrechas. */
+      const yLabelCharEstimate = Math.max(
+        7,
+        String(Math.round(sharedYAxisMax > 0 ? sharedYAxisMax : 0)).length + 4,
+      );
+      const exportMarginLeft = Math.min(
+        175,
+        Math.max(108, Math.round(36 + yLabelCharEstimate * 10 + sliceW * 0.04)),
+      );
+
       const innerXmls: string[] = [];
       for (let i = 0; i < n; i += 1) {
-        const chart = refs[i]!;
+        const chart = charts[i]!;
         const raw = chart.getSVG({
           ...HIGHCHARTS_GETSVG_MERGE_OPTIONS,
           chart: {
@@ -475,6 +610,7 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
             width: sliceW,
             height: sliceH,
             backgroundColor: "#FFFFFF",
+            marginLeft: exportMarginLeft,
             ...(exportMarginBottom !== undefined ? { marginBottom: exportMarginBottom } : {}),
           },
           exporting: {
@@ -524,11 +660,8 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
         sliceH,
         ...(exportLegendItems ? { legendItems: exportLegendItems } : {}),
       });
-      const safe = data.title
-        .replace(/[^a-zA-Z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")
-        .slice(0, 80);
-      const filename = `comparativa-facet-${safe || "graficos"}-${new Date().toISOString().slice(0, 10)}.svg`;
+      const base = compareFacetClientFilenameBase(data, facetExportFilenameMode);
+      const filename = `comparativa-facet-${base}-${new Date().toISOString().slice(0, 10)}.svg`;
       downloadBlob(new Blob([doc], { type: "image/svg+xml;charset=utf-8" }), filename);
       push("SVG combinado descargado (misma apariencia que exportar una gráfica).", "success");
     } catch (err) {
@@ -542,15 +675,49 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
   return (
     <div className="w-full space-y-4">
       <div className="space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <h3 className="m-0 min-w-0 text-base font-bold text-slate-100" style={{ fontSize: "16px" }}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+          <h3 className="m-0 min-w-0 flex-1 text-base font-bold text-slate-100" style={{ fontSize: "16px" }}>
             {data.title}
           </h3>
-          <div>
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end lg:w-auto lg:flex-nowrap lg:shrink-0">
+            {serverFacetExport && serverFacetExport.jobIds.length > 1 ? (
+              <>
+                <div className="flex min-w-0 max-w-full items-center gap-2">
+                  <label
+                    htmlFor={exportFilenameSelectId}
+                    className="m-0 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500"
+                  >
+                    Títulos de la gráfica
+                  </label>
+                  <select
+                    id={exportFilenameSelectId}
+                    value={facetExportFilenameMode}
+                    onChange={(e) =>
+                      setFacetExportFilenameMode(e.target.value as CompareFacetExportFilenameMode)
+                    }
+                    disabled={exportBusy}
+                    className="h-9 min-w-[min(100%,12rem)] max-w-[min(100%,20rem)] shrink rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs text-slate-200 disabled:opacity-50"
+                  >
+                    <option value="result">Nombre del resultado</option>
+                    <option value="tags">Etiquetas (sin etiqueta → nombre del resultado)</option>
+                  </select>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={exportBusy}
+                  onClick={() => void handleExportFacetPngServer()}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-emerald-700/50 bg-emerald-950/40 px-3 py-2 text-xs font-semibold text-emerald-100 hover:border-emerald-600 hover:bg-emerald-900/50 disabled:opacity-50"
+                >
+                  <FileDown className="h-4 w-4 shrink-0" aria-hidden />
+                  {exportingFacetPng ? "Generando PNG…" : "Descargar PNG (servidor)"}
+                </Button>
+              </>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
-              disabled={exportingFacetSvg}
+              disabled={exportBusy}
               onClick={handleExportCombinedSvg}
               className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-600 hover:bg-slate-800/80 disabled:opacity-50"
             >
@@ -654,8 +821,7 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
                   hoveredSeriesName={
                     useSharedLegendPanel ? effectiveLegendHover : null
                   }
-                  facetChartIndex={idx}
-                  facetChartsRef={facetChartsRef}
+                  facetExportInstanceId={facetExportInstanceIdRef.current!}
                 />
               </div>
             ))}

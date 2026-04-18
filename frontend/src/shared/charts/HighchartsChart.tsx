@@ -2,20 +2,25 @@ import React, { useMemo } from 'react';
 import Highcharts from './highchartsSetup';
 import {
   EXPORTING_CONTEXT_BUTTON_DARK,
+  buildChartExportMenuItems,
   onHighchartsExportError,
 } from './chartExportingShared';
 import HighchartsReact from 'highcharts-react-official';
 import type { ChartDataResponse } from '../../types/domain';
+import type { ChartSelection } from './ChartSelector';
 
 interface HighchartsChartProps {
   data: ChartDataResponse;
   /** Barras verticales (predeterminado) u horizontales (`inverted`). */
   barOrientation?: 'vertical' | 'horizontal';
+  /** Si se indica, PNG/SVG/CSV se generan en el servidor (no dependen del navegador). */
+  serverExport?: { jobId: number; selection: ChartSelection };
 }
 
 export const HighchartsChart: React.FC<HighchartsChartProps> = ({
   data,
   barOrientation = 'vertical',
+  serverExport,
 }) => {
   const inverted = barOrientation === 'horizontal';
   const options = useMemo<Highcharts.Options>(() => {
@@ -120,7 +125,8 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
         },
         buttons: {
           contextButton: {
-            menuItems: ['downloadSVG'],
+            // Highcharts admite objetos { text, onclick }; los tipos suelen declarar solo string[].
+            menuItems: buildChartExportMenuItems(serverExport) as string[],
             ...EXPORTING_CONTEXT_BUTTON_DARK,
           },
         },
@@ -134,7 +140,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
         itemHoverStyle: { color: '#f8fafc' },
       },
     };
-  }, [data, inverted]);
+  }, [data, inverted, serverExport]);
 
   return (
     <div style={{ width: '100%' }}>

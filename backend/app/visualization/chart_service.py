@@ -18,9 +18,10 @@ from typing import Any
 
 import pandas as pd
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models import OsemosysOutputParamValue, SimulationJob
+from app.schemas.scenario import ScenarioTagPublic
 from app.schemas.visualization import (
     ChartCatalogItem,
     ChartDataResponse,
@@ -543,10 +544,16 @@ def build_comparison_data(
     for jid in job_ids:
         job = db.query(SimulationJob).filter(SimulationJob.id == jid).first()
         if job:
-            # Usar el nombre del escenario si está disponible
             from app.models import Scenario
-            scenario = db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
-            scenario_names[jid] = scenario.name if scenario else (job.input_name or f"Job {jid}")
+
+            scenario = (
+                db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
+                if job.scenario_id
+                else None
+            )
+            base = scenario.name if scenario else (job.input_name or f"Job {jid}")
+            disp = (getattr(job, "display_name", None) or "").strip()
+            scenario_names[jid] = disp if disp else base
         else:
             scenario_names[jid] = f"Job {jid}"
 
@@ -709,8 +716,21 @@ def build_comparison_facet_data(
         job = db.query(SimulationJob).filter(SimulationJob.id == jid).first()
         if not job:
             continue
-        scenario = db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
+        scenario = None
+        if job.scenario_id is not None:
+            scenario = (
+                db.query(Scenario)
+                .options(joinedload(Scenario.tag_row))
+                .filter(Scenario.id == job.scenario_id)
+                .first()
+            )
         scenario_name = scenario.name if scenario else (job.input_name or f"Job {jid}")
+        tag_name = (
+            scenario.tag_row.name
+            if scenario and getattr(scenario, "tag_row", None) is not None
+            else None
+        )
+        job_display = getattr(job, "display_name", None) or None
 
         chart = build_chart_data(
             db=db,
@@ -729,6 +749,8 @@ def build_comparison_facet_data(
             FacetData(
                 scenario_name=scenario_name,
                 job_id=jid,
+                display_name=job_display,
+                scenario_tag_name=tag_name,
                 categories=chart.categories,
                 series=chart.series,
             )
@@ -864,11 +886,23 @@ def get_result_summary(
     if not job:
         raise ValueError(f"Job {job_id} no encontrado.")
 
-    # Obtener nombre del escenario
+    # Obtener nombre del escenario y etiqueta (si existe)
     from app.models import Scenario
 
-    scenario = db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
+    scenario = None
+    if job.scenario_id is not None:
+        scenario = (
+            db.query(Scenario)
+            .options(joinedload(Scenario.tag_row))
+            .filter(Scenario.id == job.scenario_id)
+            .first()
+        )
     scenario_name = scenario.name if scenario else job.input_name
+    scenario_tag = (
+        ScenarioTagPublic.model_validate(scenario.tag_row)
+        if scenario and scenario.tag_row
+        else None
+    )
 
     solver_status = (job.model_timings_json or {}).get("solver_status", "unknown")
 
@@ -886,6 +920,8 @@ def get_result_summary(
         job_id=job.id,
         scenario_id=job.scenario_id,
         scenario_name=scenario_name,
+        scenario_tag=scenario_tag,
+        display_name=getattr(job, "display_name", None) or None,
         solver_name=job.solver_name,
         solver_status=solver_status,
         objective_value=job.objective_value or 0.0,
@@ -1091,6 +1127,453 @@ def _render_stacked_bar(
     plt.close(fig)
     buf.seek(0)
     return buf
+
+
+def _render_line_chart(
+    chart: ChartDataResponse,
+    title: str,
+    fmt: str = "svg",
+) -> "io.BytesIO":
+    """Renderiza un ChartDataResponse como gráfica de líneas con matplotlib."""
+    import io
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    categories = chart.categories
+    n_cats = len(categories)
+    x = np.arange(n_cats)
+
+    fig, ax = plt.subplots(figsize=(max(12, n_cats * 0.5), 7))
+
+    for s in chart.series:
+        values = np.array(s.data, dtype=float)
+        ax.plot(
+            x,
+            values,
+            marker="o",
+            markersize=4,
+            label=s.name,
+            color=s.color,
+            linewidth=2,
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        categories,
+        rotation=45 if n_cats > 15 else 0,
+        ha="right" if n_cats > 15 else "center",
+        fontsize=8,
+    )
+    ax.set_ylabel(chart.yAxisLabel, fontsize=10)
+    ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.15),
+        ncol=min(len(chart.series), 5),
+        fontsize=7,
+        frameon=False,
+    )
+    ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format=fmt, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def render_chart_visualization_bytes(
+    chart: ChartDataResponse,
+    fmt: str,
+    view_mode: str = "column",
+) -> bytes:
+    """Genera PNG o SVG con Matplotlib (sin navegador). ``view_mode``: ``column`` | ``line``."""
+    if fmt not in ("png", "svg"):
+        raise ValueError("fmt debe ser 'png' o 'svg'")
+    title = chart.title
+    if view_mode == "line":
+        buf = _render_line_chart(chart, title, fmt=fmt)
+    else:
+        buf = _render_stacked_bar(chart, title, fmt=fmt)
+    return buf.getvalue()
+
+
+def _facet_x_axis_label_step(categories: list[Any]) -> int:
+    """Paso entre etiquetas visibles del eje X (responsive).
+
+    Si las categorías son años (1800–2200): como mínimo cada **2 años** y a lo sumo
+    unas **12** marcas con texto para horizontes largos.
+    En otro caso, limita a ~12 etiquetas sobre el total de categorías.
+    """
+    n = len(categories)
+    if n <= 1:
+        return 1
+
+    try:
+        years = [int(str(c).strip()) for c in categories]
+    except (ValueError, TypeError):
+        years = None
+    else:
+        if not years or not all(1800 <= y <= 2200 for y in years):
+            years = None
+
+    target_visible = 12
+    if years is not None:
+        return max(2, (n + target_visible - 1) // target_visible)
+
+    return max(1, (n + target_visible - 1) // target_visible)
+
+
+def _facet_x_ticklabels_thinned(categories: list[Any], step: int) -> list[str]:
+    """Etiquetas con cadena vacía en índices omitidos; asegura inicio y fin legibles."""
+    n = len(categories)
+    if step < 1:
+        step = 1
+    out: list[str] = [""] * n
+    for i in range(0, n, step):
+        out[i] = str(categories[i])
+    if n > 1:
+        if not out[0]:
+            out[0] = str(categories[0])
+        if not out[-1]:
+            out[-1] = str(categories[-1])
+    return out
+
+
+def render_comparison_facet_figure_bytes(
+    data: CompareChartFacetResponse,
+    fmt: str = "png",
+    *,
+    legend_title: str | None = None,
+) -> bytes:
+    """Una sola figura: facetas en fila, título global, leyenda inferior (Matplotlib).
+
+    Prioriza **legibilidad**: misma escala Y entre escenarios, tipografía clara, leyenda
+    con marco y números formateados en ejes y totales de barra cuando aportan.
+    """
+    import io
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from matplotlib import patheffects as pe
+    from matplotlib.patches import Rectangle
+    from matplotlib.ticker import AutoMinorLocator, MaxNLocator, StrMethodFormatter
+
+    if fmt not in ("png", "svg"):
+        raise ValueError("fmt debe ser 'png' o 'svg'")
+
+    facets = [f for f in data.facets if f.series]
+    if not facets:
+        raise ValueError("Sin facetas con series para exportar")
+
+    n = len(facets)
+    legend_order: list[tuple[str, str]] = []
+    seen_names: set[str] = set()
+    for facet in facets:
+        for s in facet.series:
+            if s.name not in seen_names:
+                seen_names.add(s.name)
+                legend_order.append((s.name, s.color))
+
+    n_leg_items = len(legend_order)
+    legend_labels_full = [name for name, _c in legend_order]
+    max_leg_label_len = max((len(lab) for lab in legend_labels_full), default=0)
+
+    # Leyenda: **siempre** texto completo; menos columnas si los nombres son largos.
+    if max_leg_label_len > 48:
+        leg_ncol = max(1, min(2, n_leg_items))
+    elif max_leg_label_len > 34:
+        leg_ncol = max(1, min(3, n_leg_items))
+    elif max_leg_label_len > 22:
+        leg_ncol = max(1, min(4, n_leg_items))
+    else:
+        leg_ncol = max(
+            1,
+            min(6, n_leg_items if n_leg_items <= 10 else (4 if n_leg_items <= 16 else 5)),
+        )
+    n_leg_rows = max(1, (n_leg_items + leg_ncol - 1) // leg_ncol)
+
+    w_per_facet = 5.6
+    fig_w = max(15.0, w_per_facet * n + 0.9 * (n - 1))
+    # Leyenda más ancha en figuras anchas (ocupa más el espacio horizontal).
+    if max_leg_label_len <= 40:
+        leg_ncol = min(
+            n_leg_items,
+            max(leg_ncol, min(9, 3 + max(0, int(fig_w // 2.6)))),
+        )
+        n_leg_rows = max(1, (n_leg_items + leg_ncol - 1) // leg_ncol)
+
+    # Altura extra para leyenda grande + más aire bajo los paneles.
+    fig_h = (
+        8.55
+        + 0.50 * max(0, n_leg_rows - 2)
+        + 0.0085 * max(0, max_leg_label_len - 22) * n_leg_rows
+    )
+    fig_h = float(min(max(fig_h, 8.0), 19.0))
+
+    fig, axes = plt.subplots(1, n, figsize=(fig_w, fig_h), squeeze=False)
+    row_axes = axes[0]
+
+    y_label = data.yAxisLabel or "Valor"
+    stack_tops: list[np.ndarray] = []
+
+    for ax, facet in zip(row_axes, facets):
+        categories = list(facet.categories)
+        n_cats = len(categories)
+        x = np.arange(n_cats, dtype=float)
+        bottom = np.zeros(n_cats, dtype=float)
+
+        for s in facet.series:
+            values = np.array(s.data, dtype=float)
+            if values.size < n_cats:
+                values = np.pad(values, (0, n_cats - int(values.size)))
+            elif values.size > n_cats:
+                values = values[:n_cats]
+            ax.bar(
+                x,
+                values,
+                bottom=bottom,
+                color=s.color,
+                width=0.74,
+                edgecolor="#ffffff",
+                linewidth=0.45,
+            )
+            bottom = bottom + values
+
+        stack_tops.append(bottom.copy())
+
+        ax.set_xticks(x)
+        x_step = _facet_x_axis_label_step(categories)
+        x_labels = _facet_x_ticklabels_thinned(categories, x_step)
+        n_labeled = sum(1 for lb in x_labels if lb)
+        x_fs = (
+            7
+            if n_labeled > 14 or n_cats > 36
+            else (8 if n_cats > 22 or n_labeled > 11 else 9)
+        )
+        ax.set_xticklabels(
+            x_labels,
+            rotation=90,
+            ha="center",
+            fontsize=x_fs,
+            color="#1e293b",
+        )
+        ax.set_ylabel(
+            y_label,
+            fontsize=11,
+            color="#0f172a",
+            fontweight="600",
+            labelpad=8,
+        )
+        sim_lbl = (facet.display_name or facet.scenario_name or f"Job {facet.job_id}").strip()
+        tag_lbl = (facet.scenario_tag_name or "").strip()
+        facet_title = f"{sim_lbl} — {tag_lbl}" if tag_lbl else sim_lbl
+        ax.set_title(
+            facet_title,
+            fontsize=12,
+            fontweight="bold",
+            color="#0f172a",
+            pad=10,
+        )
+        ax.set_axisbelow(True)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        for _side in ("left", "bottom"):
+            ax.spines[_side].set_visible(True)
+            ax.spines[_side].set_color("#1e293b")
+            ax.spines[_side].set_linewidth(1.35)
+        ax.tick_params(
+            axis="y",
+            labelsize=10,
+            colors="#0f172a",
+            width=1.15,
+            length=6,
+            labelcolor="#0f172a",
+        )
+        ax.tick_params(
+            axis="x",
+            colors="#0f172a",
+            width=1.15,
+            length=5,
+            labelcolor="#1e293b",
+        )
+        ax.set_facecolor("#ffffff")
+
+    global_max = 0.0
+    for b in stack_tops:
+        if b.size:
+            global_max = max(global_max, float(np.max(b)))
+    if global_max <= 0:
+        global_max = 1.0
+    y_top = global_max * 1.12
+
+    show_stack_totals = all(len(b) <= 18 for b in stack_tops)
+
+    for ax, bottom in zip(row_axes, stack_tops):
+        ax.set_ylim(0, y_top)
+        ax.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+        ax.yaxis.set_major_locator(
+            MaxNLocator(nbins=7, min_n_ticks=5, steps=[1, 2, 2.5, 5, 10]),
+        )
+        # Líneas horizontales intermedias entre marcas principales
+        ax.yaxis.set_minor_locator(AutoMinorLocator(2))
+
+        # Rejilla: lectura de valores (horizontales mayor + menor; verticales por categoría)
+        ax.grid(
+            which="major",
+            axis="y",
+            linestyle="-",
+            linewidth=0.95,
+            color="#64748b",
+            alpha=0.55,
+            zorder=0,
+        )
+        ax.grid(
+            which="minor",
+            axis="y",
+            linestyle=":",
+            linewidth=0.7,
+            color="#94a3b8",
+            alpha=0.5,
+            zorder=0,
+        )
+        ax.grid(
+            which="major",
+            axis="x",
+            linestyle="-",
+            linewidth=0.75,
+            color="#94a3b8",
+            alpha=0.42,
+            zorder=0,
+        )
+
+        if not show_stack_totals:
+            continue
+        n_cats = len(bottom)
+        for i in range(n_cats):
+            total = float(bottom[i])
+            if total <= 0 or total < global_max * 0.018:
+                continue
+            t = ax.text(
+                i,
+                total,
+                f"{total:,.0f}",
+                ha="center",
+                va="bottom",
+                fontsize=7.5,
+                color="#0f172a",
+                fontweight="600",
+            )
+            t.set_path_effects([pe.withStroke(linewidth=2.5, foreground="white")])
+
+    fig.patch.set_facecolor("#ffffff")
+    fig.suptitle(
+        data.title,
+        fontsize=16,
+        fontweight="bold",
+        color="#020617",
+        y=0.97,
+    )
+
+    leg_title = (legend_title or "").strip() or "Qué representa cada color (serie)"
+    handles = [
+        Rectangle((0, 0), 1, 1, facecolor=c, edgecolor="#334155", linewidth=0.35)
+        for _name, c in legend_order
+    ]
+    leg_font = (
+        9.0
+        if max_leg_label_len > 52 or n_leg_items > 14
+        else (9.6 if max_leg_label_len > 36 or n_leg_items > 10 else 10.8)
+    )
+    leg_font = float(min(leg_font, 11.5))
+    leg_title_fs = 11.0 if leg_font >= 9.8 else 10.0
+
+    # Margen bajo los paneles (espacio para la leyenda).
+    bottom_margin = max(
+        0.26,
+        min(
+            0.62,
+            0.18
+            + 0.058 * n_leg_rows
+            + 0.0045 * max(0, max_leg_label_len - 20) * n_leg_rows
+            + 0.012 * leg_font,
+        ),
+    )
+    # Leyenda centrada horizontalmente y más arriba (banda bajo los gráficos, no pegada al borde).
+    legend_anchor_y = max(0.08, min(0.24, bottom_margin * 0.48))
+
+    fig.legend(
+        handles=handles,
+        labels=legend_labels_full,
+        loc="lower center",
+        bbox_to_anchor=(0.5, legend_anchor_y),
+        ncol=leg_ncol,
+        fontsize=leg_font,
+        frameon=True,
+        fancybox=True,
+        shadow=False,
+        framealpha=0.98,
+        edgecolor="#64748b",
+        facecolor="#f1f5f9",
+        title=leg_title,
+        title_fontsize=leg_title_fs,
+        labelcolor="#0f172a",
+        handlelength=1.55,
+        handleheight=1.2,
+        columnspacing=1.85,
+        handletextpad=0.85,
+        borderpad=1.15,
+        labelspacing=0.75,
+    )
+
+    plt.subplots_adjust(
+        left=0.07,
+        right=0.995,
+        top=0.90,
+        bottom=bottom_margin,
+        wspace=0.28,
+    )
+
+    buf = io.BytesIO()
+    fig.savefig(
+        buf,
+        format=fmt,
+        dpi=200,
+        facecolor="#ffffff",
+        edgecolor="none",
+        bbox_inches="tight",
+        pad_inches=0.45,
+    )
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def chart_data_to_csv_bytes(chart: ChartDataResponse) -> bytes:
+    """Tabla categorías × series como CSV UTF-8 con BOM (compatible con Excel)."""
+    import csv
+    import io
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["Categoria"] + [s.name for s in chart.series])
+    for i, cat in enumerate(chart.categories):
+        row: list[Any] = [cat]
+        for s in chart.series:
+            val = s.data[i] if i < len(s.data) else None
+            row.append(val)
+        writer.writerow(row)
+    return buffer.getvalue().encode("utf-8-sig")
 
 
 def _safe_filename(name: str) -> str:

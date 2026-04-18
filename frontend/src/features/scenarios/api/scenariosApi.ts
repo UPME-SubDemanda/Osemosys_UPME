@@ -193,6 +193,7 @@ export type UdcMultiplierEntry = {
 };
 
 export type UdcConfig = {
+  enabled: boolean;
   multipliers: UdcMultiplierEntry[];
   tag_value: 0 | 1;
 };

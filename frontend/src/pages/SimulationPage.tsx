@@ -20,6 +20,7 @@ import { scenariosApi } from "@/features/scenarios/api/scenariosApi";
 import type { UdcConfig, UdcMultiplierEntry } from "@/features/scenarios/api/scenariosApi";
 import { simulationApi } from "@/features/simulation/api/simulationApi";
 import { InfeasibilityDiagnosticsPanel } from "@/features/simulation/components/InfeasibilityDiagnosticsPanel";
+import { RunDisplayNameEditor } from "@/features/simulation/components/RunDisplayNameEditor";
 import { getSimulationRunStatusDisplay } from "@/features/simulation/simulationRunStatus";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
@@ -328,7 +329,10 @@ export function SimulationPage() {
   const [statusFilter, setStatusFilter] = useState<SimulationRun["status"] | "ALL">("ALL");
   const [usernameFilter, setUsernameFilter] = useState("");
   const [solverName, setSolverName] = useState<SimulationSolver>("highs");
+  /** Nombre opcional al encolar desde escenario (si está vacío, el backend usa el nombre del escenario). */
+  const [newRunDisplayName, setNewRunDisplayName] = useState("");
   const [csvSolverName, setCsvSolverName] = useState<SimulationSolver>("highs");
+  const [csvRunDisplayName, setCsvRunDisplayName] = useState("");
   const [csvZipFile, setCsvZipFile] = useState<File | null>(null);
   const [csvInputName, setCsvInputName] = useState("");
   const [csvSimulationType, setCsvSimulationType] = useState<SimulationType>("NATIONAL");
@@ -491,8 +495,11 @@ export function SimulationPage() {
     }
     setSubmitting(true);
     try {
-      await simulationApi.submit(scenarioId, solverName);
+      await simulationApi.submit(scenarioId, solverName, {
+        display_name: newRunDisplayName.trim() || null,
+      });
       push("Simulación encolada correctamente.", "success");
+      setNewRunDisplayName("");
       await refreshRuns();
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Error enviando simulación.";
@@ -557,6 +564,7 @@ export function SimulationPage() {
         scenario_name: csvScenarioName,
         description: csvScenarioDescription,
         edit_policy: csvScenarioEditPolicy,
+        display_name: csvRunDisplayName.trim() || null,
       });
       setCsvTrackedJobId(job.id);
       setRuns((prev) => [job, ...prev.filter((run) => run.id !== job.id)]);
@@ -566,6 +574,7 @@ export function SimulationPage() {
           : `Simulación desde CSV encolada como job ${job.id}.`,
         "success",
       );
+      setCsvRunDisplayName("");
       await refreshRuns();
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Error ejecutando simulación desde CSV.";
@@ -592,6 +601,10 @@ export function SimulationPage() {
     return runs.filter((run) => run.status === statusFilter);
   }, [runs, statusFilter]);
 
+  const handleRunDisplayNameSaved = useCallback((jobId: number, next: string | null) => {
+    setRuns((prev) => prev.map((r) => (r.id === jobId ? { ...r, display_name: next } : r)));
+  }, []);
+
   const selectedLogs = logsOpenForJob ? logsByJob[logsOpenForJob] ?? [] : [];
 
   return (
@@ -605,7 +618,8 @@ export function SimulationPage() {
           style={{
             display: "grid",
             gap: 10,
-            gridTemplateColumns: "minmax(260px, 1fr) minmax(180px, 240px) auto auto",
+            gridTemplateColumns:
+              "minmax(220px, 1.1fr) minmax(200px, 1fr) minmax(160px, 220px) auto auto",
             alignItems: "end",
           }}
         >
@@ -626,6 +640,19 @@ export function SimulationPage() {
             </select>
           </label>
           <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">Nombre del resultado (opcional)</span>
+            <input
+              className="field__input"
+              type="text"
+              maxLength={255}
+              value={newRunDisplayName}
+              onChange={(e) => setNewRunDisplayName(e.target.value)}
+              placeholder="Ej. Caso base 2030 — sensibilidad"
+              disabled={submitting}
+              autoComplete="off"
+            />
+          </label>
+          <label className="field" style={{ margin: 0 }}>
             <span className="field__label">Solver</span>
             <select
               className="field__input"
@@ -643,6 +670,9 @@ export function SimulationPage() {
             Refrescar estado
           </Button>
         </div>
+        <small style={{ opacity: 0.72, margin: 0 }}>
+          Si dejas el nombre vacío, se usará el nombre del escenario como etiqueta de la corrida.
+        </small>
       </article>
 
       <article className="pageSection" style={{ display: "grid", gap: 12 }}>
@@ -656,7 +686,8 @@ export function SimulationPage() {
           style={{
             display: "grid",
             gap: 10,
-            gridTemplateColumns: "minmax(220px, 1fr) minmax(180px, 240px) minmax(180px, 220px) auto",
+            gridTemplateColumns:
+              "minmax(220px, 1fr) minmax(180px, 240px) minmax(180px, 220px) minmax(200px, 1fr) auto",
             alignItems: "end",
           }}
         >
@@ -676,6 +707,8 @@ export function SimulationPage() {
               value={csvInputName}
               onChange={(e) => setCsvInputName(e.target.value)}
               placeholder={csvZipFile?.name ?? "Ej: Modelo nacional abril"}
+              disabled={csvSubmitting}
+              autoComplete="off"
             />
           </label>
           <label className="field" style={{ margin: 0 }}>
@@ -688,6 +721,19 @@ export function SimulationPage() {
               <option value="highs">HiGHS</option>
               <option value="glpk">GLPK</option>
             </select>
+          </label>
+          <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">Nombre del resultado (opcional)</span>
+            <input
+              className="field__input"
+              type="text"
+              maxLength={255}
+              value={csvRunDisplayName}
+              onChange={(e) => setCsvRunDisplayName(e.target.value)}
+              placeholder="Ej. Prueba importación Q1"
+              disabled={csvSubmitting}
+              autoComplete="off"
+            />
           </label>
           <label className="field" style={{ margin: 0 }}>
             <span className="field__label">Tipo de simulación</span>
@@ -772,169 +818,205 @@ export function SimulationPage() {
         ) : null}
       </article>
 
-      {selectedScenario && udcConfig ? (
+      {selectedScenario && udcConfig !== null ? (
         <article className="pageSection" style={{ display: "grid", gap: 10 }}>
           <div
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
             onClick={() => setUdcOpen(!udcOpen)}
           >
-            <h2 style={{ margin: 0 }}>Configuración UDC (Restricciones definidas por usuario)</h2>
+            <h2 style={{ margin: 0 }}>
+              UDC — Restricciones definidas por usuario
+              {udcConfig.enabled ? (
+                <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 400, color: "rgba(74,222,128,0.9)", verticalAlign: "middle" }}>● activo</span>
+              ) : (
+                <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 400, color: "rgba(156,163,175,0.7)", verticalAlign: "middle" }}>● inactivo</span>
+              )}
+            </h2>
             <span style={{ fontSize: 18 }}>{udcOpen ? "▲" : "▼"}</span>
           </div>
 
           {udcOpen ? (
-            <div style={{ display: "grid", gap: 12 }}>
-              <div style={{ display: "flex", gap: 16, alignItems: "end", flexWrap: "wrap" }}>
-                <label className="field" style={{ margin: 0, width: 200 }}>
-                  <span className="field__label">Tipo de restricción (UDCTag)</span>
-                  <select
-                    className="field__input"
-                    value={udcConfig.tag_value}
-                    onChange={(e) =>
-                      setUdcConfig({ ...udcConfig, tag_value: Number(e.target.value) as 0 | 1 })
-                    }
-                  >
-                    <option value={0}>0 — Desigualdad (≤)</option>
-                    <option value={1}>1 — Igualdad (=)</option>
-                  </select>
-                </label>
-              </div>
-
-              {udcConfig.multipliers.map((mult, mIdx) => (
-                <div key={mIdx} style={{ border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: 12, display: "grid", gap: 8 }}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "end" }}>
-                    <label className="field" style={{ margin: 0, width: 220 }}>
-                      <span className="field__label">Tipo de multiplicador</span>
-                      <select
-                        className="field__input"
-                        value={mult.type}
-                        onChange={(e) => {
-                          const updated = [...udcConfig.multipliers];
-                          updated[mIdx] = { ...mult, type: e.target.value as UdcMultiplierEntry["type"] };
-                          setUdcConfig({ ...udcConfig, multipliers: updated });
-                        }}
-                      >
-                        <option value="TotalCapacity">TotalCapacity</option>
-                        <option value="NewCapacity">NewCapacity</option>
-                        <option value="Activity">Activity</option>
-                      </select>
-                    </label>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        const updated = udcConfig.multipliers.filter((_, i) => i !== mIdx);
-                        setUdcConfig({ ...udcConfig, multipliers: updated });
-                      }}
-                    >
-                      Eliminar multiplicador
-                    </Button>
-                  </div>
-
-                  <div style={{ maxHeight: 300, overflow: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                      <thead>
-                        <tr>
-                          <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Tecnología</th>
-                          <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Valor</th>
-                          <th style={{ width: 40 }}></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(mult.tech_dict).map(([tech, val]) => (
-                          <tr key={tech}>
-                            <td style={{ padding: "2px 8px" }}>{tech}</td>
-                            <td style={{ padding: "2px 8px", textAlign: "right" }}>
-                              <input
-                                type="number"
-                                step="any"
-                                style={{ width: 100, textAlign: "right" }}
-                                value={val}
-                                onChange={(e) => {
-                                  const updated = [...udcConfig.multipliers];
-                                  updated[mIdx] = {
-                                    ...mult,
-                                    tech_dict: { ...mult.tech_dict, [tech]: Number(e.target.value) },
-                                  };
-                                  setUdcConfig({ ...udcConfig, multipliers: updated });
-                                }}
-                              />
-                            </td>
-                            <td>
-                              <button
-                                type="button"
-                                style={{ cursor: "pointer", border: "none", background: "none", color: "rgba(248,113,113,0.9)" }}
-                                onClick={() => {
-                                  const rest = { ...mult.tech_dict };
-                                  delete rest[tech];
-                                  const updated = [...udcConfig.multipliers];
-                                  updated[mIdx] = { ...mult, tech_dict: rest };
-                                  setUdcConfig({ ...udcConfig, multipliers: updated });
-                                }}
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
-                    <label className="field" style={{ margin: 0, flex: 1 }}>
-                      <span className="field__label">Agregar tecnología</span>
-                      <input
-                        className="field__input"
-                        placeholder="Ej: PWRNUC"
-                        value={udcNewTech}
-                        onChange={(e) => setUdcNewTech(e.target.value)}
-                      />
-                    </label>
-                    <label className="field" style={{ margin: 0, width: 120 }}>
-                      <span className="field__label">Valor</span>
-                      <input
-                        className="field__input"
-                        type="number"
-                        step="any"
-                        value={udcNewValue}
-                        onChange={(e) => setUdcNewValue(e.target.value)}
-                      />
-                    </label>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        if (!udcNewTech.trim()) return;
-                        const updated = [...udcConfig.multipliers];
-                        updated[mIdx] = {
-                          ...mult,
-                          tech_dict: { ...mult.tech_dict, [udcNewTech.trim()]: Number(udcNewValue) },
-                        };
-                        setUdcConfig({ ...udcConfig, multipliers: updated });
-                        setUdcNewTech("");
-                        setUdcNewValue("0");
-                      }}
-                    >
-                      Agregar
-                    </Button>
-                  </div>
-                </div>
-              ))}
-
-              <div style={{ display: "flex", gap: 8 }}>
-                <Button
-                  variant="ghost"
-                  onClick={() =>
+            <div style={{ display: "grid", gap: 16 }}>
+              {/* Toggle habilitar/deshabilitar UDC */}
+              <label style={{ display: "flex", gap: 10, alignItems: "center", cursor: "pointer", userSelect: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={udcConfig.enabled}
+                  style={{ width: 16, height: 16, cursor: "pointer" }}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
                     setUdcConfig({
                       ...udcConfig,
-                      multipliers: [
-                        ...udcConfig.multipliers,
-                        { type: "TotalCapacity", tech_dict: {} },
-                      ],
-                    })
-                  }
-                >
-                  + Agregar multiplicador
-                </Button>
+                      enabled,
+                      multipliers: enabled && udcConfig.multipliers.length === 0
+                        ? [{ type: "TotalCapacity", tech_dict: {} }]
+                        : udcConfig.multipliers,
+                    });
+                  }}
+                />
+                <span>Habilitar UDC en esta simulación</span>
+              </label>
+
+              {!udcConfig.enabled ? (
+                <p style={{ margin: 0, opacity: 0.6, fontSize: 13 }}>
+                  UDC desactivado. La simulación correrá sin restricciones definidas por usuario.
+                </p>
+              ) : (
+                <div style={{ display: "grid", gap: 12 }}>
+                  <div style={{ display: "flex", gap: 16, alignItems: "end", flexWrap: "wrap" }}>
+                    <label className="field" style={{ margin: 0, width: 200 }}>
+                      <span className="field__label">Tipo de restricción (UDCTag)</span>
+                      <select
+                        className="field__input"
+                        value={udcConfig.tag_value}
+                        onChange={(e) =>
+                          setUdcConfig({ ...udcConfig, tag_value: Number(e.target.value) as 0 | 1 })
+                        }
+                      >
+                        <option value={0}>0 — Desigualdad (≤)</option>
+                        <option value={1}>1 — Igualdad (=)</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  {udcConfig.multipliers.map((mult, mIdx) => (
+                    <div key={mIdx} style={{ border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: 12, display: "grid", gap: 8 }}>
+                      <div style={{ display: "flex", gap: 12, alignItems: "end" }}>
+                        <label className="field" style={{ margin: 0, width: 220 }}>
+                          <span className="field__label">Tipo de multiplicador</span>
+                          <select
+                            className="field__input"
+                            value={mult.type}
+                            onChange={(e) => {
+                              const updated = [...udcConfig.multipliers];
+                              updated[mIdx] = { ...mult, type: e.target.value as UdcMultiplierEntry["type"] };
+                              setUdcConfig({ ...udcConfig, multipliers: updated });
+                            }}
+                          >
+                            <option value="TotalCapacity">TotalCapacity</option>
+                            <option value="NewCapacity">NewCapacity</option>
+                            <option value="Activity">Activity</option>
+                          </select>
+                        </label>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            const updated = udcConfig.multipliers.filter((_, i) => i !== mIdx);
+                            setUdcConfig({ ...udcConfig, multipliers: updated });
+                          }}
+                        >
+                          Eliminar multiplicador
+                        </Button>
+                      </div>
+
+                      <div style={{ maxHeight: 300, overflow: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Tecnología</th>
+                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Valor</th>
+                              <th style={{ width: 40 }}></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(mult.tech_dict).map(([tech, val]) => (
+                              <tr key={tech}>
+                                <td style={{ padding: "2px 8px" }}>{tech}</td>
+                                <td style={{ padding: "2px 8px", textAlign: "right" }}>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    style={{ width: 100, textAlign: "right" }}
+                                    value={val}
+                                    onChange={(e) => {
+                                      const updated = [...udcConfig.multipliers];
+                                      updated[mIdx] = {
+                                        ...mult,
+                                        tech_dict: { ...mult.tech_dict, [tech]: Number(e.target.value) },
+                                      };
+                                      setUdcConfig({ ...udcConfig, multipliers: updated });
+                                    }}
+                                  />
+                                </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    style={{ cursor: "pointer", border: "none", background: "none", color: "rgba(248,113,113,0.9)" }}
+                                    onClick={() => {
+                                      const rest = { ...mult.tech_dict };
+                                      delete rest[tech];
+                                      const updated = [...udcConfig.multipliers];
+                                      updated[mIdx] = { ...mult, tech_dict: rest };
+                                      setUdcConfig({ ...udcConfig, multipliers: updated });
+                                    }}
+                                  >
+                                    ✕
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
+                        <label className="field" style={{ margin: 0, flex: 1 }}>
+                          <span className="field__label">Agregar tecnología</span>
+                          <input
+                            className="field__input"
+                            placeholder="Ej: PWRNUC"
+                            value={udcNewTech}
+                            onChange={(e) => setUdcNewTech(e.target.value)}
+                          />
+                        </label>
+                        <label className="field" style={{ margin: 0, width: 120 }}>
+                          <span className="field__label">Valor</span>
+                          <input
+                            className="field__input"
+                            type="number"
+                            step="any"
+                            value={udcNewValue}
+                            onChange={(e) => setUdcNewValue(e.target.value)}
+                          />
+                        </label>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            if (!udcNewTech.trim()) return;
+                            const updated = [...udcConfig.multipliers];
+                            updated[mIdx] = {
+                              ...mult,
+                              tech_dict: { ...mult.tech_dict, [udcNewTech.trim()]: Number(udcNewValue) },
+                            };
+                            setUdcConfig({ ...udcConfig, multipliers: updated });
+                            setUdcNewTech("");
+                            setUdcNewValue("0");
+                          }}
+                        >
+                          Agregar
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      setUdcConfig({
+                        ...udcConfig,
+                        multipliers: [
+                          ...udcConfig.multipliers,
+                          { type: "TotalCapacity", tech_dict: {} },
+                        ],
+                      })
+                    }
+                  >
+                    + Agregar multiplicador
+                  </Button>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8 }}>
                 <Button variant="primary" onClick={saveUdcConfig} disabled={udcSaving}>
                   {udcSaving ? "Guardando..." : "Guardar configuración UDC"}
                 </Button>
@@ -1011,7 +1093,18 @@ export function SimulationPage() {
           rows={filteredRuns}
           rowKey={(r) => String(r.id)}
           columns={[
-            { key: "id", header: "ID de ejecución", render: (r) => r.id },
+            {
+              key: "display_name",
+              header: "Nombre del resultado",
+              render: (r) => (
+                <RunDisplayNameEditor
+                  jobId={r.id}
+                  value={r.display_name ?? null}
+                  onSaved={handleRunDisplayNameSaved}
+                  compact
+                />
+              ),
+            },
             {
               key: "scenario",
               header: "Escenario",
@@ -1022,6 +1115,11 @@ export function SimulationPage() {
                   : r.scenario_id === null
                     ? "—"
                     : `#${r.scenario_id}`),
+            },
+            {
+              key: "id",
+              header: "ID ejecución",
+              render: (r) => <span style={{ fontFamily: "monospace", opacity: 0.75 }}>{r.id}</span>,
             },
             {
               key: "scenario_tag",
@@ -1112,7 +1210,9 @@ export function SimulationPage() {
               ),
             },
           ]}
-          searchableText={(r) => `${r.id} ${r.scenario_name ?? ""} ${r.input_name ?? ""} ${r.username ?? ""} ${r.status} ${r.queue_position ?? ""}`}
+          searchableText={(r) =>
+            `${r.id} ${r.display_name ?? ""} ${r.scenario_name ?? ""} ${r.input_name ?? ""} ${r.username ?? ""} ${r.status} ${r.queue_position ?? ""}`
+          }
         />
       </article>
 

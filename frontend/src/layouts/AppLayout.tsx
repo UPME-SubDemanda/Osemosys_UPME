@@ -46,18 +46,20 @@ export function AppLayout() {
         </nav>
       </aside>
 
-      <section style={{ minWidth: 0 }}>
+      <section style={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
       <header
+        className="appTopHeader"
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           padding: "16px 20px",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
-          background: "rgba(11, 18, 32, 0.9)",
+          background: "rgb(11, 18, 32)",
           position: "sticky",
           top: 0,
-          backdropFilter: "blur(10px)",
+          zIndex: 100,
+          boxShadow: "0 1px 0 rgba(0, 0, 0, 0.35)",
         }}
       >
         <div>
@@ -74,7 +76,7 @@ export function AppLayout() {
         </div>
       </header>
 
-      <main style={{ padding: 20 }}>
+      <main className="appMainOutlet" style={{ padding: 20 }}>
         <Outlet />
       </main>
       </section>

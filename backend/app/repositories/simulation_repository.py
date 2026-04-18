@@ -43,6 +43,7 @@ class SimulationRepository:
         input_ref: str | None = None,
         simulation_type: str = "NATIONAL",
         parallel_weight: int = 1,
+        display_name: str | None = None,
     ) -> SimulationJob:
         """Crea job en estado `QUEUED`."""
         job = SimulationJob(
@@ -54,6 +55,7 @@ class SimulationRepository:
             input_ref=input_ref,
             simulation_type=simulation_type,
             parallel_weight=parallel_weight,
+            display_name=display_name,
             status="QUEUED",
             progress=0.0,
         )

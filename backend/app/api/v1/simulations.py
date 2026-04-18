@@ -21,6 +21,7 @@ from app.db.session import get_db
 from app.models import User
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.simulation import (
+    SimulationJobDisplayNamePatch,
     SimulationJobPublic,
     SimulationLogPublic,
     SimulationOverviewPublic,
@@ -65,6 +66,7 @@ def submit_simulation(
             current_user=current_user,
             scenario_id=payload.scenario_id,
             solver_name=payload.solver_name,
+            display_name=payload.display_name,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -85,6 +87,10 @@ async def submit_simulation_from_csv(
     description: str | None = Form(default=None),
     edit_policy: str = Form(default="OWNER_ONLY"),
     tag_id: int | None = Form(default=None),
+    display_name: str | None = Form(
+        default=None,
+        description="Nombre opcional para esta corrida; si se omite, se usa el nombre del archivo ZIP.",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -152,6 +158,7 @@ async def submit_simulation_from_csv(
                 current_user=current_user,
                 scenario_id=int(created_scenario["id"]),
                 solver_name=solver_name,
+                display_name=display_name,
             )
         keep_artifacts = True
         return SimulationService.submit_from_csv(
@@ -161,6 +168,7 @@ async def submit_simulation_from_csv(
             input_name=(input_name or csv_zip.filename or "CSV upload"),
             input_ref=str(csv_root),
             simulation_type=simulation_type,
+            display_name=display_name,
         )
     except HTTPException:
         raise
@@ -229,6 +237,25 @@ def get_simulation(
     """
     try:
         return SimulationService.get_by_id(db, current_user=current_user, job_id=job_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.patch("/{job_id}", response_model=SimulationJobPublic)
+def patch_simulation(
+    job_id: int,
+    payload: SimulationJobDisplayNamePatch,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Actualiza metadatos del job (p. ej. nombre visible para resultados y exportación)."""
+    try:
+        return SimulationService.patch_display_name(
+            db,
+            current_user=current_user,
+            job_id=job_id,
+            display_name=payload.display_name,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 

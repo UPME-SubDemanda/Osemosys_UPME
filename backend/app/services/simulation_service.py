@@ -146,12 +146,17 @@ class SimulationService:
         settings = get_settings()
         sync_mode = SimulationService._is_sync_mode(settings)
         running_weight = SimulationRepository.get_reserved_parallel_weight(db)
+        reserved_jobs_by_user = SimulationRepository.get_reserved_user_job_counts(db)
         total_limit = max(1, int(settings.sim_total_weight_limit))
+        user_limit = max(1, int(settings.sim_user_active_limit))
         pending_jobs = SimulationRepository.list_queued_undispatched_jobs(db, limit=500)
 
         for job in pending_jobs:
             job_weight = max(1, int(getattr(job, "parallel_weight", 1) or 1))
             if running_weight + job_weight > total_limit:
+                continue
+            user_id = getattr(job, "user_id", None)
+            if user_id is not None and int(reserved_jobs_by_user.get(user_id, 0) or 0) >= user_limit:
                 continue
 
             try:
@@ -192,6 +197,8 @@ class SimulationService:
             )
             db.commit()
             running_weight += job_weight
+            if user_id is not None:
+                reserved_jobs_by_user[user_id] = int(reserved_jobs_by_user.get(user_id, 0) or 0) + 1
 
     @staticmethod
     def dispatch_pending_jobs(db: Session) -> None:
@@ -217,12 +224,6 @@ class SimulationService:
         except ForbiddenError as exc:
             raise ForbiddenError("No tienes acceso al escenario indicado.") from exc
 
-        active_jobs = SimulationRepository.count_user_active_jobs(db, user_id=current_user.id)
-        settings = get_settings()
-        if active_jobs >= settings.sim_user_active_limit:
-            raise ConflictError(
-                f"Ya alcanzaste el maximo de simulaciones activas ({settings.sim_user_active_limit})."
-            )
         SimulationService._validate_solver_name(solver_name)
         simulation_type = SimulationService._normalize_simulation_type(
             getattr(scenario, "simulation_type", "NATIONAL")
@@ -281,12 +282,6 @@ class SimulationService:
         display_name: str | None = None,
     ) -> dict:
         """Encola una simulación cuyo input proviene de un ZIP de CSV."""
-        active_jobs = SimulationRepository.count_user_active_jobs(db, user_id=current_user.id)
-        settings = get_settings()
-        if active_jobs >= settings.sim_user_active_limit:
-            raise ConflictError(
-                f"Ya alcanzaste el maximo de simulaciones activas ({settings.sim_user_active_limit})."
-            )
         SimulationService._validate_solver_name(solver_name)
         normalized_type = SimulationService._normalize_simulation_type(simulation_type)
         parallel_weight = SimulationService._parallel_weight_for_type(normalized_type)

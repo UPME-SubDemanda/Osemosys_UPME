@@ -115,7 +115,6 @@ async def submit_simulation_from_csv(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="edit_policy inválido.",
         )
-
     settings = get_settings()
     artifact_root = Path(settings.simulation_artifacts_dir).resolve() / "csv_upload_jobs" / str(uuid.uuid4())
     keep_artifacts = False

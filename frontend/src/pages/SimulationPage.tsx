@@ -44,6 +44,7 @@ import type {
 const ACTIVE_STATUSES = new Set(["QUEUED", "RUNNING"]);
 const CSV_PREVIEW_LIMIT = 50;
 const CRITICAL_SIMULATION_LOG_STAGES = new Set(["create_instance", "solver"]);
+const CSV_SUBMIT_SPINNER_FRAMES = ["◐", "◓", "◑", "◒"];
 
 const SIMULATION_LOG_STAGE_LABELS: Record<string, string> = {
   extract_data: "Leer insumos",
@@ -332,7 +333,6 @@ export function SimulationPage() {
   /** Nombre opcional al encolar desde escenario (si está vacío, el backend usa el nombre del escenario). */
   const [newRunDisplayName, setNewRunDisplayName] = useState("");
   const [csvSolverName, setCsvSolverName] = useState<SimulationSolver>("highs");
-  const [csvRunDisplayName, setCsvRunDisplayName] = useState("");
   const [csvZipFile, setCsvZipFile] = useState<File | null>(null);
   const [csvInputName, setCsvInputName] = useState("");
   const [csvSimulationType, setCsvSimulationType] = useState<SimulationType>("NATIONAL");
@@ -346,6 +346,9 @@ export function SimulationPage() {
   const [csvTrackedJobId, setCsvTrackedJobId] = useState<number | null>(null);
   const [csvResultSourceJobId, setCsvResultSourceJobId] = useState<number | null>(null);
   const [csvLoadingResultForJobId, setCsvLoadingResultForJobId] = useState<number | null>(null);
+  const [csvSubmitPhase, setCsvSubmitPhase] = useState<"uploading" | "importing_scenario" | null>(null);
+  const [csvSubmitStartedAt, setCsvSubmitStartedAt] = useState<number | null>(null);
+  const [csvSubmitElapsedSeconds, setCsvSubmitElapsedSeconds] = useState(0);
   const [cancellingJobId, setCancellingJobId] = useState<number | null>(null);
 
   const [udcConfig, setUdcConfig] = useState<UdcConfig | null>(null);
@@ -371,6 +374,18 @@ export function SimulationPage() {
     if (!id) { setUdcConfig(null); return; }
     void scenariosApi.getUdcConfig(id).then(setUdcConfig).catch(() => setUdcConfig(null));
   }, [selectedScenario]);
+
+  useEffect(() => {
+    if (!csvSubmitting || csvSubmitStartedAt == null) {
+      setCsvSubmitElapsedSeconds(0);
+      return;
+    }
+    setCsvSubmitElapsedSeconds(Math.max(0, Math.floor((Date.now() - csvSubmitStartedAt) / 1000)));
+    const timer = window.setInterval(() => {
+      setCsvSubmitElapsedSeconds(Math.max(0, Math.floor((Date.now() - csvSubmitStartedAt) / 1000)));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [csvSubmitting, csvSubmitStartedAt]);
 
   async function saveUdcConfig() {
     const id = Number(selectedScenario);
@@ -556,6 +571,8 @@ export function SimulationPage() {
     setCsvResult(null);
     setCsvResultSourceJobId(null);
     setCsvTrackedJobId(null);
+    setCsvSubmitPhase(csvSaveAsScenario ? "importing_scenario" : "uploading");
+    setCsvSubmitStartedAt(Date.now());
     try {
       const job = await simulationApi.submitFromCsv(csvZipFile, csvSolverName, {
         input_name: csvInputName,
@@ -564,7 +581,7 @@ export function SimulationPage() {
         scenario_name: csvScenarioName,
         description: csvScenarioDescription,
         edit_policy: csvScenarioEditPolicy,
-        display_name: csvRunDisplayName.trim() || null,
+        display_name: csvInputName.trim() || null,
       });
       setCsvTrackedJobId(job.id);
       setRuns((prev) => [job, ...prev.filter((run) => run.id !== job.id)]);
@@ -574,12 +591,14 @@ export function SimulationPage() {
           : `Simulación desde CSV encolada como job ${job.id}.`,
         "success",
       );
-      setCsvRunDisplayName("");
+      setCsvInputName("");
       await refreshRuns();
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Error ejecutando simulación desde CSV.";
       push(detail, "error");
     } finally {
+      setCsvSubmitPhase(null);
+      setCsvSubmitStartedAt(null);
       setCsvSubmitting(false);
     }
   }
@@ -606,6 +625,14 @@ export function SimulationPage() {
   }, []);
 
   const selectedLogs = logsOpenForJob ? logsByJob[logsOpenForJob] ?? [] : [];
+  const csvSpinnerFrame =
+    CSV_SUBMIT_SPINNER_FRAMES[csvSubmitElapsedSeconds % CSV_SUBMIT_SPINNER_FRAMES.length] ?? "◐";
+  const csvEstimatedDurationLabel =
+    csvSubmitPhase === "importing_scenario" ? "1 a 4 min" : "10 a 30 s";
+  const csvCurrentPhaseLabel =
+    csvSubmitPhase === "importing_scenario"
+      ? "Importando ZIP como escenario"
+      : "Subiendo ZIP y creando el job";
 
   return (
     <section style={{ display: "grid", gap: 14 }}>
@@ -697,16 +724,30 @@ export function SimulationPage() {
               className="field__input"
               type="file"
               accept=".zip,application/zip"
-              onChange={(e) => setCsvZipFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                const nextFile = e.target.files?.[0] ?? null;
+                setCsvZipFile(nextFile);
+                if (csvSaveAsScenario && nextFile && !csvScenarioName.trim()) {
+                  setCsvScenarioName(nextFile.name.replace(/\.zip$/i, ""));
+                }
+              }}
             />
           </label>
           <label className="field" style={{ margin: 0 }}>
-            <span className="field__label">Nombre visible de la corrida</span>
+            <span className="field__label">
+              {csvSaveAsScenario
+                ? "Nombre visible de la simulación (opcional)"
+                : "Nombre visible de la corrida"}
+            </span>
             <input
               className="field__input"
               value={csvInputName}
               onChange={(e) => setCsvInputName(e.target.value)}
-              placeholder={csvZipFile?.name ?? "Ej: Modelo nacional abril"}
+              placeholder={
+                csvSaveAsScenario
+                  ? "Ej: Corrida base importada desde CSV"
+                  : (csvZipFile?.name ?? "Ej: Modelo nacional abril")
+              }
               disabled={csvSubmitting}
               autoComplete="off"
             />
@@ -723,19 +764,6 @@ export function SimulationPage() {
             </select>
           </label>
           <label className="field" style={{ margin: 0 }}>
-            <span className="field__label">Nombre del resultado (opcional)</span>
-            <input
-              className="field__input"
-              type="text"
-              maxLength={255}
-              value={csvRunDisplayName}
-              onChange={(e) => setCsvRunDisplayName(e.target.value)}
-              placeholder="Ej. Prueba importación Q1"
-              disabled={csvSubmitting}
-              autoComplete="off"
-            />
-          </label>
-          <label className="field" style={{ margin: 0 }}>
             <span className="field__label">Tipo de simulación</span>
             <select
               className="field__input"
@@ -747,17 +775,42 @@ export function SimulationPage() {
             </select>
           </label>
           <Button variant="primary" onClick={runCsvSimulation} disabled={csvSubmitting || !csvZipFile}>
-            {csvSubmitting ? "Encolando..." : "Ejecutar desde CSV"}
+            {csvSubmitting
+              ? (csvSaveAsScenario ? "Creando escenario..." : "Encolando...")
+              : "Ejecutar desde CSV"}
           </Button>
         </div>
         <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
           <input
             type="checkbox"
             checked={csvSaveAsScenario}
-            onChange={(e) => setCsvSaveAsScenario(e.target.checked)}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setCsvSaveAsScenario(checked);
+              if (checked && csvZipFile && !csvScenarioName.trim()) {
+                setCsvScenarioName(csvZipFile.name.replace(/\.zip$/i, ""));
+              }
+            }}
           />
           <span>Guardar estos CSV como escenario y correr sobre ese escenario</span>
         </label>
+        {csvSaveAsScenario ? (
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(255,255,255,0.03)",
+              borderRadius: 12,
+              padding: 12,
+              display: "grid",
+              gap: 4,
+            }}
+          >
+            <strong style={{ fontSize: 13 }}>Este flujo tarda más.</strong>
+            <small style={{ opacity: 0.78 }}>
+              Primero importa el ZIP completo como escenario y luego encola la simulación. Puede tardar varios minutos antes de devolver el job.
+            </small>
+          </div>
+        ) : null}
         {csvSaveAsScenario ? (
           <div
             style={{
@@ -803,6 +856,83 @@ export function SimulationPage() {
           <small style={{ opacity: 0.78 }}>
             Archivo seleccionado: <strong>{csvZipFile.name}</strong>
           </small>
+        ) : null}
+        {csvSubmitting ? (
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.08)",
+              background:
+                csvSubmitPhase === "importing_scenario"
+                  ? "linear-gradient(135deg, rgba(59,130,246,0.14), rgba(15,23,42,0.22))"
+                  : "linear-gradient(135deg, rgba(16,185,129,0.14), rgba(15,23,42,0.22))",
+              borderRadius: 12,
+              padding: 12,
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 999,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "rgba(255,255,255,0.08)",
+                  fontSize: 16,
+                  fontWeight: 700,
+                }}
+              >
+                {csvSpinnerFrame}
+              </span>
+              <div style={{ display: "grid", gap: 2 }}>
+                <strong>{csvCurrentPhaseLabel}...</strong>
+                <small style={{ opacity: 0.78 }}>
+                  {csvSubmitPhase === "importing_scenario"
+                    ? "El backend está guardando los insumos del ZIP antes de encolar la simulación."
+                    : "El backend está validando el ZIP y preparando la corrida."}
+                </small>
+              </div>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gap: 6,
+                gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              }}
+            >
+              <div
+                style={{
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  background: "rgba(255,255,255,0.04)",
+                }}
+              >
+                <small style={{ display: "block", opacity: 0.7 }}>Tiempo transcurrido</small>
+                <strong>{formatReadableDuration(csvSubmitElapsedSeconds)}</strong>
+              </div>
+              <div
+                style={{
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  background: "rgba(255,255,255,0.04)",
+                }}
+              >
+                <small style={{ display: "block", opacity: 0.7 }}>Tiempo estimado</small>
+                <strong>{csvEstimatedDurationLabel}</strong>
+              </div>
+            </div>
+            <small style={{ opacity: 0.72 }}>
+              {csvSubmitPhase === "importing_scenario"
+                ? "Si el ZIP es grande, esta fase puede tardar más de lo normal. No cierres la página."
+                : "La respuesta debería llegar pronto con el identificador del job."}
+            </small>
+          </div>
         ) : null}
         {csvResult ? (
           <div style={{ display: "flex", justifyContent: "flex-end" }}>

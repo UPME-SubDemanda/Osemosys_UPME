@@ -6,7 +6,6 @@ import uuid
 
 import pytest
 
-from app.core.exceptions import ConflictError
 import app.services.simulation_service as simulation_service_module
 from app.services.simulation_service import SimulationService
 
@@ -236,6 +235,7 @@ def test_dispatch_queued_jobs_respects_reserved_weight(monkeypatch: pytest.Monke
         simulation_service_module,
         "get_settings",
         lambda: SimpleNamespace(
+            sim_user_active_limit=3,
             sim_total_weight_limit=5,
             sim_weight_national=1,
             sim_weight_regional=3,
@@ -246,6 +246,11 @@ def test_dispatch_queued_jobs_respects_reserved_weight(monkeypatch: pytest.Monke
         simulation_service_module.SimulationRepository,
         "get_reserved_parallel_weight",
         lambda _db: 2,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "get_reserved_user_job_counts",
+        lambda _db: {},
     )
     monkeypatch.setattr(
         simulation_service_module.SimulationRepository,
@@ -278,11 +283,12 @@ def test_dispatch_queued_jobs_respects_reserved_weight(monkeypatch: pytest.Monke
     assert third.celery_task_id == "task-3"
     assert first.celery_task_id is None
 
-
-def test_submit_rejects_when_user_active_limit_reached(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_submit_creates_queued_job_even_when_user_has_many_active(monkeypatch: pytest.MonkeyPatch) -> None:
     current_user = SimpleNamespace(id=uuid.uuid4(), username="seed")
     scenario = SimpleNamespace(id=1, owner="seed", name="Escenario seed", simulation_type="NATIONAL")
+    job = _build_job(current_user.id)
     db = DummyDbSession()
+    create_kwargs: dict[str, object] = {}
 
     monkeypatch.setattr(
         simulation_service_module,
@@ -304,14 +310,97 @@ def test_submit_rejects_when_user_active_limit_reached(monkeypatch: pytest.Monke
     )
     monkeypatch.setattr(
         simulation_service_module.SimulationRepository,
-        "count_user_active_jobs",
-        lambda _db, *, user_id: 3,
+        "create_job",
+        lambda _db, **kwargs: create_kwargs.update(kwargs) or job,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "add_event",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "queue_position",
+        lambda _db, *, job_id: 4,
+    )
+    monkeypatch.setattr(
+        SimulationService,
+        "_dispatch_queued_jobs",
+        staticmethod(lambda _db, *, fail_fast_job_id=None: None),
     )
 
-    with pytest.raises(ConflictError):
-        SimulationService.submit(
-            db,
-            current_user=current_user,
-            scenario_id=1,
-            solver_name="highs",
-        )
+    payload = SimulationService.submit(
+        db,
+        current_user=current_user,
+        scenario_id=1,
+        solver_name="highs",
+    )
+
+    assert create_kwargs["scenario_id"] == 1
+    assert payload["status"] == "QUEUED"
+
+
+def test_dispatch_queued_jobs_respects_user_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = DummyDbSession()
+    user_a = uuid.uuid4()
+    user_b = uuid.uuid4()
+    first = _build_job(user_a)
+    first.id = 11
+    second = _build_job(user_a)
+    second.id = 12
+    third = _build_job(user_b)
+    third.id = 13
+    pending = [first, second, third]
+    dispatched: list[int] = []
+
+    monkeypatch.setattr(
+        simulation_service_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            sim_user_active_limit=3,
+            sim_total_weight_limit=8,
+            sim_weight_national=1,
+            sim_weight_regional=3,
+            simulation_mode="async",
+        ),
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "get_reserved_parallel_weight",
+        lambda _db: 2,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "get_reserved_user_job_counts",
+        lambda _db: {user_a: 3, user_b: 1},
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "list_queued_undispatched_jobs",
+        lambda _db, *, limit=500: pending,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "get_job_by_id",
+        lambda _db, *, job_id: next((job for job in pending if job.id == job_id), None),
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "add_event",
+        lambda *args, **kwargs: None,
+    )
+
+    class _TaskStub:
+        @staticmethod
+        def delay(job_id: int):
+            dispatched.append(job_id)
+            return SimpleNamespace(id=f"task-{job_id}")
+
+    monkeypatch.setattr(simulation_service_module, "run_simulation_job", _TaskStub())
+
+    SimulationService.dispatch_pending_jobs(db)
+
+    assert dispatched == [13]
+    assert first.celery_task_id is None
+    assert second.celery_task_id is None
+    assert third.celery_task_id == "task-13"

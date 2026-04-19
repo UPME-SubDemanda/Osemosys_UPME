@@ -339,6 +339,47 @@ def test_import_csv_directory_creates_scenario_and_values(db_session, tmp_path: 
     }
 
 
+def test_import_csv_directory_reuses_existing_catalogs_without_duplicate_violation(
+    db_session,
+    tmp_path: Path,
+) -> None:
+    owner = create_user(db_session, username="csv-existing-owner")
+    existing_technology = Technology(name="EXPOIL_1LIV", is_active=True)
+    db_session.add(existing_technology)
+    db_session.commit()
+
+    csv_root = tmp_path / "csv-existing-model"
+    csv_root.mkdir(parents=True)
+
+    _write_csv(csv_root, "YEAR.csv", ["VALUE", "2025"])
+    _write_csv(csv_root, "REGION.csv", ["VALUE", "R1"])
+    _write_csv(csv_root, "TECHNOLOGY.csv", ["VALUE", "EXPOIL_1LIV"])
+    _write_csv(csv_root, "TIMESLICE.csv", ["VALUE", "TS1"])
+    _write_csv(csv_root, "MODE_OF_OPERATION.csv", ["VALUE", "1"])
+    _write_csv(csv_root, "FUEL.csv", ["VALUE", "F1"])
+    _write_csv(csv_root, "SpecifiedAnnualDemand.csv", ["REGION,FUEL,YEAR,VALUE", "R1,F1,2025,100"])
+    _write_csv(
+        csv_root,
+        "OutputActivityRatio.csv",
+        ["REGION,TECHNOLOGY,FUEL,MODE_OF_OPERATION,YEAR,VALUE", "R1,EXPOIL_1LIV,F1,1,2025,1"],
+    )
+
+    created = CsvScenarioImportService.import_from_directory(
+        db_session,
+        current_user=owner,
+        csv_root=csv_root,
+        scenario_name="Escenario con catálogos existentes",
+        description=None,
+        edit_policy="OWNER_ONLY",
+        tag_id=None,
+        simulation_type="NATIONAL",
+    )
+
+    assert created["name"] == "Escenario con catálogos existentes"
+    technologies = db_session.query(Technology).filter(Technology.name == "EXPOIL_1LIV").all()
+    assert len(technologies) == 1
+
+
 def test_run_data_processing_skips_postprocessing_for_preprocessed_csv_scenario(
     db_session,
     tmp_path: Path,

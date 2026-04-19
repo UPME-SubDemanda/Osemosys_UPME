@@ -541,9 +541,15 @@ class ScenarioService:
             return None
         obj = db.execute(select(model).where(model.name == cleaned)).scalar_one_or_none()
         if obj is None:
-            obj = model(name=cleaned)
-            db.add(obj)
-            db.flush()
+            try:
+                with db.begin_nested():
+                    obj = model(name=cleaned)
+                    db.add(obj)
+                    db.flush()
+            except IntegrityError:
+                obj = db.execute(select(model).where(model.name == cleaned)).scalar_one_or_none()
+                if obj is None:
+                    raise
         # Si el catálogo usa soft delete, se reactiva al reutilizarse desde escenario.
         if hasattr(obj, "is_active") and getattr(obj, "is_active") is False:
             setattr(obj, "is_active", True)
@@ -557,9 +563,15 @@ class ScenarioService:
             return None
         obj = db.execute(select(model).where(model.code == cleaned)).scalar_one_or_none()
         if obj is None:
-            obj = model(code=cleaned)
-            db.add(obj)
-            db.flush()
+            try:
+                with db.begin_nested():
+                    obj = model(code=cleaned)
+                    db.add(obj)
+                    db.flush()
+            except IntegrityError:
+                obj = db.execute(select(model).where(model.code == cleaned)).scalar_one_or_none()
+                if obj is None:
+                    raise
         return int(obj.id)
 
     @staticmethod

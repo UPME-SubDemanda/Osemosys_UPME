@@ -32,6 +32,25 @@ class SimulationRepository:
         return int(db.scalar(stmt) or 0)
 
     @staticmethod
+    def get_reserved_user_job_counts(db: Session) -> dict[uuid.UUID, int]:
+        """Cuenta jobs reservados por usuario para despacho (`RUNNING` o `QUEUED` ya enviado)."""
+        stmt = (
+            select(SimulationJob.user_id, func.count())
+            .where(
+                or_(
+                    SimulationJob.status == "RUNNING",
+                    and_(
+                        SimulationJob.status == "QUEUED",
+                        SimulationJob.celery_task_id.is_not(None),
+                        SimulationJob.cancel_requested.is_(False),
+                    ),
+                )
+            )
+            .group_by(SimulationJob.user_id)
+        )
+        return {user_id: int(count) for user_id, count in db.execute(stmt).all()}
+
+    @staticmethod
     def create_job(
         db: Session,
         *,

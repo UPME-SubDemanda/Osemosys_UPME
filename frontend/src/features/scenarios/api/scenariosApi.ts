@@ -304,6 +304,7 @@ export const scenariosApi = {
       edit_policy: ScenarioEditPolicy;
       simulation_type: SimulationType;
       tag_id?: number | null;
+      include_udc_reserve_margin?: boolean;
     },
     onUploadProgress?: (percent: number) => void,
     onUploadDone?: () => void,
@@ -317,6 +318,7 @@ export const scenariosApi = {
     form.append("simulation_type", input.simulation_type);
     if (input.description?.trim()) form.append("description", input.description.trim());
     if (input.tag_id != null) form.append("tag_id", String(input.tag_id));
+    form.append("include_udc_reserve_margin", input.include_udc_reserve_margin ? "true" : "false");
 
     const { data } = await httpClient.post<ScenarioExcelImportResponse>(
       "/scenarios/import-excel",

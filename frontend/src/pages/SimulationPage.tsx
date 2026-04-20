@@ -975,7 +975,7 @@ export function SimulationPage() {
                       ...udcConfig,
                       enabled,
                       multipliers: enabled && udcConfig.multipliers.length === 0
-                        ? [{ type: "TotalCapacity", techs: [] }]
+                        ? [{ type: "TotalCapacity" as const, tech_dict: {} }]
                         : udcConfig.multipliers,
                     });
                   }}

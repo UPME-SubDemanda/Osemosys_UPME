@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
+import shutil
+import uuid
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
@@ -49,6 +51,12 @@ from app.services.scenario_operation_service import ScenarioOperationService
 from app.services.integrate_sand_cambios_excel import build_conflictos_workbook_bytes
 from app.services.integrate_sand_service import IntegrateSandService
 from app.services.official_import_service import OfficialImportService
+from app.services.csv_scenario_import_service import (
+    CsvScenarioImportService,
+    extract_zip_to_dir,
+    find_csv_root,
+)
+from app.core.config import get_settings
 from app.services.scenario_export_service import export_scenario_raw_to_excel, export_scenario_to_excel
 from app.services.scenario_service import ScenarioService
 
@@ -156,6 +164,7 @@ def create_scenario(
             edit_policy=payload.edit_policy,
             is_template=payload.is_template,
             tag_id=payload.tag_id,
+            simulation_type=payload.simulation_type,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -171,6 +180,7 @@ def create_scenario_from_excel(
     description: str | None = Form(default=None),
     edit_policy: str = Form(default="OWNER_ONLY"),
     tag_id: int | None = Form(default=None),
+    simulation_type: str = Form(default="NATIONAL"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -194,6 +204,7 @@ def create_scenario_from_excel(
             description=(description.strip() if description else None),
             edit_policy=edit_policy,  # type: ignore[arg-type]
             is_template=False,
+            simulation_type=simulation_type,
             skip_populate_defaults=True,
             tag_id=tag_id,
         )
@@ -224,6 +235,59 @@ def create_scenario_from_excel(
         scenario_public = created
 
     return {"scenario": scenario_public, "import_result": import_dict}
+
+
+@router.post("/import-csv", response_model=ScenarioPublic, status_code=201)
+def create_scenario_from_csv(
+    csv_zip: UploadFile = File(...),
+    scenario_name: str = Form(...),
+    description: str | None = Form(default=None),
+    edit_policy: str = Form(default="OWNER_ONLY"),
+    tag_id: int | None = Form(default=None),
+    simulation_type: str = Form(default="NATIONAL"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Crea un escenario a partir de un ZIP con CSV OSeMOSYS procesados."""
+    if edit_policy not in {"OWNER_ONLY", "OPEN", "RESTRICTED"}:
+        raise HTTPException(status_code=422, detail="edit_policy inválido.")
+    if not scenario_name.strip():
+        raise HTTPException(status_code=422, detail="El nombre del escenario es obligatorio.")
+    if not csv_zip.filename or not csv_zip.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=422, detail="Debes cargar un archivo ZIP válido.")
+
+    settings = get_settings()
+    artifact_root = (
+        Path(settings.simulation_artifacts_dir).resolve() / "csv_scenario_imports" / str(uuid.uuid4())
+    )
+
+    try:
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        extract_zip_to_dir(csv_zip, artifact_root)
+        csv_root = find_csv_root(artifact_root)
+        if csv_root is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No se encontró un directorio válido con CSV de entrada. "
+                    "El ZIP debe contener al menos YEAR.csv, REGION.csv, TECHNOLOGY.csv, "
+                    "TIMESLICE.csv y MODE_OF_OPERATION.csv."
+                ),
+            )
+        return CsvScenarioImportService.import_from_directory(
+            db,
+            current_user=current_user,
+            csv_root=csv_root,
+            scenario_name=scenario_name,
+            description=description,
+            edit_policy=edit_policy,
+            tag_id=tag_id,
+            simulation_type=simulation_type,
+        )
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    finally:
+        shutil.rmtree(artifact_root, ignore_errors=True)
 
 
 def _form_bool_flag(value: str | None) -> bool:

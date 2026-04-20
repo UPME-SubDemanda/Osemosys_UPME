@@ -29,6 +29,7 @@ import {
   InfeasibilityDiagnosticsPanel,
   type ScenarioParamsForDiagnostics,
 } from '../features/simulation/components/InfeasibilityDiagnosticsPanel';
+import { RunDisplayNameEditor } from '../features/simulation/components/RunDisplayNameEditor';
 import { ChartSelector, type ChartSelection } from '../shared/charts/ChartSelector';
 import { getDefaultChartSelection } from '../shared/charts/defaultChartSelection';
 import { ScenarioComparer, type CompareViewMode } from '../shared/charts/ScenarioComparer';
@@ -51,6 +52,7 @@ import {
 } from '../shared/charts/chartLayoutPreferences';
 import { Button } from '../shared/components/Button';
 import { Modal } from '../shared/components/Modal';
+import { ScenarioTagChip } from '../shared/components/ScenarioTagChip';
 import { downloadBlob } from '../shared/utils/downloadBlob';
 import { formatCompactNumber, formatPercent } from '../shared/utils/numberFormat';
 
@@ -108,7 +110,10 @@ type ScenarioCardProps = {
 
 function ScenarioCard({ summary, isCurrent = false }: ScenarioCardProps) {
   const status = getSolverStatusPresentation(summary.solver_status);
-  const title = summary.scenario_name?.trim() || `Job #${summary.job_id}`;
+  const resultTitle =
+    summary.display_name?.trim() ||
+    summary.scenario_name?.trim() ||
+    `Job #${summary.job_id}`;
 
   return (
     <div
@@ -120,24 +125,40 @@ function ScenarioCard({ summary, isCurrent = false }: ScenarioCardProps) {
         .join(' ')}
     >
       <header className="flex flex-col gap-3 pb-4 border-b border-slate-800/60 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-            Escenario
-          </p>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Link
-              to={`/app/results/${summary.job_id}`}
-              className="text-lg font-bold text-white hover:text-cyan-400 hover:underline break-words"
-            >
-              {title}
-            </Link>
-            {isCurrent ? (
-              <span className="inline-flex shrink-0 items-center rounded-full border border-cyan-500/25 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-400">
-                Actual
-              </span>
-            ) : null}
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="space-y-1.5">
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+              Nombre del resultado
+            </p>
+            <p className="m-0 text-lg font-semibold text-white break-words">{resultTitle}</p>
           </div>
-          <p className="m-0 text-xs text-slate-500 font-mono">Job #{summary.job_id}</p>
+          <div className="space-y-1.5 border-t border-slate-800/60 pt-3">
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+              Escenario (referencia)
+            </p>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-sm font-medium text-slate-300">
+                {summary.scenario_name?.trim() || '—'}
+              </span>
+              {summary.scenario_tag ? (
+                <ScenarioTagChip tag={summary.scenario_tag} />
+              ) : null}
+              {isCurrent ? (
+                <span className="inline-flex shrink-0 items-center rounded-full border border-cyan-500/25 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-400">
+                  Actual
+                </span>
+              ) : null}
+              <Link
+                to={`/app/results/${summary.job_id}`}
+                className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 hover:underline"
+              >
+                Abrir detalle
+              </Link>
+            </div>
+          </div>
+          <p className="m-0 text-[10px] text-slate-600 font-mono">
+            ID de ejecución (referencia interna) · {summary.job_id}
+          </p>
         </div>
         <span className={`${status.badgeClass} self-start sm:mt-0.5`}>{status.label}</span>
       </header>
@@ -421,6 +442,19 @@ export function ResultDetailPage() {
   const showFacetPlacementControl =
     chartCompareMode === 'facet' && chartJobIds.length > 1;
 
+  /** Al cambiar `display_name` en resúmenes, se vuelven a pedir los datos de gráficas (títulos de facetas / eje X en comparación). */
+  const chartDisplayNamesSignature = useMemo(() => {
+    return chartJobIds
+      .map((jid) => {
+        const id = Number(jid);
+        const fromSummary = summary && Number(summary.job_id) === id ? summary.display_name : undefined;
+        const fromList = allSummaries.find((s) => Number(s.job_id) === id)?.display_name;
+        const dn = fromSummary ?? fromList;
+        return `${id}:${dn ?? ''}`;
+      })
+      .join('|');
+  }, [chartJobIds, allSummaries, summary]);
+
   // 3. Fetch chart data when selection or comparison changes
   useEffect(() => {
     if (!chartSelection.tipo) return;
@@ -492,7 +526,14 @@ export function ResultDetailPage() {
         .catch((err: unknown) => console.error('Error loading chart data', err))
         .finally(() => setLoadingChart(false));
     }
-  }, [currentRunId, chartSelection, chartCompareMode, chartJobIds, chartYearsToPlot]);
+  }, [
+    currentRunId,
+    chartSelection,
+    chartCompareMode,
+    chartJobIds,
+    chartYearsToPlot,
+    chartDisplayNamesSignature,
+  ]);
 
   // Toggle compare on/off
   const handleToggleCompare = useCallback(() => {
@@ -602,6 +643,18 @@ export function ResultDetailPage() {
     }
   }, [currentRunId]);
 
+  const handleDisplayNameSaved = useCallback((jobId: number, displayName: string | null) => {
+    const norm = displayName?.trim() || null;
+    setAllSummaries((prev) =>
+      prev.map((s) =>
+        Number(s.job_id) === Number(jobId) ? { ...s, display_name: norm } : s,
+      ),
+    );
+    setSummary((prev) =>
+      prev && Number(prev.job_id) === Number(jobId) ? { ...prev, display_name: norm } : prev,
+    );
+  }, []);
+
   if (error) {
     return (
       <div className="p-8 text-center">
@@ -650,7 +703,18 @@ export function ResultDetailPage() {
           <h1 className="text-2xl font-bold tracking-tight text-white">
             Resultados de simulación
           </h1>
-          <p className="text-sm text-slate-500 mt-1 font-mono">#{currentRunId}</p>
+          {summary?.display_name?.trim() ? (
+            <p className="m-0 mt-2 text-lg font-semibold text-cyan-200/95">
+              {summary.display_name.trim()}
+            </p>
+          ) : summary?.scenario_name?.trim() ? (
+            <p className="m-0 mt-2 text-lg font-semibold text-slate-200">
+              {summary.scenario_name.trim()}
+            </p>
+          ) : null}
+          <p className="text-[11px] text-slate-600 mt-1 font-mono">
+            ID de ejecución · {currentRunId}
+          </p>
         </div>
         <div className="flex gap-3 items-center flex-wrap">
           {isOptimal ? (
@@ -873,8 +937,14 @@ export function ResultDetailPage() {
                     <th className="w-10 p-4 text-center">
                       <span className="sr-only">Comparar</span>
                     </th>
+                    <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500 min-w-[160px]">
+                      Nombre del resultado
+                    </th>
                     <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
                       Escenario
+                    </th>
+                    <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Etiqueta
                     </th>
                     <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
                       Estado
@@ -895,6 +965,8 @@ export function ResultDetailPage() {
                     const isCurrent = Number(s.job_id) === Number(currentRunId);
                     const isColSelected = selectedCompareColumnJobIds.map(Number).includes(Number(s.job_id));
                     const st = getSolverStatusPresentation(s.solver_status);
+                    const rowLabel =
+                      s.display_name?.trim() || s.scenario_name?.trim() || `Job ${s.job_id}`;
                     return (
                       <tr
                         key={s.job_id}
@@ -907,24 +979,41 @@ export function ResultDetailPage() {
                             type="checkbox"
                             checked={isColSelected}
                             onChange={() => toggleCompareColumnSelection(Number(s.job_id))}
-                            aria-label={`Incluir ${s.scenario_name || `Job ${s.job_id}`} en vista columnas`}
+                            aria-label={`Incluir ${rowLabel} en vista columnas`}
                             className="h-4 w-4 cursor-pointer rounded border-slate-600 bg-slate-950 text-emerald-500 focus:ring-emerald-500/40"
                           />
                         </td>
-                        <td className="p-4">
+                        <td className="p-4 align-top min-w-[160px] max-w-[280px]">
+                          <RunDisplayNameEditor
+                            jobId={s.job_id}
+                            value={s.display_name ?? null}
+                            onSaved={handleDisplayNameSaved}
+                            compact
+                          />
+                        </td>
+                        <td className="p-4 align-middle">
                           <Link
                             to={`/app/results/${s.job_id}`}
-                            className={`font-medium hover:text-emerald-400 hover:underline ${
+                            className={`inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 font-medium hover:text-emerald-400 hover:underline ${
                               isCurrent ? 'text-emerald-400' : 'text-slate-200'
                             }`}
                           >
-                            {s.scenario_name || `Job #${s.job_id}`}
+                            <span className="min-w-0 break-words">
+                              {s.scenario_name?.trim() || '—'}
+                            </span>
                             {isCurrent ? (
-                              <span className="ml-2 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
+                              <span className="shrink-0 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
                                 Actual
                               </span>
                             ) : null}
                           </Link>
+                        </td>
+                        <td className="p-4 align-middle">
+                          {s.scenario_tag ? (
+                            <ScenarioTagChip tag={s.scenario_tag} />
+                          ) : (
+                            <span className="text-slate-600">—</span>
+                          )}
                         </td>
                         <td className="p-4">
                           <span className={st.badgeClass}>{st.label}</span>
@@ -998,6 +1087,7 @@ export function ResultDetailPage() {
                 barOrientation={chartBarOrientation}
                 facetPlacement={chartFacetPlacement}
                 legendMode={chartFacetLegendMode}
+                serverFacetExport={{ jobIds: chartJobIds, selection: chartSelection }}
               />
             ) : chartCompareMode === 'by-year' && chartJobIds.length > 1 && compareChartData ? (
               <CompareChart data={compareChartData} barOrientation={chartBarOrientation} />

@@ -234,6 +234,10 @@ def run_simulation_job(self, job_id: int) -> None:
         with SessionLocal() as db:
             job = SimulationRepository.get_job_by_id(db, job_id=job_id)
             _cleanup_csv_upload_artifacts(job)
+        with SessionLocal() as db:
+            from app.services.simulation_service import SimulationService
+
+            SimulationService.dispatch_pending_jobs(db)
 
 
 @task_failure.connect

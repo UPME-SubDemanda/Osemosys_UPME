@@ -2,6 +2,7 @@
  * Tipos del dominio del negocio: escenarios, usuarios, simulaciones, catálogos, etc.
  */
 export type ScenarioEditPolicy = "OWNER_ONLY" | "OPEN" | "RESTRICTED";
+export type SimulationType = "NATIONAL" | "REGIONAL";
 
 export type ChangeRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
 export type ScenarioPermissionScope = "mine" | "readable" | "editable" | "readonly";
@@ -45,6 +46,7 @@ export type Scenario = {
   base_scenario_name?: string | null;
   changed_param_names?: string[];
   edit_policy: ScenarioEditPolicy;
+  simulation_type: SimulationType;
   is_template: boolean;
   created_at: string;
   tag?: ScenarioTag | null;
@@ -103,12 +105,15 @@ export type SimulationRun = {
   id: number;
   scenario_id: number | null;
   scenario_name?: string | null;
+  /** Alias opcional de la corrida (resultados y exportación). */
+  display_name?: string | null;
   scenario_tag?: ScenarioTag | null;
   user_id: string;
   username?: string | null;
   solver_name: SimulationSolver;
   input_mode: SimulationInputMode;
   input_name?: string | null;
+  simulation_type: SimulationType;
   status: RunStatus;
   progress: number;
   cancel_requested: boolean;
@@ -292,9 +297,14 @@ export type CompareChartResponse = {
 
 export type CompareMode = "off" | "facet" | "by-year";
 
+/** Modo del nombre de archivo al exportar comparación por facetas (PNG/SVG). */
+export type CompareFacetExportFilenameMode = "result" | "tags";
+
 export type FacetData = {
   scenario_name: string;
   job_id: number;
+  display_name?: string | null;
+  scenario_tag_name?: string | null;
   categories: string[];
   series: ChartSeries[];
 };
@@ -319,6 +329,9 @@ export type ResultSummaryResponse = {
   job_id: number;
   scenario_id: number | null;
   scenario_name: string | null;
+  scenario_tag?: ScenarioTag | null;
+  /** Alias opcional definido por el usuario para esta corrida. */
+  display_name?: string | null;
   solver_name: string;
   solver_status: string;
   objective_value: number;

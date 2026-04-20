@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { simulationApi } from '../../features/simulation/api/simulationApi';
+import { ScenarioTagChip } from '@/shared/components/ScenarioTagChip';
 import type { SimulationRun } from '../../types/domain';
 
 export type CompareViewMode = 'facet' | 'by-year';
@@ -163,14 +164,17 @@ export const ScenarioComparer: React.FC<ScenarioComparerProps> = ({
                   </svg>
                 </div>
                 <span
-                  className={`text-sm select-none ${selectedJobIds.includes(run.id) ? 'text-slate-200 font-medium' : 'text-slate-400'}`}
+                  className={`flex flex-wrap items-center gap-2 text-sm select-none ${selectedJobIds.includes(run.id) ? 'text-slate-200 font-medium' : 'text-slate-400'}`}
                 >
-                  {run.scenario_name || `Job #${run.id}`}
-                  {run.id === currentRunId && (
-                    <span className="ml-2 text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">
-                      (Actual)
-                    </span>
-                  )}
+                  <span>
+                    {run.display_name?.trim() || run.scenario_name || `Job #${run.id}`}
+                    {run.id === currentRunId && (
+                      <span className="ml-2 text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">
+                        (Actual)
+                      </span>
+                    )}
+                  </span>
+                  {run.scenario_tag ? <ScenarioTagChip tag={run.scenario_tag} /> : null}
                 </span>
               </label>
             ))}

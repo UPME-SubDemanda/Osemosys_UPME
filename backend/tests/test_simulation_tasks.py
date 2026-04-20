@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import app.simulation.tasks as tasks_module
+from app.services.simulation_service import SimulationService
 
 
 @dataclass
@@ -209,6 +210,11 @@ def test_run_simulation_job_cleans_csv_upload_artifacts_after_success(
         "_cleanup_csv_upload_artifacts",
         lambda current_job: cleaned.append(current_job),
     )
+    monkeypatch.setattr(
+        SimulationService,
+        "dispatch_pending_jobs",
+        staticmethod(lambda _db: None),
+    )
 
     tasks_module.run_simulation_job.run(123)
 
@@ -252,9 +258,53 @@ def test_run_simulation_job_cleans_csv_upload_artifacts_after_failure(
         "_cleanup_csv_upload_artifacts",
         lambda current_job: cleaned.append(current_job),
     )
+    monkeypatch.setattr(
+        SimulationService,
+        "dispatch_pending_jobs",
+        staticmethod(lambda _db: None),
+    )
 
     tasks_module.run_simulation_job.run(123)
 
     assert cleaned == [job]
     assert job.status == "FAILED"
     assert job.error_message == "boom"
+
+
+def test_run_simulation_job_dispatches_pending_after_terminal_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = DummyDbSession(rowcount=1)
+    job = SimpleNamespace(
+        id=123,
+        status="QUEUED",
+        progress=0.0,
+        input_mode="SCENARIO",
+        input_ref=None,
+        finished_at=None,
+        error_message=None,
+    )
+    dispatched: list[str] = []
+
+    monkeypatch.setattr(tasks_module, "SessionLocal", DummySessionFactory(db))
+    monkeypatch.setattr(
+        tasks_module.SimulationRepository,
+        "get_job_by_id",
+        lambda _db, *, job_id: job,
+    )
+    monkeypatch.setattr(
+        tasks_module.SimulationRepository,
+        "add_event",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(tasks_module, "run_pipeline", lambda _db, *, job_id: None)
+    monkeypatch.setattr(
+        SimulationService,
+        "dispatch_pending_jobs",
+        staticmethod(lambda _db: dispatched.append("ok")),
+    )
+
+    tasks_module.run_simulation_job.run(123)
+
+    assert job.status == "SUCCEEDED"
+    assert dispatched == ["ok"]

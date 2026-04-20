@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from app.schemas.scenario import ScenarioTagPublic
+
 
 # ---------------------------------------------------------------------------
 # Schemas para gráficas single-scenario
@@ -57,6 +59,10 @@ class FacetData(BaseModel):
 
     scenario_name: str
     job_id: int
+    #: Alias de corrida (`simulation_job.display_name`), si existe.
+    display_name: str | None = None
+    #: Nombre de la etiqueta del escenario (`scenario_tag.name`), si existe.
+    scenario_tag_name: str | None = None
     categories: list[str]
     series: list[ChartSeries]
 
@@ -95,6 +101,8 @@ class ResultSummaryResponse(BaseModel):
     job_id: int
     scenario_id: int | None = None
     scenario_name: str | None = None
+    scenario_tag: ScenarioTagPublic | None = None
+    display_name: str | None = None
     solver_name: str
     solver_status: str
     objective_value: float

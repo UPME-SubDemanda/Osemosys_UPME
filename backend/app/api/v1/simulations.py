@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import shutil
 import uuid
-import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -22,90 +21,22 @@ from app.db.session import get_db
 from app.models import User
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.simulation import (
+    SimulationJobDisplayNamePatch,
     SimulationJobPublic,
     SimulationLogPublic,
     SimulationOverviewPublic,
     SimulationResultPublic,
     SimulationSubmit,
 )
+from app.services.csv_scenario_import_service import (
+    CsvScenarioImportService,
+    extract_zip_to_dir,
+    find_csv_root,
+    validate_csv_root,
+)
 from app.services.simulation_service import SimulationService
-from app.simulation.core.data_processing import PARAM_INDEX
 
 router = APIRouter(prefix="/simulations")
-
-_REQUIRED_SET_CSVS = (
-    "YEAR.csv",
-    "REGION.csv",
-    "TECHNOLOGY.csv",
-    "TIMESLICE.csv",
-    "MODE_OF_OPERATION.csv",
-)
-_DEMAND_CSV_OPTIONS = ("SpecifiedAnnualDemand.csv", "AccumulatedAnnualDemand.csv")
-_ACTIVITY_RATIO_CSV_OPTIONS = ("OutputActivityRatio.csv", "InputActivityRatio.csv")
-
-
-def _find_csv_root(extract_root: Path) -> Path | None:
-    required = set(_REQUIRED_SET_CSVS)
-    candidates = [extract_root, *[path for path in extract_root.rglob("*") if path.is_dir()]]
-    for candidate in candidates:
-        csv_names = {path.name for path in candidate.glob("*.csv")}
-        if required.issubset(csv_names):
-            return candidate
-    return None
-
-
-def _validate_csv_root(csv_root: Path) -> list[str]:
-    csv_names = {path.name for path in csv_root.glob("*.csv")}
-    missing_sets = [name for name in _REQUIRED_SET_CSVS if name not in csv_names]
-    errors: list[str] = []
-
-    if missing_sets:
-        errors.append(
-            "Faltan CSV base requeridos: " + ", ".join(missing_sets) + "."
-        )
-
-    if not any(name in csv_names for name in _DEMAND_CSV_OPTIONS):
-        errors.append(
-            "Falta al menos un CSV de demanda: "
-            + " o ".join(_DEMAND_CSV_OPTIONS)
-            + "."
-        )
-
-    if not any(name in csv_names for name in _ACTIVITY_RATIO_CSV_OPTIONS):
-        errors.append(
-            "Falta al menos un CSV de activity ratio: "
-            + " o ".join(_ACTIVITY_RATIO_CSV_OPTIONS)
-            + "."
-        )
-
-    param_csv_names = {f"{param_name}.csv" for param_name in PARAM_INDEX}
-    if not any(name in csv_names for name in param_csv_names):
-        errors.append("No se encontraron CSV de parámetros OSeMOSYS reconocidos.")
-
-    return errors
-
-
-def _extract_zip_to_dir(upload: UploadFile, target_dir: Path) -> None:
-    try:
-        with zipfile.ZipFile(upload.file) as zf:
-            for member in zf.infolist():
-                member_path = Path(member.filename)
-                if member_path.is_absolute() or ".." in member_path.parts:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="El ZIP contiene rutas no válidas.",
-                    )
-                if member.is_dir():
-                    continue
-                out_path = target_dir / member_path
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                with zf.open(member) as src, out_path.open("wb") as dst:
-                    shutil.copyfileobj(src, dst)
-    except zipfile.BadZipFile as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El archivo cargado no es un ZIP válido.",
-        ) from exc
 
 
 @router.post("", response_model=SimulationJobPublic, status_code=201)
@@ -135,6 +66,7 @@ def submit_simulation(
             current_user=current_user,
             scenario_id=payload.scenario_id,
             solver_name=payload.solver_name,
+            display_name=payload.display_name,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -148,6 +80,17 @@ def submit_simulation(
 async def submit_simulation_from_csv(
     csv_zip: UploadFile = File(...),
     solver_name: str = Form("highs"),
+    input_name: str | None = Form(default=None),
+    simulation_type: str = Form(default="NATIONAL"),
+    save_as_scenario: bool = Form(default=False),
+    scenario_name: str | None = Form(default=None),
+    description: str | None = Form(default=None),
+    edit_policy: str = Form(default="OWNER_ONLY"),
+    tag_id: int | None = Form(default=None),
+    display_name: str | None = Form(
+        default=None,
+        description="Nombre opcional para esta corrida; si se omite, se usa el nombre del archivo ZIP.",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -162,14 +105,24 @@ async def submit_simulation_from_csv(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Debes cargar un archivo ZIP con los CSV de entrada.",
         )
-
+    if save_as_scenario and not (scenario_name or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="scenario_name es obligatorio cuando save_as_scenario=true.",
+        )
+    if edit_policy not in {"OWNER_ONLY", "OPEN", "RESTRICTED"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="edit_policy inválido.",
+        )
     settings = get_settings()
     artifact_root = Path(settings.simulation_artifacts_dir).resolve() / "csv_upload_jobs" / str(uuid.uuid4())
+    keep_artifacts = False
 
     try:
         artifact_root.mkdir(parents=True, exist_ok=True)
-        _extract_zip_to_dir(csv_zip, artifact_root)
-        csv_root = _find_csv_root(artifact_root)
+        extract_zip_to_dir(csv_zip, artifact_root)
+        csv_root = find_csv_root(artifact_root)
         if csv_root is None:
             shutil.rmtree(artifact_root, ignore_errors=True)
             raise HTTPException(
@@ -177,33 +130,54 @@ async def submit_simulation_from_csv(
                 detail=(
                     "No se encontró un directorio válido con CSV de entrada. "
                     "El ZIP debe contener al menos "
-                    + ", ".join(_REQUIRED_SET_CSVS)
+                    + ", ".join(("YEAR.csv", "REGION.csv", "TECHNOLOGY.csv", "TIMESLICE.csv", "MODE_OF_OPERATION.csv"))
                     + "."
                 ),
             )
-        validation_errors = _validate_csv_root(csv_root)
+        validation_errors = validate_csv_root(csv_root)
         if validation_errors:
             shutil.rmtree(artifact_root, ignore_errors=True)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=" ".join(validation_errors),
             )
+        if save_as_scenario:
+            created_scenario = CsvScenarioImportService.import_from_directory(
+                db,
+                current_user=current_user,
+                csv_root=csv_root,
+                scenario_name=(scenario_name or csv_zip.filename or "CSV import"),
+                description=description,
+                edit_policy=edit_policy,
+                tag_id=tag_id,
+                simulation_type=simulation_type,
+            )
+            return SimulationService.submit(
+                db,
+                current_user=current_user,
+                scenario_id=int(created_scenario["id"]),
+                solver_name=solver_name,
+                display_name=display_name,
+            )
+        keep_artifacts = True
         return SimulationService.submit_from_csv(
             db,
             current_user=current_user,
             solver_name=solver_name,
-            input_name=csv_zip.filename,
+            input_name=(input_name or csv_zip.filename or "CSV upload"),
             input_ref=str(csv_root),
+            simulation_type=simulation_type,
+            display_name=display_name,
         )
     except HTTPException:
-        shutil.rmtree(artifact_root, ignore_errors=True)
         raise
     except ConflictError as e:
-        shutil.rmtree(artifact_root, ignore_errors=True)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except Exception:
-        shutil.rmtree(artifact_root, ignore_errors=True)
         raise
+    finally:
+        if not keep_artifacts:
+            shutil.rmtree(artifact_root, ignore_errors=True)
 
 
 @router.get("", response_model=PaginatedResponse[SimulationJobPublic])
@@ -262,6 +236,25 @@ def get_simulation(
     """
     try:
         return SimulationService.get_by_id(db, current_user=current_user, job_id=job_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.patch("/{job_id}", response_model=SimulationJobPublic)
+def patch_simulation(
+    job_id: int,
+    payload: SimulationJobDisplayNamePatch,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Actualiza metadatos del job (p. ej. nombre visible para resultados y exportación)."""
+    try:
+        return SimulationService.patch_display_name(
+            db,
+            current_user=current_user,
+            job_id=job_id,
+            display_name=payload.display_name,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 

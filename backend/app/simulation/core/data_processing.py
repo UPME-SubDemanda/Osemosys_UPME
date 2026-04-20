@@ -993,33 +993,12 @@ def ensure_udc_csvs(csv_dir: str) -> None:
     crear_UDC_parametros(csv_dir, valor_constant_default=0.0, valor_tag_default=2.0)
 
 
-def apply_udc_config(db: Session, scenario_id: int, csv_dir: str) -> None:
-    """Lee la configuración UDC del escenario y aplica actualizar_UDCMultiplier / actualizar_UDCTag.
+def apply_udc_config(udc_config: dict, csv_dir: str) -> None:
+    """Aplica la configuración UDC al directorio de CSVs (multipliers y UDCTag).
 
-    Replica la celda 20 del notebook pero con configuración dinámica desde la BD.
-    Si el escenario no tiene udc_config, aplica el default de ReserveMargin.
+    Solo debe llamarse cuando UDC está habilitado (udc_config no es None).
+    udc_config debe tener las claves 'multipliers' (lista) y 'tag_value' (0 o 1).
     """
-    from app.models import Scenario
-
-    scenario = db.execute(
-        select(Scenario).where(Scenario.id == scenario_id)
-    ).scalar_one_or_none()
-
-    udc_config = None
-    if scenario is not None:
-        udc_config = getattr(scenario, "udc_config", None)
-
-    if udc_config is None:
-        udc_config = {
-            "multipliers": [
-                {
-                    "type": "TotalCapacity",
-                    "tech_dict": _UDC_RESERVE_MARGIN_DICT,
-                }
-            ],
-            "tag_value": 0,
-        }
-
     for mult_cfg in udc_config.get("multipliers", []):
         mtype = mult_cfg.get("type")
         tech_dict = mult_cfg.get("tech_dict")
@@ -1039,6 +1018,29 @@ def apply_udc_config(db: Session, scenario_id: int, csv_dir: str) -> None:
             actualizar_UDCTag(tag_value, carpeta=csv_dir)
         except (FileNotFoundError, ValueError) as e:
             logger.warning("No se pudo actualizar UDCTag: %s", e)
+
+
+def _load_enabled_udc_config(db: Session, scenario_id: int) -> dict | None:
+    """Devuelve udc_config del escenario si UDC está habilitado, None en caso contrario.
+
+    Reglas:
+    - Si scenario.udc_config es None → UDC deshabilitado (retorna None).
+    - Si udc_config tiene "enabled": False → UDC deshabilitado (retorna None).
+    - Si udc_config no tiene campo "enabled" (backward compat) → se trata como habilitado.
+    """
+    from app.models import Scenario
+
+    scenario = db.execute(
+        select(Scenario).where(Scenario.id == scenario_id)
+    ).scalar_one_or_none()
+    if scenario is None:
+        return None
+    cfg = getattr(scenario, "udc_config", None)
+    if cfg is None:
+        return None
+    if not cfg.get("enabled", True):
+        return None
+    return cfg
 
 
 def reorder_activity_ratio_csvs_for_dataportal(csv_dir: str) -> None:
@@ -1233,20 +1235,18 @@ def run_data_processing_from_excel(
             path_csv,
         )
 
-    # 5. UDC (celdas 17-19) y 6. UDC por defecto (sin BD)
-    ensure_udc_csvs(csv_dir)
-    try:
-        actualizar_UDCMultiplier(
-            "TotalCapacity",
-            carpeta=csv_dir,
-            tech_multiplier_dict=_UDC_RESERVE_MARGIN_DICT,
-        )
-    except FileNotFoundError:
-        logger.debug("UDCMultiplierTotalCapacity.csv no encontrado, omitiendo")
-    try:
-        actualizar_UDCTag(0, carpeta=csv_dir)
-    except (FileNotFoundError, ValueError):
-        logger.debug("No se pudo actualizar UDCTag por defecto")
+    # 5. UDC — deshabilitado en modo Excel (generate_notebook_csvs crea UDC con Tag=0,
+    #    hay que eliminar esos archivos para que has_udc=False y no se apliquen restricciones)
+    _udc_files = [
+        "UDC.csv", "UDCConstant.csv", "UDCTag.csv",
+        "UDCMultiplierTotalCapacity.csv", "UDCMultiplierNewCapacity.csv",
+        "UDCMultiplierActivity.csv",
+    ]
+    for _f in _udc_files:
+        _fp = os.path.join(csv_dir, _f)
+        if os.path.exists(_fp):
+            os.remove(_fp)
+            logger.debug("UDC eliminado para modo Excel: %s", _f)
 
     # 7. Reordenar columnas de ActivityRatio para DataPortal
     reorder_activity_ratio_csvs_for_dataportal(csv_dir)
@@ -1329,11 +1329,12 @@ def run_data_processing(
             path_csv,
         )
 
-    # 5. UDC (celdas 17-19 del notebook — siempre se genera)
-    ensure_udc_csvs(csv_dir)
-
-    # 6. Aplicar configuración UDC del escenario (celda 20 del notebook)
-    apply_udc_config(db, scenario_id, csv_dir)
+    # 5-6. UDC — solo si el escenario tiene configuración UDC habilitada
+    _udc_cfg = _load_enabled_udc_config(db, scenario_id)
+    if _udc_cfg is not None:
+        ensure_udc_csvs(csv_dir)
+        apply_udc_config(_udc_cfg, csv_dir)
+        result.has_udc = True
 
     # 7. Reordenar columnas de ActivityRatio para compatibilidad con DataPortal
     reorder_activity_ratio_csvs_for_dataportal(csv_dir)

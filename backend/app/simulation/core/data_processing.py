@@ -1235,7 +1235,18 @@ def run_data_processing_from_excel(
             path_csv,
         )
 
-    # 5. UDC — deshabilitado por defecto en modo Excel (sin escenario en BD)
+    # 5. UDC — deshabilitado en modo Excel (generate_notebook_csvs crea UDC con Tag=0,
+    #    hay que eliminar esos archivos para que has_udc=False y no se apliquen restricciones)
+    _udc_files = [
+        "UDC.csv", "UDCConstant.csv", "UDCTag.csv",
+        "UDCMultiplierTotalCapacity.csv", "UDCMultiplierNewCapacity.csv",
+        "UDCMultiplierActivity.csv",
+    ]
+    for _f in _udc_files:
+        _fp = os.path.join(csv_dir, _f)
+        if os.path.exists(_fp):
+            os.remove(_fp)
+            logger.debug("UDC eliminado para modo Excel: %s", _f)
 
     # 7. Reordenar columnas de ActivityRatio para DataPortal
     reorder_activity_ratio_csvs_for_dataportal(csv_dir)

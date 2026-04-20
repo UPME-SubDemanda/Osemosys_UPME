@@ -1057,22 +1057,20 @@ def get_udc_config(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Devuelve la configuración UDC del escenario.
-
-    Retorna siempre un objeto con campo 'enabled':
-    - {"enabled": false, "multipliers": [], "tag_value": 0} cuando UDC está desactivado.
-    - {"enabled": true, "multipliers": [...], "tag_value": 0|1} cuando está activo.
-    """
+    """Devuelve la configuración UDC del escenario."""
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(status_code=404, detail="Escenario no encontrado")
 
+    default_config = {
+        "enabled": False,
+        "multipliers": [],
+        "tag_value": 0,
+    }
     if scenario.udc_config is None:
-        return {"enabled": False, "multipliers": [], "tag_value": 0}
-
+        return default_config
     cfg = dict(scenario.udc_config)
-    # Backward compat: configs anteriores sin campo "enabled" se tratan como habilitadas
-    cfg.setdefault("enabled", True)
+    cfg.setdefault("enabled", True)   # backward compat: configs sin campo → activos
     cfg.setdefault("multipliers", [])
     cfg.setdefault("tag_value", 0)
     return cfg
@@ -1087,18 +1085,20 @@ def update_udc_config(
 ):
     """Actualiza la configuración UDC del escenario.
 
-    Para deshabilitar UDC:
-        {"enabled": false}
-
-    Para habilitarlo:
-        {"enabled": true, "multipliers": [...], "tag_value": 0}
+    Payload esperado:
+    {
+        "multipliers": [
+            {"type": "TotalCapacity", "tech_dict": {"TECH_A": -1.0, ...}},
+            {"type": "NewCapacity", "tech_dict": {...}},
+        ],
+        "tag_value": 0
+    }
     """
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(status_code=404, detail="Escenario no encontrado")
 
     enabled = payload.get("enabled", True)
-
     if not enabled:
         scenario.udc_config = None
         db.commit()
@@ -1124,7 +1124,6 @@ def update_udc_config(
 
     scenario.udc_config = {**payload, "enabled": True}
     db.commit()
-
     cfg = dict(scenario.udc_config)
     cfg.setdefault("multipliers", [])
     cfg.setdefault("tag_value", 0)

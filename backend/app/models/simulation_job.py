@@ -51,6 +51,13 @@ class SimulationJob(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="QUEUED")
     progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: Si ``True``, cuando el solver termine infactible el pipeline corre
+    #: automáticamente el análisis enriquecido (IIS + mapeo a parámetros).
+    #: Si ``False`` (default), el diagnóstico queda disponible on-demand desde
+    #: la UI vía POST /simulations/{id}/diagnose-infeasibility.
+    run_iis_analysis: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     result_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

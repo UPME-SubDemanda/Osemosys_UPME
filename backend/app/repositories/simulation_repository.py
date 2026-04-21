@@ -41,8 +41,15 @@ class SimulationRepository:
         input_mode: str = "SCENARIO",
         input_name: str | None = None,
         input_ref: str | None = None,
+        run_iis_analysis: bool = False,
     ) -> SimulationJob:
-        """Crea job en estado `QUEUED`."""
+        """Crea job en estado `QUEUED`.
+
+        ``run_iis_analysis`` indica si, cuando el modelo termine infactible,
+        el pipeline debe correr automáticamente el análisis enriquecido
+        (IIS + mapeo a parámetros). Por defecto ``False``: el diagnóstico queda
+        disponible on-demand vía POST /simulations/{id}/diagnose-infeasibility.
+        """
         job = SimulationJob(
             user_id=user_id,
             scenario_id=scenario_id,
@@ -52,6 +59,7 @@ class SimulationRepository:
             input_ref=input_ref,
             status="QUEUED",
             progress=0.0,
+            run_iis_analysis=run_iis_analysis,
         )
         db.add(job)
         return job

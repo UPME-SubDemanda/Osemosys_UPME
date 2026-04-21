@@ -29,18 +29,28 @@ type ListRunsParams = {
 };
 
 export const simulationApi = {
-  async submit(scenarioId: number, solverName: SimulationSolver) {
+  async submit(
+    scenarioId: number,
+    solverName: SimulationSolver,
+    runIisAnalysis: boolean = false,
+  ) {
     const { data } = await httpClient.post<SimulationRun>("/simulations", {
       scenario_id: scenarioId,
       solver_name: solverName,
+      run_iis_analysis: runIisAnalysis,
     });
     return data;
   },
 
-  async submitFromCsv(file: File, solverName: SimulationSolver) {
+  async submitFromCsv(
+    file: File,
+    solverName: SimulationSolver,
+    runIisAnalysis: boolean = false,
+  ) {
     const formData = new FormData();
     formData.append("csv_zip", file);
     formData.append("solver_name", solverName);
+    formData.append("run_iis_analysis", String(runIisAnalysis));
     const { data } = await httpClient.post<SimulationRun>("/simulations/from-csv", formData, {
       headers: { "Content-Type": "multipart/form-data" },
       timeout: 10 * 60 * 1000,
@@ -86,6 +96,40 @@ export const simulationApi = {
       timeout: 5 * 60 * 1000,
     });
     return data;
+  },
+
+  /** Encola el análisis de infactibilidad (IIS + mapeo a parámetros) para un job
+   * SUCCEEDED pero infactible. Solo aplica a HiGHS. Devuelve el job actualizado
+   * con `diagnostic_status='QUEUED'`. */
+  async runInfeasibilityDiagnostic(jobId: number) {
+    const { data } = await httpClient.post<SimulationRun>(
+      `/simulations/${jobId}/diagnose-infeasibility`,
+    );
+    return data;
+  },
+
+  /** Cancela un diagnóstico en QUEUED/RUNNING. */
+  async cancelInfeasibilityDiagnostic(jobId: number) {
+    const { data } = await httpClient.post<SimulationRun>(
+      `/simulations/${jobId}/cancel-diagnostic`,
+    );
+    return data;
+  },
+
+  /** Descarga el reporte de infactibilidad como JSON (attachment). */
+  async downloadInfeasibilityReport(jobId: number): Promise<{ blob: Blob; filename: string }> {
+    const { data, headers } = await httpClient.get(
+      `/simulations/${jobId}/infeasibility-report`,
+      { responseType: "blob", timeout: 2 * 60 * 1000 },
+    );
+    const blob = data as Blob;
+    const disposition = headers["content-disposition"];
+    let filename = `infeasibility_report_job_${jobId}.json`;
+    if (typeof disposition === "string") {
+      const match = /filename="?([^";\n]+)"?/i.exec(disposition);
+      if (match?.[1]) filename = match[1].trim();
+    }
+    return { blob, filename };
   },
 
   async getResultSummary(jobId: number) {

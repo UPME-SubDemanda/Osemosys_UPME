@@ -120,6 +120,14 @@ export type SimulationRun = {
   finished_at?: string | null;
   /** true si SUCCEEDED pero el solver reportó infactibilidad o hay diagnóstico en el job. */
   is_infeasible_result?: boolean;
+  /** True si la simulación se encoló con "correr diagnóstico de infactibilidad automático". */
+  run_iis_analysis?: boolean;
+  /** Estado del análisis enriquecido de infactibilidad (opcional, on-demand). */
+  diagnostic_status?: "NONE" | "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED";
+  diagnostic_error?: string | null;
+  diagnostic_started_at?: string | null;
+  diagnostic_finished_at?: string | null;
+  diagnostic_seconds?: number | null;
 };
 
 export type SimulationOverview = {
@@ -146,9 +154,64 @@ export type VarBoundConflict = {
   gap: number;
 };
 
+export type IISReport = {
+  available: boolean;
+  method: string | null;
+  constraint_names: string[];
+  variable_names: string[];
+  unavailable_reason: string | null;
+};
+
+export type ParamHit = {
+  param: string;
+  indices: Record<string, string>;
+  value: number | null;
+  is_default: boolean;
+  default_value?: number | null;
+  diff_abs?: number | null;
+  deviation_score?: number | null;
+};
+
+export type ConstraintAnalysis = {
+  name: string;
+  constraint_type: string;
+  indices: Record<string, string>;
+  body: number | null;
+  lower: number | null;
+  upper: number | null;
+  side: string;
+  violation: number;
+  in_iis: boolean;
+  has_mapping: boolean;
+  description: string;
+  related_params: ParamHit[];
+};
+
+export type InfeasibilityOverview = {
+  years: number[];
+  constraint_types: Record<string, number>;
+  variable_types: Record<string, number>;
+  techs_or_fuels: Record<string, number>;
+  total_constraints: number;
+  total_variables: number;
+};
+
 export type InfeasibilityDiagnostics = {
   constraint_violations: ConstraintViolation[];
   var_bound_conflicts: VarBoundConflict[];
+  // Estado del análisis on-demand (QUEUED/RUNNING/SUCCEEDED/FAILED; ausente = NONE):
+  diagnostic_status?: "NONE" | "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED";
+  diagnostic_error?: string | null;
+  diagnostic_started_at?: string | null;
+  diagnostic_finished_at?: string | null;
+  diagnostic_seconds?: number | null;
+  // Campos enriquecidos (presentes solo si diagnostic_status === 'SUCCEEDED'):
+  iis?: IISReport | null;
+  overview?: InfeasibilityOverview | null;
+  top_suspects?: ParamHit[];
+  constraint_analyses?: ConstraintAnalysis[];
+  unmapped_constraint_prefixes?: string[];
+  csv_dir?: string | null;
 };
 
 export type RunResult = {

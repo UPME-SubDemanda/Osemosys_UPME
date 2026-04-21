@@ -55,9 +55,17 @@ export function ResultsPage() {
     void fetchRuns();
   }, [fetchRuns]);
 
-  // Filtrado por estado y rango de fechas (queued_at)
+  // Filtrado por estado y rango de fechas (queued_at). Además se excluyen las
+  // corridas infactibles: no tienen resultados (dispatch, capacidades, etc.)
+  // que mostrar; su análisis está en la página dedicada "Reporte de
+  // infactibilidad" accesible desde Simulación.
+  const infeasibleCount = useMemo(
+    () => runs.filter((r) => r.is_infeasible_result).length,
+    [runs],
+  );
   const filteredRuns = useMemo(() => {
     return runs.filter((run) => {
+      if (run.is_infeasible_result) return false;
       if (statusFilter !== "ALL" && run.status !== statusFilter) return false;
       const created = new Date(run.queued_at).getTime();
       if (fromDate) {
@@ -184,6 +192,22 @@ export function ResultsPage() {
         ]}
         searchableText={(r) => `${r.id} ${r.scenario_id}`}
       />
+
+      <p
+        style={{
+          margin: "4px 0 0",
+          fontSize: 12,
+          opacity: 0.75,
+          lineHeight: 1.5,
+        }}
+      >
+        Las simulaciones infactibles
+        {infeasibleCount > 0 ? ` (${infeasibleCount} en esta vista)` : ""} no
+        aparecen en esta lista porque no tienen resultados numéricos que graficar.
+        Para revisarlas, ve a la sección <Link to={paths.simulation}>Simulación</Link>,
+        donde cada corrida infactible tiene un botón para correr el diagnóstico
+        (IIS + mapeo a parámetros).
+      </p>
     </section>
   );
 }

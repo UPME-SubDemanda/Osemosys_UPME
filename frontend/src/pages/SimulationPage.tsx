@@ -19,7 +19,6 @@ import { useToast } from "@/app/providers/useToast";
 import { scenariosApi } from "@/features/scenarios/api/scenariosApi";
 import type { UdcConfig, UdcMultiplierEntry } from "@/features/scenarios/api/scenariosApi";
 import { simulationApi } from "@/features/simulation/api/simulationApi";
-import { InfeasibilityDiagnosticsPanel } from "@/features/simulation/components/InfeasibilityDiagnosticsPanel";
 import { getSimulationRunStatusDisplay } from "@/features/simulation/simulationRunStatus";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
@@ -40,7 +39,11 @@ import type {
 
 const ACTIVE_STATUSES = new Set(["QUEUED", "RUNNING"]);
 const CSV_PREVIEW_LIMIT = 50;
-const CRITICAL_SIMULATION_LOG_STAGES = new Set(["create_instance", "solver"]);
+const CRITICAL_SIMULATION_LOG_STAGES = new Set([
+  "create_instance",
+  "solver",
+  "infeasibility_analysis_start",
+]);
 
 const SIMULATION_LOG_STAGE_LABELS: Record<string, string> = {
   extract_data: "Leer insumos",
@@ -50,6 +53,8 @@ const SIMULATION_LOG_STAGE_LABELS: Record<string, string> = {
   create_instance: "Crear la instancia",
   solver_start: "Preparar el solver",
   solver: "Resolver la optimización",
+  infeasibility_analysis_start: "Analizando infactibilidad",
+  infeasibility_analysis_complete: "Análisis de infactibilidad completado",
   complete: "Cerrar ejecución",
   persist_results: "Guardar resultados",
   end: "Finalizar",
@@ -327,6 +332,11 @@ export function SimulationPage() {
   const [usernameFilter, setUsernameFilter] = useState("");
   const [solverName, setSolverName] = useState<SimulationSolver>("highs");
   const [csvSolverName, setCsvSolverName] = useState<SimulationSolver>("highs");
+  // Si el usuario marca estos checkboxes al encolar, el pipeline corre el
+  // análisis enriquecido de infactibilidad (IIS + mapeo a parámetros) inline
+  // cuando el modelo es infactible. Por defecto NO (útil para pruebas locales).
+  const [runIisAnalysis, setRunIisAnalysis] = useState<boolean>(false);
+  const [csvRunIisAnalysis, setCsvRunIisAnalysis] = useState<boolean>(false);
   const [csvZipFile, setCsvZipFile] = useState<File | null>(null);
   const [csvSubmitting, setCsvSubmitting] = useState(false);
   const [csvResult, setCsvResult] = useState<CsvSimulationResult | null>(null);
@@ -335,6 +345,11 @@ export function SimulationPage() {
   const [csvResultSourceJobId, setCsvResultSourceJobId] = useState<number | null>(null);
   const [csvLoadingResultForJobId, setCsvLoadingResultForJobId] = useState<number | null>(null);
   const [cancellingJobId, setCancellingJobId] = useState<number | null>(null);
+  const [triggeringDiagnosticFor, setTriggeringDiagnosticFor] = useState<number | null>(null);
+  const [cancellingDiagnosticFor, setCancellingDiagnosticFor] = useState<number | null>(null);
+  // Tick de 1 s usado para refrescar los contadores de segundos en vivo cuando
+  // algún diagnóstico está RUNNING.
+  const [liveTickMs, setLiveTickMs] = useState<number>(() => Date.now());
 
   const [udcConfig, setUdcConfig] = useState<UdcConfig | null>(null);
   const [udcOpen, setUdcOpen] = useState(false);
@@ -412,15 +427,31 @@ export function SimulationPage() {
       .finally(() => setLoadingScenarios(false));
   }, [user]);
 
-  // Polling cada 3s mientras haya jobs en cola o ejecutando
+  // Polling cada 3s mientras haya jobs en cola/ejecución o diagnósticos en curso
   useEffect(() => {
-    const shouldPoll = runs.some((run) => ACTIVE_STATUSES.has(run.status));
-    if (!shouldPoll) return;
+    const hasActiveJob = runs.some((run) => ACTIVE_STATUSES.has(run.status));
+    const hasActiveDiagnostic = runs.some(
+      (run) =>
+        run.diagnostic_status === "QUEUED" || run.diagnostic_status === "RUNNING",
+    );
+    if (!hasActiveJob && !hasActiveDiagnostic) return;
     const timer = window.setInterval(() => {
       void refreshRuns();
     }, 3000);
     return () => window.clearInterval(timer);
   }, [refreshRuns, runs]);
+
+  // Tick de 1 s para que los contadores de segundos ("Diagnosticando (X s)…")
+  // se actualicen en vivo mientras haya al menos un diagnóstico RUNNING.
+  useEffect(() => {
+    const hasRunningDiagnostic = runs.some(
+      (run) => run.diagnostic_status === "RUNNING",
+    );
+    if (!hasRunningDiagnostic) return;
+    setLiveTickMs(Date.now());
+    const id = window.setInterval(() => setLiveTickMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [runs]);
 
   useEffect(() => {
     if (!user) return;
@@ -483,7 +514,7 @@ export function SimulationPage() {
     }
     setSubmitting(true);
     try {
-      await simulationApi.submit(scenarioId, solverName);
+      await simulationApi.submit(scenarioId, solverName, runIisAnalysis);
       push("Simulación encolada correctamente.", "success");
       await refreshRuns();
     } catch (error) {
@@ -513,6 +544,42 @@ export function SimulationPage() {
     }
   }
 
+  /** Cancela un diagnóstico en QUEUED/RUNNING y refresca la lista. */
+  async function cancelDiagnostic(jobId: number) {
+    setCancellingDiagnosticFor(jobId);
+    try {
+      await simulationApi.cancelInfeasibilityDiagnostic(jobId);
+      push(`Diagnóstico del job ${jobId} cancelado.`, "info");
+      await refreshRuns();
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "No se pudo cancelar el diagnóstico.";
+      push(detail, "error");
+    } finally {
+      setCancellingDiagnosticFor(null);
+    }
+  }
+
+  /** Dispara el análisis de infactibilidad (IIS + mapeo a parámetros) para un
+   * job HiGHS infactible. El análisis se ejecuta en un worker Celery aparte;
+   * refrescamos el listado para ver el nuevo estado. */
+  async function requestDiagnostic(jobId: number) {
+    setTriggeringDiagnosticFor(jobId);
+    try {
+      await simulationApi.runInfeasibilityDiagnostic(jobId);
+      push(`Diagnóstico de infactibilidad del job ${jobId} encolado.`, "info");
+      await refreshRuns();
+    } catch (error) {
+      const detail =
+        error instanceof Error
+          ? error.message
+          : "No se pudo encolar el diagnóstico.";
+      push(detail, "error");
+    } finally {
+      setTriggeringDiagnosticFor(null);
+    }
+  }
+
   /** Carga los logs de un job y abre el modal */
   async function loadLogs(jobId: number) {
     try {
@@ -538,7 +605,11 @@ export function SimulationPage() {
     setCsvResultSourceJobId(null);
     setCsvTrackedJobId(null);
     try {
-      const job = await simulationApi.submitFromCsv(csvZipFile, csvSolverName);
+      const job = await simulationApi.submitFromCsv(
+        csvZipFile,
+        csvSolverName,
+        csvRunIisAnalysis,
+      );
       setCsvTrackedJobId(job.id);
       setRuns((prev) => [job, ...prev.filter((run) => run.id !== job.id)]);
       push(`Simulación desde CSV encolada como job ${job.id}.`, "success");
@@ -569,6 +640,94 @@ export function SimulationPage() {
   }, [runs, statusFilter]);
 
   const selectedLogs = logsOpenForJob ? logsByJob[logsOpenForJob] ?? [] : [];
+
+  // Job mostrado en el modal de registros (para saber si sigue corriendo).
+  const selectedLogsJob = useMemo(
+    () => (logsOpenForJob ? runs.find((r) => r.id === logsOpenForJob) ?? null : null),
+    [logsOpenForJob, runs],
+  );
+  const selectedLogsJobActive = selectedLogsJob
+    ? ACTIVE_STATUSES.has(selectedLogsJob.status)
+    : false;
+
+  // Tick reactivo para contadores en vivo (refresca cada segundo mientras el
+  // modal está abierto sobre un job en curso).
+  const [liveNowMs, setLiveNowMs] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (logsOpenForJob === null || !selectedLogsJobActive) return;
+    setLiveNowMs(Date.now());
+    const id = window.setInterval(() => setLiveNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [logsOpenForJob, selectedLogsJobActive]);
+
+  // Polling: mientras el modal esté abierto sobre un job activo, re-cargamos
+  // los logs cada 3 s para que los nuevos stages del backend (incluido
+  // "infeasibility_analysis_start"/"_complete") aparezcan sin intervención.
+  // Llamamos directamente a la API (sin pasar por loadLogs) para no depender
+  // de una función que se recrea en cada render.
+  useEffect(() => {
+    if (logsOpenForJob === null || !selectedLogsJobActive) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await simulationApi.listLogs(logsOpenForJob, 100, 1);
+        if (cancelled) return;
+        setLogsByJob((prev) => ({ ...prev, [logsOpenForJob]: res.data }));
+      } catch {
+        // silencioso: errores de red esporádicos no deben cerrar el modal
+      }
+    };
+    const id = window.setInterval(() => {
+      void poll();
+    }, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [logsOpenForJob, selectedLogsJobActive]);
+
+  // Resumen para el banner del modal: tiempo total desde el primer evento y
+  // duración del stage actual (último evento). Si el job ya terminó, congela
+  // los contadores al instante del último evento.
+  const logsBanner = useMemo(() => {
+    const firstLog = selectedLogs[0];
+    const lastLog = selectedLogs[selectedLogs.length - 1];
+    if (!firstLog || !lastLog) return null;
+    const firstMs = new Date(firstLog.created_at).getTime();
+    const lastMs = new Date(lastLog.created_at).getTime();
+    const endMs = selectedLogsJobActive ? liveNowMs : lastMs;
+    const totalSeconds = Number.isFinite(firstMs) ? Math.max(0, (endMs - firstMs) / 1000) : 0;
+    const currentStageSeconds = Number.isFinite(lastMs)
+      ? Math.max(0, (endMs - lastMs) / 1000)
+      : 0;
+
+    // Detectar si el análisis de infactibilidad está EN CURSO:
+    // el último evento es "infeasibility_analysis_start" y NO hay aún un
+    // "infeasibility_analysis_complete" posterior.
+    const lastStage = normalizeSimulationLogStage(lastLog.stage);
+    const infeasAnalysisRunning =
+      selectedLogsJobActive && lastStage === "infeasibility_analysis_start";
+
+    // Instante en que comenzó el análisis (si ya empezó, esté corriendo o no).
+    const startEvent = [...selectedLogs]
+      .reverse()
+      .find((l) => normalizeSimulationLogStage(l.stage) === "infeasibility_analysis_start");
+    const infeasStartedAt = startEvent ? new Date(startEvent.created_at) : null;
+    const infeasElapsedSeconds = infeasStartedAt
+      ? Math.max(0, (endMs - infeasStartedAt.getTime()) / 1000)
+      : null;
+
+    return {
+      firstAt: new Date(firstMs),
+      lastAt: new Date(lastMs),
+      totalSeconds,
+      currentStageSeconds,
+      currentStageName: lastLog.stage,
+      infeasAnalysisRunning,
+      infeasStartedAt,
+      infeasElapsedSeconds,
+    };
+  }, [selectedLogs, selectedLogsJobActive, liveNowMs]);
 
   return (
     <section style={{ display: "grid", gap: 14 }}>
@@ -606,7 +765,11 @@ export function SimulationPage() {
             <select
               className="field__input"
               value={solverName}
-              onChange={(e) => setSolverName(e.target.value as SimulationSolver)}
+              onChange={(e) => {
+                const next = e.target.value as SimulationSolver;
+                setSolverName(next);
+                if (next !== "highs") setRunIisAnalysis(false);
+              }}
             >
               <option value="highs">HiGHS</option>
               <option value="glpk">GLPK</option>
@@ -619,6 +782,34 @@ export function SimulationPage() {
             Refrescar estado
           </Button>
         </div>
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: 13,
+            opacity: 0.9,
+            cursor: "pointer",
+            userSelect: "none",
+            width: "fit-content",
+          }}
+          title={
+            solverName === "highs"
+              ? "Cuando el modelo sea infactible, el pipeline corre automáticamente el IIS y mapea las restricciones a los parámetros OSeMOSYS. Tarda más pero te ahorra lanzar el diagnóstico manualmente."
+              : "El diagnóstico automático requiere HiGHS. Cambia el solver para habilitar esta opción."
+          }
+        >
+          <input
+            type="checkbox"
+            checked={runIisAnalysis}
+            disabled={solverName !== "highs"}
+            onChange={(e) => setRunIisAnalysis(e.target.checked)}
+          />
+          <span>
+            Correr diagnóstico de infactibilidad automáticamente{" "}
+            <span style={{ opacity: 0.7 }}>(solo HiGHS)</span>
+          </span>
+        </label>
       </article>
 
       <article className="pageSection" style={{ display: "grid", gap: 12 }}>
@@ -650,7 +841,11 @@ export function SimulationPage() {
             <select
               className="field__input"
               value={csvSolverName}
-              onChange={(e) => setCsvSolverName(e.target.value as SimulationSolver)}
+              onChange={(e) => {
+                const next = e.target.value as SimulationSolver;
+                setCsvSolverName(next);
+                if (next !== "highs") setCsvRunIisAnalysis(false);
+              }}
             >
               <option value="highs">HiGHS</option>
               <option value="glpk">GLPK</option>
@@ -660,6 +855,34 @@ export function SimulationPage() {
             {csvSubmitting ? "Encolando..." : "Ejecutar desde CSV"}
           </Button>
         </div>
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: 13,
+            opacity: 0.9,
+            cursor: "pointer",
+            userSelect: "none",
+            width: "fit-content",
+          }}
+          title={
+            csvSolverName === "highs"
+              ? "Cuando el modelo sea infactible, el pipeline corre automáticamente el IIS y mapea las restricciones a los parámetros OSeMOSYS."
+              : "El diagnóstico automático requiere HiGHS. Cambia el solver para habilitar esta opción."
+          }
+        >
+          <input
+            type="checkbox"
+            checked={csvRunIisAnalysis}
+            disabled={csvSolverName !== "highs"}
+            onChange={(e) => setCsvRunIisAnalysis(e.target.checked)}
+          />
+          <span>
+            Correr diagnóstico de infactibilidad automáticamente{" "}
+            <span style={{ opacity: 0.7 }}>(solo HiGHS)</span>
+          </span>
+        </label>
         {csvZipFile ? (
           <small style={{ opacity: 0.78 }}>
             Archivo seleccionado: <strong>{csvZipFile.name}</strong>
@@ -1001,22 +1224,155 @@ export function SimulationPage() {
             {
               key: "go",
               header: "Resultados",
-              render: (r) => (
-                <div style={{ display: "flex", gap: 6 }}>
-                  <Link className="btn btn--ghost" to={paths.resultsDetail(r.id)}>
-                    Abrir
-                  </Link>
-                  {ACTIVE_STATUSES.has(r.status) ? (
-                    <Button
-                      variant="ghost"
-                      onClick={() => void cancelSimulation(r.id)}
-                      disabled={cancellingJobId === r.id}
-                    >
-                      {cancellingJobId === r.id ? "Cancelando…" : "Cancelar"}
-                    </Button>
-                  ) : null}
-                </div>
-              ),
+              render: (r) => {
+                const isInfeasible = !!r.is_infeasible_result;
+                const solver = (r.solver_name ?? "").toLowerCase();
+                const diagStatus = r.diagnostic_status ?? "NONE";
+                const busy = triggeringDiagnosticFor === r.id;
+
+                return (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                    {!isInfeasible ? (
+                      <Link className="btn btn--ghost" to={paths.resultsDetail(r.id)}>
+                        Abrir
+                      </Link>
+                    ) : null}
+
+                    {/* Infactible con HiGHS: flujo por estado del diagnóstico */}
+                    {isInfeasible && solver === "highs" ? (
+                      <>
+                        {diagStatus === "SUCCEEDED" ? (
+                          <Link
+                            className="btn btn--ghost"
+                            to={paths.infeasibilityReport(r.id)}
+                            style={{ color: "rgba(248,113,113,0.95)" }}
+                            title={
+                              typeof r.diagnostic_seconds === "number"
+                                ? `Diagnóstico completado en ${r.diagnostic_seconds.toFixed(1)} s.`
+                                : "Ver reporte detallado (IIS + mapeo a parámetros)"
+                            }
+                          >
+                            ⚠ Ver reporte
+                            {typeof r.diagnostic_seconds === "number"
+                              ? ` · ${r.diagnostic_seconds.toFixed(1)} s`
+                              : ""}
+                          </Link>
+                        ) : null}
+                        {diagStatus === "QUEUED" ? (
+                          <>
+                            <span
+                              style={{
+                                fontSize: 12,
+                                padding: "4px 10px",
+                                borderRadius: 6,
+                                background: "rgba(148,163,184,0.18)",
+                                border: "1px solid rgba(148,163,184,0.4)",
+                              }}
+                              title="El diagnóstico está encolado pero todavía no empezó a ejecutarse."
+                            >
+                              En cola (sin iniciar)…
+                            </span>
+                            <Button
+                              variant="ghost"
+                              onClick={() => void cancelDiagnostic(r.id)}
+                              disabled={cancellingDiagnosticFor === r.id}
+                            >
+                              {cancellingDiagnosticFor === r.id
+                                ? "Cancelando…"
+                                : "Cancelar"}
+                            </Button>
+                          </>
+                        ) : null}
+                        {diagStatus === "RUNNING" ? (
+                          <>
+                            <span
+                              style={{
+                                fontSize: 12,
+                                padding: "4px 10px",
+                                borderRadius: 6,
+                                background: "rgba(245,158,11,0.18)",
+                                border: "1px solid rgba(245,158,11,0.45)",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                              title={
+                                r.diagnostic_started_at
+                                  ? `Inició: ${new Date(r.diagnostic_started_at).toLocaleTimeString()}`
+                                  : "Ejecutando diagnóstico…"
+                              }
+                            >
+                              ⚙️ Ejecutando diagnóstico…
+                              {r.diagnostic_started_at
+                                ? ` (${Math.max(
+                                    0,
+                                    Math.floor(
+                                      (liveTickMs -
+                                        new Date(r.diagnostic_started_at).getTime()) /
+                                        1000,
+                                    ),
+                                  )} s)`
+                                : ""}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              onClick={() => void cancelDiagnostic(r.id)}
+                              disabled={cancellingDiagnosticFor === r.id}
+                            >
+                              {cancellingDiagnosticFor === r.id
+                                ? "Cancelando…"
+                                : "Cancelar"}
+                            </Button>
+                          </>
+                        ) : null}
+                        {(diagStatus === "NONE" || diagStatus === "FAILED") ? (
+                          <Button
+                            variant="ghost"
+                            onClick={() => void requestDiagnostic(r.id)}
+                            disabled={busy}
+                            title={
+                              diagStatus === "FAILED" && r.diagnostic_error
+                                ? `Falló/cancelado el intento anterior: ${r.diagnostic_error}. Click para reintentar.`
+                                : "Ejecuta el análisis de infactibilidad (IIS + mapeo a parámetros)."
+                            }
+                          >
+                            {busy
+                              ? "Encolando…"
+                              : diagStatus === "FAILED"
+                                ? "⚠ Reintentar diagnóstico"
+                                : "⚠ Correr diagnóstico de infactibilidad"}
+                          </Button>
+                        ) : null}
+                      </>
+                    ) : null}
+
+                    {/* Infactible con GLPK: no hay IIS, se invita a re-correr con HiGHS */}
+                    {isInfeasible && solver !== "highs" ? (
+                      <span
+                        title="GLPK no expone IIS. Para diagnóstico detallado vuelve a correr la simulación con HiGHS."
+                        style={{
+                          fontSize: 12,
+                          padding: "4px 10px",
+                          borderRadius: 6,
+                          background: "rgba(148,163,184,0.14)",
+                          border: "1px solid rgba(148,163,184,0.3)",
+                          opacity: 0.9,
+                        }}
+                      >
+                        Para diagnóstico de infactibilidad, vuelve a correr con HiGHS.
+                      </span>
+                    ) : null}
+
+                    {ACTIVE_STATUSES.has(r.status) ? (
+                      <Button
+                        variant="ghost"
+                        onClick={() => void cancelSimulation(r.id)}
+                        disabled={cancellingJobId === r.id}
+                      >
+                        {cancellingJobId === r.id ? "Cancelando…" : "Cancelar"}
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              },
             },
           ]}
           searchableText={(r) => `${r.id} ${r.scenario_name ?? ""} ${r.input_name ?? ""} ${r.username ?? ""} ${r.status} ${r.queue_position ?? ""}`}
@@ -1114,7 +1470,39 @@ export function SimulationPage() {
               />
             </div>
 
-            <InfeasibilityDiagnosticsPanel result={csvResult} scenarioParams={{ state: "none" }} />
+            {csvResult.infeasibility_diagnostics ? (
+              <div
+                style={{
+                  border: "1px solid rgba(220, 38, 38, 0.4)",
+                  borderRadius: 12,
+                  padding: 14,
+                  display: "grid",
+                  gap: 8,
+                  background: "rgba(127, 29, 29, 0.12)",
+                }}
+              >
+                <strong>Modelo infactible detectado</strong>
+                <small style={{ opacity: 0.82 }}>
+                  El reporte completo (IIS, parámetros sospechosos con desviación vs default,
+                  historial de cambios del escenario, descarga JSON) vive en una página
+                  dedicada.
+                </small>
+                {csvResultSourceJobId ? (
+                  <Link
+                    to={paths.infeasibilityReport(csvResultSourceJobId)}
+                    className="btn btn--ghost"
+                    style={{ justifySelf: "start", color: "rgba(248,113,113,0.95)" }}
+                  >
+                    ⚠ Ver reporte de infactibilidad del job #{csvResultSourceJobId}
+                  </Link>
+                ) : (
+                  <small style={{ opacity: 0.75 }}>
+                    (Este resultado no está asociado a un job persistido; descarga el JSON
+                    para revisarlo.)
+                  </small>
+                )}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </Modal>
@@ -1134,6 +1522,84 @@ export function SimulationPage() {
           <div style={{ display: "grid", gap: 12 }}>
             {selectedLogs.length ? (
               <>
+                {logsBanner ? (
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 10,
+                      padding: 12,
+                      borderRadius: 14,
+                      border: logsBanner.infeasAnalysisRunning
+                        ? "1px solid rgba(245,158,11,0.5)"
+                        : "1px solid rgba(148,163,184,0.25)",
+                      background: logsBanner.infeasAnalysisRunning
+                        ? "linear-gradient(180deg, rgba(120,53,15,0.22), rgba(15,23,42,0.3))"
+                        : "linear-gradient(180deg, rgba(71,85,105,0.18), rgba(15,23,42,0.25))",
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
+                      <div>
+                        <div style={{ fontSize: 12, opacity: 0.7 }}>Tiempo total</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
+                          {formatReadableDuration(logsBanner.totalSeconds)}
+                          {selectedLogsJobActive ? (
+                            <span style={{ fontSize: 12, marginLeft: 8, opacity: 0.75 }}>(en curso)</span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, opacity: 0.7 }}>Etapa actual</div>
+                        <div style={{ fontSize: 18, fontWeight: 700 }}>
+                          {formatSimulationLogStage(logsBanner.currentStageName)}
+                        </div>
+                        <div style={{ fontSize: 13, opacity: 0.8, fontVariantNumeric: "tabular-nums" }}>
+                          {formatReadableDuration(logsBanner.currentStageSeconds)}
+                          {selectedLogsJobActive ? " desde su inicio" : ""}
+                        </div>
+                      </div>
+                      <div style={{ marginLeft: "auto", fontSize: 12, opacity: 0.7, textAlign: "right" }}>
+                        Primer evento: {logsBanner.firstAt.toLocaleTimeString()}
+                        <br />
+                        Último evento: {logsBanner.lastAt.toLocaleTimeString()}
+                      </div>
+                    </div>
+
+                    {logsBanner.infeasAnalysisRunning ? (
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: 4,
+                          padding: 10,
+                          borderRadius: 10,
+                          border: "1px solid rgba(245,158,11,0.45)",
+                          background: "rgba(120,53,15,0.28)",
+                        }}
+                      >
+                        <strong style={{ fontSize: 14 }}>
+                          ⚙️ Analizando infactibilidad…
+                        </strong>
+                        <span style={{ fontSize: 13, opacity: 0.9 }}>
+                          El modelo salió infactible. Se está corriendo el IIS y mapeando
+                          las restricciones a los parámetros OSeMOSYS de entrada. Esto puede
+                          tardar varios segundos sobre modelos grandes.
+                        </span>
+                        {logsBanner.infeasStartedAt ? (
+                          <span style={{ fontSize: 12, opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
+                            Inició a las {logsBanner.infeasStartedAt.toLocaleTimeString()} ·
+                            llevan {formatReadableDuration(logsBanner.infeasElapsedSeconds ?? 0)}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : logsBanner.infeasStartedAt && logsBanner.infeasElapsedSeconds !== null ? (
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>
+                        Análisis de infactibilidad ejecutado: inició a las{" "}
+                        {logsBanner.infeasStartedAt.toLocaleTimeString()} · duró{" "}
+                        {formatReadableDuration(logsBanner.infeasElapsedSeconds)}.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <div
                   style={{
                     display: "grid",

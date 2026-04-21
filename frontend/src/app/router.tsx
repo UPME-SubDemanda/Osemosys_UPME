@@ -24,6 +24,7 @@ const CatalogsPage = lazy(() => import("@/pages/CatalogsPage").then((m) => ({ de
 const SimulationPage = lazy(() => import("@/pages/SimulationPage").then((m) => ({ default: m.SimulationPage })));
 const ResultsPage = lazy(() => import("@/pages/ResultsPage").then((m) => ({ default: m.ResultsPage })));
 const ResultDetailPage = lazy(() => import("@/pages/ResultDetailPage").then((m) => ({ default: m.ResultDetailPage })));
+const InfeasibilityReportPage = lazy(() => import("@/pages/InfeasibilityReportPage").then((m) => ({ default: m.InfeasibilityReportPage })));
 const ChangeRequestsPage = lazy(() => import("@/pages/ChangeRequestsPage").then((m) => ({ default: m.ChangeRequestsPage })));
 const OfficialImportPage = lazy(() => import("@/pages/OfficialImportPage").then((m) => ({ default: m.OfficialImportPage })));
 const UsersAdminPage = lazy(() => import("@/pages/UsersAdminPage").then((m) => ({ default: m.UsersAdminPage })));
@@ -81,6 +82,7 @@ export const router = createBrowserRouter([
               { path: "simulation", element: <SuspenseWrapper><SimulationPage /></SuspenseWrapper> },
               { path: "results", element: <SuspenseWrapper><ResultsPage /></SuspenseWrapper> },
               { path: "results/:runId", element: <SuspenseWrapper><ResultDetailRoute /></SuspenseWrapper> },
+              { path: "simulations/:runId/infeasibility", element: <SuspenseWrapper><InfeasibilityReportPage /></SuspenseWrapper> },
               { path: "profile", element: <SuspenseWrapper><ProfilePage /></SuspenseWrapper> },
               {
                 element: <RequireUserManager />,

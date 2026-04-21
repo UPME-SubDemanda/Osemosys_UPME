@@ -16,5 +16,6 @@ export const paths = {
   simulation: "/app/simulation",
   results: "/app/results",
   resultsDetail: (runId: string | number) => `/app/results/${runId}`,
+  infeasibilityReport: (runId: string | number) => `/app/simulations/${runId}/infeasibility`,
 } as const;
 

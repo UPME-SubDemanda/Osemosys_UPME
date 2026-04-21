@@ -236,6 +236,259 @@ def run_simulation_job(self, job_id: int) -> None:
             _cleanup_csv_upload_artifacts(job)
 
 
+@celery_app.task(
+    name="app.simulation.tasks.run_infeasibility_diagnostic_job",
+    bind=True,
+)
+def run_infeasibility_diagnostic_job(self, job_id: int) -> None:
+    """Ejecuta el análisis enriquecido de infactibilidad (IIS + mapeo a
+    parámetros) sobre un job SUCCEEDED ya infactible.
+
+    Se invoca **a demanda** desde la UI; el pipeline productivo ya no corre
+    este análisis automáticamente para no agregar latencia a corridas que no
+    necesitan diagnóstico.
+
+    Requisitos:
+        * ``job.status == 'SUCCEEDED'`` e infactible (``is_infeasible_result``).
+        * ``job.solver_name == 'highs'`` (GLPK no expone IIS utilizable).
+
+    Persistencia:
+        Mantiene todos los campos existentes de ``infeasibility_diagnostics_json``
+        y agrega: ``iis``, ``overview``, ``top_suspects``, ``constraint_analyses``,
+        ``unmapped_constraint_prefixes`` y mete ``diagnostic_status='SUCCEEDED'``.
+        En fallo deja ``diagnostic_status='FAILED'`` + ``diagnostic_error``.
+    """
+    # Imports locales para evitar costes de import en tiempo de arranque del
+    # worker cuando esta task no se usa.
+    import gc
+    import os
+    import tempfile
+    from datetime import datetime, timezone
+
+    from app.db.session import SessionLocal
+    from app.simulation.core.data_processing import (
+        eliminar_valores_fuera_de_indices,
+        get_processing_result_from_csv_dir,
+        normalize_mode_of_operation_in_csv_dir,
+        reorder_activity_ratio_csvs_for_dataportal,
+        run_data_processing,
+        strip_whitespace_in_set_csvs,
+    )
+    from app.simulation.core.infeasibility_analysis import enrich_solution_dict
+    from app.simulation.core.instance_builder import build_instance
+    from app.simulation.core.model_definition import create_abstract_model
+
+    def _utc_now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    class _DiagnosticCancelled(RuntimeError):
+        """Interno: se lanza cuando la UI pidió cancelar antes del siguiente chequeo."""
+
+    def _raise_if_cancel_requested(job_id_: int) -> None:
+        """Relee la fila del job y aborta si la UI marcó ``diagnostic_cancel_requested``."""
+        with SessionLocal() as db_:
+            j = SimulationRepository.get_job_by_id(db_, job_id=job_id_)
+            if not j:
+                raise _DiagnosticCancelled("Job no encontrado")
+            d = j.infeasibility_diagnostics_json or {}
+            if isinstance(d, dict) and d.get("diagnostic_cancel_requested"):
+                raise _DiagnosticCancelled("Cancelado por el usuario.")
+
+    # 1) Mark RUNNING atomically y persistir el task_id de Celery.
+    with SessionLocal() as db:
+        job = SimulationRepository.get_job_by_id(db, job_id=job_id)
+        if not job:
+            return
+        diag = dict(job.infeasibility_diagnostics_json or {})
+        # Si la UI ya había marcado cancelación antes de que el worker tomara
+        # la task, respetarla y salir sin trabajo.
+        if diag.get("diagnostic_cancel_requested"):
+            diag["diagnostic_status"] = "FAILED"
+            diag["diagnostic_finished_at"] = _utc_now_iso()
+            diag["diagnostic_error"] = "Cancelado por el usuario antes de iniciar."
+            diag.pop("diagnostic_cancel_requested", None)
+            job.infeasibility_diagnostics_json = diag
+            SimulationRepository.add_event(
+                db, job_id=job_id, event_type="WARN",
+                stage="infeasibility_analysis_cancel",
+                message="Diagnóstico cancelado antes de iniciar.",
+                progress=job.progress,
+            )
+            db.commit()
+            return
+        diag["diagnostic_status"] = "RUNNING"
+        diag["diagnostic_started_at"] = _utc_now_iso()
+        diag.pop("diagnostic_error", None)
+        # Captura el task id real del worker actual (override del que puso el
+        # service al encolar, por si difiere).
+        try:
+            current_task_id = self.request.id  # type: ignore[attr-defined]
+        except Exception:
+            current_task_id = None
+        if current_task_id:
+            diag["diagnostic_celery_task_id"] = current_task_id
+        job.infeasibility_diagnostics_json = diag
+        SimulationRepository.add_event(
+            db,
+            job_id=job_id,
+            event_type="INFO",
+            stage="infeasibility_analysis_start",
+            message="Análisis de infactibilidad (IIS + mapeo) iniciado.",
+            progress=job.progress,
+        )
+        db.commit()
+        job_snapshot = {
+            "input_mode": getattr(job, "input_mode", "SCENARIO"),
+            "input_ref": getattr(job, "input_ref", None),
+            "scenario_id": job.scenario_id,
+            "solver_name": job.solver_name,
+            "diagnostics_seed": {
+                "constraint_violations": diag.get("constraint_violations", []),
+                "var_bound_conflicts": diag.get("var_bound_conflicts", []),
+            },
+        }
+
+    # 2) Rebuild model and run enrich_solution_dict, revisando cancel entre fases.
+    error_message: str | None = None
+    was_cancelled = False
+    enriched: dict | None = None
+    try:
+        _raise_if_cancel_requested(job_id)
+        with SessionLocal() as db:
+            if job_snapshot["input_mode"] == "CSV_UPLOAD":
+                csv_dir = job_snapshot["input_ref"]
+                if not csv_dir or not os.path.isdir(str(csv_dir)):
+                    raise RuntimeError(
+                        "No se encontraron los CSV originales del job "
+                        f"({csv_dir!r}); el diagnóstico no puede correr."
+                    )
+                # Normalizaciones (idempotentes) antes de construir el dataportal.
+                reorder_activity_ratio_csvs_for_dataportal(str(csv_dir))
+                normalize_mode_of_operation_in_csv_dir(str(csv_dir))
+                strip_whitespace_in_set_csvs(str(csv_dir))
+                eliminar_valores_fuera_de_indices(str(csv_dir))
+                _raise_if_cancel_requested(job_id)
+                proc_result = get_processing_result_from_csv_dir(str(csv_dir))
+                model = create_abstract_model(
+                    has_storage=proc_result.has_storage,
+                    has_udc=proc_result.has_udc,
+                )
+                _raise_if_cancel_requested(job_id)
+                instance = build_instance(
+                    model,
+                    str(csv_dir),
+                    has_storage=proc_result.has_storage,
+                    has_udc=proc_result.has_udc,
+                )
+                del model
+                gc.collect()
+                _raise_if_cancel_requested(job_id)
+                solution_seed = {
+                    "solver_name": job_snapshot["solver_name"],
+                    "solver_status": "infactible",
+                    "infeasibility_diagnostics": dict(job_snapshot["diagnostics_seed"]),
+                }
+                enrich_solution_dict(
+                    solution_seed,
+                    instance=instance,
+                    csv_dir=str(csv_dir),
+                )
+                enriched = solution_seed["infeasibility_diagnostics"]
+            else:
+                if job_snapshot["scenario_id"] is None:
+                    raise RuntimeError(
+                        "Job sin scenario_id ni CSV_UPLOAD; no hay entradas "
+                        "para rebuild del modelo."
+                    )
+                with tempfile.TemporaryDirectory(prefix="osemosys_diag_") as tmp_csv:
+                    proc_result = run_data_processing(
+                        db,
+                        scenario_id=job_snapshot["scenario_id"],
+                        csv_dir=tmp_csv,
+                    )
+                    _raise_if_cancel_requested(job_id)
+                    model = create_abstract_model(
+                        has_storage=proc_result.has_storage,
+                        has_udc=proc_result.has_udc,
+                    )
+                    instance = build_instance(
+                        model,
+                        tmp_csv,
+                        has_storage=proc_result.has_storage,
+                        has_udc=proc_result.has_udc,
+                    )
+                    del model
+                    gc.collect()
+                    _raise_if_cancel_requested(job_id)
+                    solution_seed = {
+                        "solver_name": job_snapshot["solver_name"],
+                        "solver_status": "infactible",
+                        "infeasibility_diagnostics": dict(job_snapshot["diagnostics_seed"]),
+                    }
+                    enrich_solution_dict(
+                        solution_seed,
+                        instance=instance,
+                        csv_dir=tmp_csv,
+                    )
+                    enriched = solution_seed["infeasibility_diagnostics"]
+    except _DiagnosticCancelled as exc:
+        was_cancelled = True
+        error_message = str(exc) or "Cancelado por el usuario."
+    except Exception as exc:  # pragma: no cover
+        logger.exception("run_infeasibility_diagnostic_job falló para job %s", job_id)
+        error_message = str(exc) or exc.__class__.__name__
+
+    # 3) Persist result (o cancelación o fallo) + evento.
+    with SessionLocal() as db:
+        job = SimulationRepository.get_job_by_id(db, job_id=job_id)
+        if not job:
+            return
+        diag = dict(job.infeasibility_diagnostics_json or {})
+        now_iso = _utc_now_iso()
+        if enriched is not None and error_message is None:
+            diag.update(enriched)
+            diag["diagnostic_status"] = "SUCCEEDED"
+            diag["diagnostic_finished_at"] = now_iso
+            diag.pop("diagnostic_error", None)
+            diag.pop("diagnostic_cancel_requested", None)
+            evt_type = "INFO"
+            evt_msg = "Análisis de infactibilidad finalizado."
+        elif was_cancelled:
+            diag["diagnostic_status"] = "FAILED"
+            diag["diagnostic_finished_at"] = now_iso
+            diag["diagnostic_error"] = error_message or "Cancelado por el usuario."
+            diag.pop("diagnostic_cancel_requested", None)
+            evt_type = "WARN"
+            evt_msg = "Diagnóstico de infactibilidad cancelado por el usuario."
+        else:
+            diag["diagnostic_status"] = "FAILED"
+            diag["diagnostic_finished_at"] = now_iso
+            diag["diagnostic_error"] = error_message or "Error desconocido"
+            diag.pop("diagnostic_cancel_requested", None)
+            evt_type = "ERROR"
+            evt_msg = f"Análisis de infactibilidad falló: {diag['diagnostic_error']}"
+        # Cálculo del tiempo total del diagnóstico (started → finished).
+        try:
+            from datetime import datetime as _dt  # noqa: WPS433
+            started = diag.get("diagnostic_started_at")
+            if started:
+                t0 = _dt.fromisoformat(str(started))
+                t1 = _dt.fromisoformat(now_iso)
+                diag["diagnostic_seconds"] = max(0.0, (t1 - t0).total_seconds())
+        except Exception:
+            pass
+        job.infeasibility_diagnostics_json = diag
+        SimulationRepository.add_event(
+            db,
+            job_id=job_id,
+            event_type=evt_type,
+            stage="infeasibility_analysis_complete",
+            message=evt_msg,
+            progress=job.progress,
+        )
+        db.commit()
+
+
 @task_failure.connect
 def handle_worker_lost_failure(
     sender=None,

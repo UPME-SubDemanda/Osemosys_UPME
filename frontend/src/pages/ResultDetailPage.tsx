@@ -15,7 +15,6 @@ import {
   Zap,
 } from 'lucide-react';
 import { simulationApi } from '../features/simulation/api/simulationApi';
-import { scenariosApi } from '../features/scenarios/api/scenariosApi';
 import type {
   ResultSummaryResponse,
   ChartDataResponse,
@@ -25,10 +24,7 @@ import type {
   RunResult,
   SimulationRun,
 } from '../types/domain';
-import {
-  InfeasibilityDiagnosticsPanel,
-  type ScenarioParamsForDiagnostics,
-} from '../features/simulation/components/InfeasibilityDiagnosticsPanel';
+import { paths } from '../routes/paths';
 import { ChartSelector, type ChartSelection } from '../shared/charts/ChartSelector';
 import { getDefaultChartSelection } from '../shared/charts/defaultChartSelection';
 import { ScenarioComparer, type CompareViewMode } from '../shared/charts/ScenarioComparer';
@@ -50,7 +46,6 @@ import {
   saveChartFacetPlacement,
 } from '../shared/charts/chartLayoutPreferences';
 import { Button } from '../shared/components/Button';
-import { Modal } from '../shared/components/Modal';
 import { downloadBlob } from '../shared/utils/downloadBlob';
 import { formatCompactNumber, formatPercent } from '../shared/utils/numberFormat';
 
@@ -203,8 +198,6 @@ export function ResultDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
   const [runMeta, setRunMeta] = useState<SimulationRun | null>(null);
-  const [scenarioParamsForDiagnostics, setScenarioParamsForDiagnostics] =
-    useState<ScenarioParamsForDiagnostics>({ state: 'none' });
 
   // All summaries for comparison table
   const [allSummaries, setAllSummaries] = useState<ResultSummaryResponse[]>([]);
@@ -265,7 +258,6 @@ export function ResultDetailPage() {
   // Export state: 'svg' | 'excel' mientras se descarga, null si no
   const [exportingType, setExportingType] = useState<'svg' | 'excel' | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [showInfeasibilityModal, setShowInfeasibilityModal] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const hasInfeasibilityDetails = Boolean(runResult?.infeasibility_diagnostics);
   const normalizedSolverStatus = (
@@ -309,37 +301,6 @@ export function ResultDetailPage() {
         setRunMeta(null);
       });
   }, [currentRunId]);
-
-  useEffect(() => {
-    const sid = runResult?.scenario_id;
-    if (sid == null || Number.isNaN(Number(sid))) {
-      setScenarioParamsForDiagnostics({ state: 'none' });
-      return;
-    }
-    let cancelled = false;
-    setScenarioParamsForDiagnostics({ state: 'loading' });
-    scenariosApi
-      .getScenarioById(sid)
-      .then((s) => {
-        if (!cancelled) {
-          setScenarioParamsForDiagnostics({
-            state: 'loaded',
-            names: s.changed_param_names ?? [],
-          });
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setScenarioParamsForDiagnostics({
-            state: 'error',
-            message: err instanceof Error ? err.message : 'Error al cargar el escenario',
-          });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [runResult?.scenario_id]);
 
   // 2. Fetch all summaries for comparison table
   useEffect(() => {
@@ -750,37 +711,70 @@ export function ResultDetailPage() {
               </span>
             ) : (
               <span className="text-slate-500 text-xs">
-                Puedes abrir el diagnóstico detallado para revisar restricciones violadas y conflictos
-                de bounds.
+                El análisis detallado (IIS + mapeo a parámetros) se ejecuta bajo demanda;
+                usa el botón a la derecha para lanzarlo o ver su estado.
               </span>
             )}
           </div>
-          {hasInfeasibilityDetails ? (
-            <Button
-              type="button"
-              onClick={() => setShowInfeasibilityModal(true)}
-              className="bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 rounded-lg shrink-0"
-            >
-              Ver diagnóstico
-            </Button>
+          {hasInfeasibilityDetails && runResult?.job_id ? (
+            (() => {
+              const solver = (runResult.solver_name ?? '').toLowerCase();
+              const diag = runResult.infeasibility_diagnostics ?? null;
+              // Retrocompat: jobs antiguos no tienen `diagnostic_status` pero sí
+              // el reporte enriquecido; los tratamos como SUCCEEDED.
+              const hasEnriched = Boolean(
+                diag?.iis ||
+                  diag?.overview ||
+                  (diag?.top_suspects?.length ?? 0) > 0 ||
+                  (diag?.constraint_analyses?.length ?? 0) > 0,
+              );
+              const diagStatus =
+                diag?.diagnostic_status ?? (hasEnriched ? 'SUCCEEDED' : 'NONE');
+              if (solver !== 'highs') {
+                return (
+                  <span className="text-xs text-slate-400 italic shrink-0 max-w-xs">
+                    Para correr el diagnóstico de infactibilidad (IIS + mapeo a
+                    parámetros) es necesario volver a lanzar la simulación con HiGHS.
+                  </span>
+                );
+              }
+              if (diagStatus === 'SUCCEEDED') {
+                return (
+                  <Link
+                    to={paths.infeasibilityReport(runResult.job_id)}
+                    className="bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 rounded-lg shrink-0 px-4 py-2 font-semibold no-underline"
+                  >
+                    ⚠ Ver reporte de infactibilidad
+                  </Link>
+                );
+              }
+              if (diagStatus === 'QUEUED' || diagStatus === 'RUNNING') {
+                return (
+                  <Link
+                    to={paths.infeasibilityReport(runResult.job_id)}
+                    className="bg-amber-600/20 hover:bg-amber-600/30 text-amber-200 border border-amber-500/50 rounded-lg shrink-0 px-4 py-2 font-semibold no-underline"
+                  >
+                    {diagStatus === 'QUEUED'
+                      ? 'Diagnóstico en cola…'
+                      : 'Diagnosticando…'}
+                  </Link>
+                );
+              }
+              // NONE / FAILED → link a la página donde se lanza
+              return (
+                <Link
+                  to={paths.infeasibilityReport(runResult.job_id)}
+                  className="bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 rounded-lg shrink-0 px-4 py-2 font-semibold no-underline"
+                >
+                  {diagStatus === 'FAILED'
+                    ? '⚠ Reintentar diagnóstico'
+                    : '⚠ Correr diagnóstico de infactibilidad'}
+                </Link>
+              );
+            })()
           ) : null}
         </div>
       ) : null}
-
-      <Modal
-        open={showInfeasibilityModal}
-        onClose={() => setShowInfeasibilityModal(false)}
-        title="Diagnóstico de infactibilidad"
-        wide
-      >
-        {hasInfeasibilityDetails && runResult ? (
-          <InfeasibilityDiagnosticsPanel
-            result={runResult}
-            scenarioParams={scenarioParamsForDiagnostics}
-            scenarioId={runResult.scenario_id ?? null}
-          />
-        ) : null}
-      </Modal>
 
       {/* ─── COMPARATIVA ─── */}
       {!loadingSummaries && allSummaries.length > 0 && (

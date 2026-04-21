@@ -147,6 +147,7 @@ class ScenarioService:
             "base_scenario_name": base_scenario_name,
             "changed_param_names": list(scenario.changed_param_names or []),
             "edit_policy": scenario.edit_policy,
+            "simulation_type": getattr(scenario, "simulation_type", "NATIONAL"),
             "is_template": bool(scenario.is_template),
             "created_at": scenario.created_at,
             "tag": ScenarioService._tag_public_dict(db, scenario, tag_row=tag_row),
@@ -347,6 +348,8 @@ class ScenarioService:
         description: str | None,
         edit_policy: str,
         is_template: bool,
+        simulation_type: str = "NATIONAL",
+        processing_mode: str = "STANDARD",
         skip_populate_defaults: bool = False,
         tag_id: int | None = None,
     ):
@@ -373,6 +376,8 @@ class ScenarioService:
             description=description,
             owner=current_user.username,
             edit_policy=edit_policy,
+            simulation_type=simulation_type,
+            processing_mode=processing_mode,
             is_template=is_template,
             tag_id=resolved_tag_id,
         )
@@ -447,6 +452,8 @@ class ScenarioService:
             base_scenario_id=source.id,
             changed_param_names=[],
             edit_policy=edit_policy,
+            simulation_type=getattr(source, "simulation_type", "NATIONAL"),
+            processing_mode=getattr(source, "processing_mode", "STANDARD"),
             is_template=False,
             udc_config=source.udc_config,
             tag_id=source.tag_id,
@@ -534,13 +541,37 @@ class ScenarioService:
             return None
         obj = db.execute(select(model).where(model.name == cleaned)).scalar_one_or_none()
         if obj is None:
-            obj = model(name=cleaned)
-            db.add(obj)
-            db.flush()
+            try:
+                with db.begin_nested():
+                    obj = model(name=cleaned)
+                    db.add(obj)
+                    db.flush()
+            except IntegrityError:
+                obj = db.execute(select(model).where(model.name == cleaned)).scalar_one_or_none()
+                if obj is None:
+                    raise
         # Si el catálogo usa soft delete, se reactiva al reutilizarse desde escenario.
         if hasattr(obj, "is_active") and getattr(obj, "is_active") is False:
             setattr(obj, "is_active", True)
             db.flush()
+        return int(obj.id)
+
+    @staticmethod
+    def _resolve_or_create_catalog_code(db: Session, *, model, code: str | None, label: str) -> int | None:
+        cleaned = (code or "").strip()
+        if not cleaned:
+            return None
+        obj = db.execute(select(model).where(model.code == cleaned)).scalar_one_or_none()
+        if obj is None:
+            try:
+                with db.begin_nested():
+                    obj = model(code=cleaned)
+                    db.add(obj)
+                    db.flush()
+            except IntegrityError:
+                obj = db.execute(select(model).where(model.code == cleaned)).scalar_one_or_none()
+                if obj is None:
+                    raise
         return int(obj.id)
 
     @staticmethod
@@ -748,6 +779,12 @@ class ScenarioService:
         if new_edit_policy is not None and new_edit_policy != scenario.edit_policy:
             scenario.edit_policy = str(new_edit_policy)
             touched = True
+
+        if "simulation_type" in payload and payload.get("simulation_type") is not None:
+            new_simulation_type = str(payload["simulation_type"]).strip() or "NATIONAL"
+            if new_simulation_type != scenario.simulation_type:
+                scenario.simulation_type = new_simulation_type
+                touched = True
 
         if "tag_id" in payload:
             tid = payload.get("tag_id")

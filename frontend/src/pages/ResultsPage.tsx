@@ -19,6 +19,7 @@ import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { DataTable } from "@/shared/components/DataTable";
 import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
+import { RunDisplayNameEditor } from "@/features/simulation/components/RunDisplayNameEditor";
 import { getSimulationRunStatusDisplay } from "@/features/simulation/simulationRunStatus";
 import { paths } from "@/routes/paths";
 import type { Scenario, SimulationRun } from "@/types/domain";
@@ -79,6 +80,12 @@ export function ResultsPage() {
       return true;
     });
   }, [fromDate, runs, statusFilter, toDate]);
+
+  const handleRunDisplayNameSaved = useCallback((jobId: number, next: string | null) => {
+    setRuns((prev) =>
+      prev.map((r) => (r.id === jobId ? { ...r, display_name: next } : r)),
+    );
+  }, []);
 
   return (
     <section className="pageSection" style={{ display: "grid", gap: 12 }}>
@@ -149,7 +156,18 @@ export function ResultsPage() {
         rows={filteredRuns}
         rowKey={(r) => String(r.id)}
         columns={[
-          { key: "run", header: "ID de ejecución", render: (r) => r.id },
+          {
+            key: "display_name",
+            header: "Nombre del resultado",
+            render: (r) => (
+              <RunDisplayNameEditor
+                jobId={r.id}
+                value={r.display_name ?? null}
+                onSaved={handleRunDisplayNameSaved}
+                compact
+              />
+            ),
+          },
           {
             key: "scenario",
             header: "Escenario",
@@ -158,6 +176,11 @@ export function ResultsPage() {
               (r.scenario_id === null
                 ? (r.input_name ?? "CSV upload")
                 : (scenarioMap[r.scenario_id]?.name ?? `#${r.scenario_id}`)),
+          },
+          {
+            key: "run",
+            header: "ID ejecución",
+            render: (r) => <span style={{ fontFamily: "monospace", opacity: 0.75 }}>{r.id}</span>,
           },
           {
             key: "scenario_tag",
@@ -190,7 +213,9 @@ export function ResultsPage() {
             ),
           },
         ]}
-        searchableText={(r) => `${r.id} ${r.scenario_id}`}
+        searchableText={(r) =>
+          `${r.id} ${r.scenario_id ?? ""} ${r.display_name ?? ""} ${r.scenario_name ?? ""}`
+        }
       />
 
       <p

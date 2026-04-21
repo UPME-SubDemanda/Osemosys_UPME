@@ -15,6 +15,7 @@ import type {
   ScenarioOperationJob,
   ScenarioOperationLog,
   ScenarioTag,
+  SimulationType,
   User,
 } from "@/types/domain";
 import type { OfficialImportResult } from "@/features/officialImport/api/officialImportApi";
@@ -192,6 +193,7 @@ export type UdcMultiplierEntry = {
 };
 
 export type UdcConfig = {
+  enabled: boolean;
   multipliers: UdcMultiplierEntry[];
   tag_value: 0 | 1;
 };
@@ -275,6 +277,7 @@ export const scenariosApi = {
     name: string;
     description: string;
     edit_policy: ScenarioEditPolicy;
+    simulation_type: SimulationType;
     is_template?: boolean;
     tag_id?: number | null;
   }) => httpClient.post<Scenario>("/scenarios", input).then((r) => r.data),
@@ -299,7 +302,9 @@ export const scenariosApi = {
       scenario_name: string;
       description?: string;
       edit_policy: ScenarioEditPolicy;
+      simulation_type: SimulationType;
       tag_id?: number | null;
+      include_udc_reserve_margin?: boolean;
     },
     onUploadProgress?: (percent: number) => void,
     onUploadDone?: () => void,
@@ -310,8 +315,10 @@ export const scenariosApi = {
     form.append("sheet_name", input.sheet_name);
     form.append("scenario_name", input.scenario_name);
     form.append("edit_policy", input.edit_policy);
+    form.append("simulation_type", input.simulation_type);
     if (input.description?.trim()) form.append("description", input.description.trim());
     if (input.tag_id != null) form.append("tag_id", String(input.tag_id));
+    form.append("include_udc_reserve_margin", input.include_udc_reserve_margin ? "true" : "false");
 
     const { data } = await httpClient.post<ScenarioExcelImportResponse>(
       "/scenarios/import-excel",
@@ -328,6 +335,38 @@ export const scenariosApi = {
       },
     );
     onUploadDone?.();
+    return data;
+  },
+
+  async createScenarioFromCsv(
+    input: {
+      file: File;
+      scenario_name: string;
+      description?: string;
+      edit_policy: ScenarioEditPolicy;
+      simulation_type: SimulationType;
+      tag_id?: number | null;
+    },
+    onUploadProgress?: (percent: number) => void,
+    signal?: AbortSignal,
+  ): Promise<Scenario> {
+    const form = new FormData();
+    form.append("csv_zip", input.file);
+    form.append("scenario_name", input.scenario_name);
+    form.append("edit_policy", input.edit_policy);
+    form.append("simulation_type", input.simulation_type);
+    if (input.description?.trim()) form.append("description", input.description.trim());
+    if (input.tag_id != null) form.append("tag_id", String(input.tag_id));
+    const { data } = await httpClient.post<Scenario>("/scenarios/import-csv", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 1_800_000,
+      ...(signal ? { signal } : {}),
+      onUploadProgress(event) {
+        if (event.total && onUploadProgress) {
+          onUploadProgress(Math.round((event.loaded * 100) / event.total));
+        }
+      },
+    });
     return data;
   },
 
@@ -491,6 +530,7 @@ export const scenariosApi = {
       name?: string;
       description?: string | null;
       edit_policy?: ScenarioEditPolicy;
+      simulation_type?: SimulationType;
       tag_id?: number | null;
     },
   ) => httpClient.patch<Scenario>(`/scenarios/${scenarioId}`, input).then((r) => r.data),

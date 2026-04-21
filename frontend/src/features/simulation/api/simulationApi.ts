@@ -7,14 +7,16 @@ import type { PaginatedResponse } from "@/shared/api/pagination";
 import type { 
   ChartCatalogItem, 
   ChartDataResponse, 
-  CompareChartFacetResponse, 
-  CompareChartResponse, 
-  ResultSummaryResponse, 
+  CompareChartFacetResponse,
+  CompareChartResponse,
+  CompareFacetExportFilenameMode,
+  ResultSummaryResponse,
   RunResult, 
   SimulationLog, 
   SimulationOverview, 
   SimulationRun, 
-  SimulationSolver 
+  SimulationSolver,
+  SimulationType,
 } from "@/types/domain";
 import type { ChartSelection } from "@/shared/charts/ChartSelector";
 
@@ -32,13 +34,27 @@ export const simulationApi = {
   async submit(
     scenarioId: number,
     solverName: SimulationSolver,
-    runIisAnalysis: boolean = false,
+    options?: {
+      runIisAnalysis?: boolean;
+      display_name?: string | null;
+    },
   ) {
-    const { data } = await httpClient.post<SimulationRun>("/simulations", {
+    // Unifica en un solo `options` los dos flags opcionales:
+    //   - `runIisAnalysis`: correr análisis de infactibilidad inline (viene del feature).
+    //   - `display_name`: alias visible de la corrida (viene de develop).
+    const body: {
+      scenario_id: number;
+      solver_name: SimulationSolver;
+      run_iis_analysis: boolean;
+      display_name?: string;
+    } = {
       scenario_id: scenarioId,
       solver_name: solverName,
-      run_iis_analysis: runIisAnalysis,
-    });
+      run_iis_analysis: Boolean(options?.runIisAnalysis),
+    };
+    const dn = options?.display_name?.trim();
+    if (dn) body.display_name = dn.slice(0, 255);
+    const { data } = await httpClient.post<SimulationRun>("/simulations", body);
     return data;
   },
 
@@ -46,11 +62,31 @@ export const simulationApi = {
     file: File,
     solverName: SimulationSolver,
     runIisAnalysis: boolean = false,
+    input: {
+      input_name?: string;
+      simulation_type: SimulationType;
+      save_as_scenario: boolean;
+      scenario_name?: string;
+      description?: string;
+      edit_policy?: "OWNER_ONLY" | "OPEN" | "RESTRICTED";
+      tag_id?: number | null;
+      display_name?: string | null;
+    },
+    options?: { display_name?: string | null },
   ) {
     const formData = new FormData();
     formData.append("csv_zip", file);
     formData.append("solver_name", solverName);
     formData.append("run_iis_analysis", String(runIisAnalysis));
+    formData.append("simulation_type", input.simulation_type);
+    formData.append("save_as_scenario", input.save_as_scenario ? "true" : "false");
+    if (input.input_name?.trim()) formData.append("input_name", input.input_name.trim());
+    if (input.scenario_name?.trim()) formData.append("scenario_name", input.scenario_name.trim());
+    if (input.description?.trim()) formData.append("description", input.description.trim());
+    if (input.edit_policy) formData.append("edit_policy", input.edit_policy);
+    if (input.tag_id != null) formData.append("tag_id", String(input.tag_id));
+    const dn = input.display_name?.trim();
+    if (dn) formData.append("display_name", dn.slice(0, 255));
     const { data } = await httpClient.post<SimulationRun>("/simulations/from-csv", formData, {
       headers: { "Content-Type": "multipart/form-data" },
       timeout: 10 * 60 * 1000,
@@ -73,6 +109,13 @@ export const simulationApi = {
 
   async getRun(jobId: number) {
     const { data } = await httpClient.get<SimulationRun>(`/simulations/${jobId}`);
+    return data;
+  },
+
+  async patchDisplayName(jobId: number, displayName: string | null) {
+    const { data } = await httpClient.patch<SimulationRun>(`/simulations/${jobId}`, {
+      display_name: displayName,
+    });
     return data;
   },
 
@@ -192,9 +235,61 @@ export const simulationApi = {
     return data;
   },
 
-  async getCompareFacetData(params: { job_ids: string, tipo: string, un?: string, sub_filtro?: string, loc?: string, variable?: string }) {
+  async getCompareFacetData(params: {
+    job_ids: string;
+    tipo: string;
+    un?: string;
+    sub_filtro?: string;
+    loc?: string;
+    variable?: string;
+    agrupar_por?: string;
+  }) {
     const { data } = await httpClient.get<CompareChartFacetResponse>(`/visualizations/chart-data/compare-facet`, { params });
     return data;
+  },
+
+  /** Una imagen PNG/SVG con todas las facetas en fila (Matplotlib; mismo filtro que compare-facet). */
+  async exportCompareFacet(
+    params: {
+      job_ids: string;
+      tipo: string;
+      un?: string;
+      sub_filtro?: string;
+      loc?: string;
+      variable?: string;
+      agrupar_por?: string;
+      legend_title?: string;
+      filename_mode?: CompareFacetExportFilenameMode;
+    },
+    fmt: "png" | "svg" = "png",
+  ): Promise<{ blob: Blob; filename: string }> {
+    const q: Record<string, string> = {
+      job_ids: params.job_ids,
+      tipo: params.tipo,
+      un: params.un ?? "PJ",
+      fmt,
+    };
+    if (params.sub_filtro) q.sub_filtro = params.sub_filtro;
+    if (params.loc) q.loc = params.loc;
+    if (params.variable) q.variable = params.variable;
+    if (params.agrupar_por) q.agrupar_por = params.agrupar_por;
+    if (params.legend_title) q.legend_title = params.legend_title;
+    if (params.filename_mode) q.filename_mode = params.filename_mode;
+
+    const response = await httpClient.get("/visualizations/export-compare-facet", {
+      params: q,
+      responseType: "blob",
+      timeout: 5 * 60 * 1000,
+    });
+    const blob = response.data as Blob;
+    const disposition = response.headers["content-disposition"];
+    const ext = fmt === "svg" ? "svg" : "png";
+    let filename = `comparativa_facet.${ext}`;
+    if (typeof disposition === "string") {
+      const match = /filename="?([^";\n]+)"?/i.exec(disposition);
+      if (match?.[1]) filename = match[1].trim();
+    }
+    return { blob, filename };
   },
 
   async getChartCatalog() {

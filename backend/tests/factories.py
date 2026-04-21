@@ -52,12 +52,16 @@ def create_scenario(
     edit_policy: str = "OWNER_ONLY",
     description: str | None = None,
     base_scenario_id: int | None = None,
+    simulation_type: str = "NATIONAL",
+    processing_mode: str = "STANDARD",
 ) -> Scenario:
     scenario = Scenario(
         name=name,
         description=description,
         owner=owner,
         edit_policy=edit_policy,
+        simulation_type=simulation_type,
+        processing_mode=processing_mode,
         is_template=False,
         base_scenario_id=base_scenario_id,
     )

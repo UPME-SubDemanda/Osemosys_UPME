@@ -23,7 +23,7 @@ import { SandExportVerificationPanel } from "@/shared/components/SandExportVerif
 import { UploadProgress, type UploadPhase } from "@/shared/components/UploadProgress";
 import { paths } from "@/routes/paths";
 import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
-import type { Scenario, ScenarioEditPolicy, ScenarioOperationJob, ScenarioTag } from "@/types/domain";
+import type { Scenario, ScenarioEditPolicy, ScenarioOperationJob, ScenarioTag, SimulationType } from "@/types/domain";
 
 const editPolicyHelp: Record<ScenarioEditPolicy, string> = {
   OWNER_ONLY: "Solo el propietario administra permisos y edición.",
@@ -35,6 +35,11 @@ const editPolicyLabel: Record<ScenarioEditPolicy, string> = {
   OWNER_ONLY: "Solo propietario",
   OPEN: "Abierta",
   RESTRICTED: "Restringida",
+};
+
+const simulationTypeLabel: Record<SimulationType, string> = {
+  NATIONAL: "Nacional",
+  REGIONAL: "Regional",
 };
 
 /** Misma regla que editar metadatos del escenario (propietario o edición directa explícita). */
@@ -188,6 +193,7 @@ export function ScenariosPage() {
 
   const [openCreate, setOpenCreate] = useState(false);
   const [openExcel, setOpenExcel] = useState(false);
+  const [openCsv, setOpenCsv] = useState(false);
   const [openConcatSand, setOpenConcatSand] = useState(false);
   const [openVerifySand, setOpenVerifySand] = useState(false);
   const [verifyBaseFile, setVerifyBaseFile] = useState<File | null>(null);
@@ -202,6 +208,7 @@ export function ScenariosPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [editPolicy, setEditPolicy] = useState<ScenarioEditPolicy>("OWNER_ONLY");
+  const [simulationType, setSimulationType] = useState<SimulationType>("NATIONAL");
   const [saving, setSaving] = useState(false);
 
   const [openClone, setOpenClone] = useState(false);
@@ -218,6 +225,7 @@ export function ScenariosPage() {
   const [scenarioTags, setScenarioTags] = useState<ScenarioTag[]>([]);
   const [tagSelectCreate, setTagSelectCreate] = useState("");
   const [tagSelectExcel, setTagSelectExcel] = useState("");
+  const [includeUdcExcel, setIncludeUdcExcel] = useState(false);
   const [openTagsCatalog, setOpenTagsCatalog] = useState(false);
   const [tagCatName, setTagCatName] = useState("");
   const [tagCatColor, setTagCatColor] = useState("#3B82F6");
@@ -225,10 +233,12 @@ export function ScenariosPage() {
   const [savingCatalogTag, setSavingCatalogTag] = useState(false);
 
   const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
   const [excelSheets, setExcelSheets] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState("");
   const [loadingSheets, setLoadingSheets] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [csvImporting, setCsvImporting] = useState(false);
   const [excelUploadPhase, setExcelUploadPhase] = useState<UploadPhase>("idle");
   const [excelUploadPercent, setExcelUploadPercent] = useState(0);
   const [excelUploadStartedAt, setExcelUploadStartedAt] = useState<number | null>(null);
@@ -338,12 +348,14 @@ export function ScenariosPage() {
         name: name.trim(),
         description: description.trim(),
         edit_policy: editPolicy,
+        simulation_type: simulationType,
         ...(tagSelectCreate ? { tag_id: Number(tagSelectCreate) } : {}),
       });
       setOpenCreate(false);
       setName("");
       setDescription("");
       setEditPolicy("OWNER_ONLY");
+      setSimulationType("NATIONAL");
       setTagSelectCreate("");
       setPage(1);
       await fetchScenarios();
@@ -424,6 +436,8 @@ export function ScenariosPage() {
           scenario_name: name.trim(),
           description: description.trim(),
           edit_policy: editPolicy,
+          simulation_type: simulationType,
+          include_udc_reserve_margin: includeUdcExcel,
           ...(tagSelectExcel ? { tag_id: Number(tagSelectExcel) } : {}),
         },
         (percent) => {
@@ -452,6 +466,38 @@ export function ScenariosPage() {
     }
   }
 
+  async function handleCreateFromCsv() {
+    if (!user) return;
+    if (!csvFile) {
+      push("Selecciona un ZIP con CSV.", "error");
+      return;
+    }
+    if (!name.trim()) {
+      push("El nombre del escenario es obligatorio.", "error");
+      return;
+    }
+    setCsvImporting(true);
+    try {
+      const scenario = await scenariosApi.createScenarioFromCsv({
+        file: csvFile,
+        scenario_name: name.trim(),
+        description: description.trim(),
+        edit_policy: editPolicy,
+        simulation_type: simulationType,
+        ...(tagSelectExcel ? { tag_id: Number(tagSelectExcel) } : {}),
+      });
+      push("Escenario creado desde CSV correctamente.", "success");
+      setOpenCsv(false);
+      resetCsvModal();
+      await fetchScenarios();
+      navigate(paths.scenarioDetail(scenario.id));
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudo crear/importar el escenario desde CSV.", "error");
+    } finally {
+      setCsvImporting(false);
+    }
+  }
+
   function resetExcelModal() {
     setExcelFile(null);
     setExcelSheets([]);
@@ -459,11 +505,22 @@ export function ScenariosPage() {
     setName("");
     setDescription("");
     setEditPolicy("OWNER_ONLY");
+    setSimulationType("NATIONAL");
     setTagSelectExcel("");
+    setIncludeUdcExcel(false);
     setExcelUploadPhase("idle");
     setExcelUploadPercent(0);
     setExcelUploadStartedAt(null);
     createdScenarioIdRef.current = null;
+  }
+
+  function resetCsvModal() {
+    setCsvFile(null);
+    setName("");
+    setDescription("");
+    setEditPolicy("OWNER_ONLY");
+    setSimulationType("NATIONAL");
+    setTagSelectExcel("");
   }
 
   async function handleAddCatalogTag() {
@@ -841,6 +898,16 @@ export function ScenariosPage() {
           <Button variant="ghost" onClick={() => setOpenExcel(true)} className="scenariosPage__actionButton">
             Crear desde Excel
           </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              resetCsvModal();
+              setOpenCsv(true);
+            }}
+            className="scenariosPage__actionButton"
+          >
+            Crear desde CSV
+          </Button>
           <Button variant="ghost" onClick={() => setOpenConcatSand(true)} className="scenariosPage__actionButton">
             Concatenar SAND
           </Button>
@@ -1115,6 +1182,17 @@ export function ScenariosPage() {
               <option value="RESTRICTED">Restringida</option>
             </select>
           </label>
+          <label className="field">
+            <span className="field__label">Tipo de simulación</span>
+            <select
+              className="field__input"
+              value={simulationType}
+              onChange={(e) => setSimulationType(e.target.value as SimulationType)}
+            >
+              <option value="NATIONAL">{simulationTypeLabel.NATIONAL}</option>
+              <option value="REGIONAL">{simulationTypeLabel.REGIONAL}</option>
+            </select>
+          </label>
           <small style={{ opacity: 0.75 }}>{editPolicyHelp[editPolicy]}</small>
           <label className="field">
             <span className="field__label">Etiqueta (opcional)</span>
@@ -1257,6 +1335,17 @@ export function ScenariosPage() {
               ))}
             </select>
           </label>
+          <label className="field">
+            <span className="field__label">Tipo de simulación</span>
+            <select
+              className="field__input"
+              value={simulationType}
+              onChange={(e) => setSimulationType(e.target.value as SimulationType)}
+            >
+              <option value="NATIONAL">{simulationTypeLabel.NATIONAL}</option>
+              <option value="REGIONAL">{simulationTypeLabel.REGIONAL}</option>
+            </select>
+          </label>
 
           <TextField label="Nombre" value={name} onChange={(e) => setName(e.target.value)} />
           <TextField label="Descripción" value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -1289,6 +1378,15 @@ export function ScenariosPage() {
             </select>
           </label>
 
+          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={includeUdcExcel}
+              onChange={(e) => setIncludeUdcExcel(e.target.checked)}
+            />
+            Incluir restricción UDC de Reserva de Margen de Capacidad
+          </label>
+
           {excelUploadPhase !== "idle" ? (
             <UploadProgress
               phase={excelUploadPhase}
@@ -1297,6 +1395,83 @@ export function ScenariosPage() {
               startedAt={excelUploadStartedAt}
             />
           ) : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={openCsv}
+        title="Crear escenario desde CSV"
+        onClose={() => {
+          setOpenCsv(false);
+          resetCsvModal();
+        }}
+        footer={
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setOpenCsv(false);
+                resetCsvModal();
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button variant="primary" onClick={() => void handleCreateFromCsv()} disabled={csvImporting}>
+              {csvImporting ? "Importando..." : "Crear e importar"}
+            </Button>
+          </div>
+        }
+      >
+        <div style={{ display: "grid", gap: 12 }}>
+          <label className="field">
+            <span className="field__label">ZIP con CSV procesados</span>
+            <input
+              className="field__input"
+              type="file"
+              accept=".zip,application/zip"
+              onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <TextField label="Nombre" value={name} onChange={(e) => setName(e.target.value)} />
+          <TextField label="Descripción" value={description} onChange={(e) => setDescription(e.target.value)} />
+          <label className="field">
+            <span className="field__label">Política de edición</span>
+            <select
+              className="field__input"
+              value={editPolicy}
+              onChange={(e) => setEditPolicy(e.target.value as ScenarioEditPolicy)}
+            >
+              <option value="OWNER_ONLY">Solo propietario</option>
+              <option value="OPEN">Abierta</option>
+              <option value="RESTRICTED">Restringida</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="field__label">Tipo de simulación</span>
+            <select
+              className="field__input"
+              value={simulationType}
+              onChange={(e) => setSimulationType(e.target.value as SimulationType)}
+            >
+              <option value="NATIONAL">{simulationTypeLabel.NATIONAL}</option>
+              <option value="REGIONAL">{simulationTypeLabel.REGIONAL}</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="field__label">Etiqueta (opcional)</span>
+            <select
+              className="field__input"
+              value={tagSelectExcel}
+              onChange={(e) => setTagSelectExcel(e.target.value)}
+            >
+              <option value="">Sin etiqueta</option>
+              {scenarioTags.map((t) => (
+                <option key={t.id} value={String(t.id)}>
+                  {t.name} (prioridad {t.sort_order})
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </Modal>
 

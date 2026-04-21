@@ -14,6 +14,7 @@ from app.schemas.official_import import OfficialImportResult
 
 
 EditPolicy = Literal["OWNER_ONLY", "OPEN", "RESTRICTED"]
+SimulationType = Literal["NATIONAL", "REGIONAL"]
 ScenarioPermissionScope = Literal["mine", "readable", "editable", "readonly"]
 
 _HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -72,6 +73,7 @@ class ScenarioCreate(BaseModel):
     edit_policy: EditPolicy = "OWNER_ONLY"
     is_template: bool = False
     tag_id: int | None = None
+    simulation_type: SimulationType = "NATIONAL"
 
 
 class ScenarioClone(BaseModel):
@@ -89,6 +91,7 @@ class ScenarioUpdate(BaseModel):
     description: str | None = None
     edit_policy: EditPolicy | None = None
     tag_id: int | None = None
+    simulation_type: SimulationType | None = None
 
 
 class ScenarioAccessPublic(BaseModel):
@@ -114,6 +117,7 @@ class ScenarioPublic(BaseModel):
     base_scenario_name: str | None = None
     changed_param_names: list[str] = Field(default_factory=list)
     edit_policy: str
+    simulation_type: SimulationType = "NATIONAL"
     is_template: bool
     created_at: datetime
     tag: ScenarioTagPublic | None = None

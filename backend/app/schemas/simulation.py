@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.schemas.scenario import ScenarioTagPublic
+from app.schemas.scenario import ScenarioTagPublic, SimulationType
 
 SimulationStatus = Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
 SimulationSolver = Literal["highs", "glpk"]
@@ -27,6 +27,21 @@ class SimulationSubmit(BaseModel):
     #: Si ``False`` (default), el diagnóstico queda para disparar manualmente
     #: desde la UI, evitando tiempo extra en cada corrida.
     run_iis_analysis: bool = False
+    display_name: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Nombre opcional para esta corrida (resultados y exportación). Si se omite, se usa el nombre del escenario.",
+    )
+
+
+class SimulationJobDisplayNamePatch(BaseModel):
+    """Actualización del nombre visible de una corrida (solo metadatos)."""
+
+    display_name: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Nombre corto para resultados y archivos; vacío o null borra el alias.",
+    )
 
 
 class SimulationJobPublic(BaseModel):
@@ -36,11 +51,13 @@ class SimulationJobPublic(BaseModel):
     scenario_id: int | None = None
     scenario_name: str | None = None
     scenario_tag: ScenarioTagPublic | None = None
+    display_name: str | None = None
     user_id: str
     username: str | None = None
     solver_name: SimulationSolver
     input_mode: SimulationInputMode = "SCENARIO"
     input_name: str | None = None
+    simulation_type: SimulationType = "NATIONAL"
     status: SimulationStatus
     progress: float
     cancel_requested: bool

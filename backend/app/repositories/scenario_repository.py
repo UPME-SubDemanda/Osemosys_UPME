@@ -115,13 +115,24 @@ class ScenarioRepository:
         return row[0], row.base_scenario_name
 
     @staticmethod
-    def create(db: Session, *, name: str, description: str | None, owner: str, edit_policy: str) -> Scenario:
+    def create(
+        db: Session,
+        *,
+        name: str,
+        description: str | None,
+        owner: str,
+        edit_policy: str,
+        simulation_type: str = "NATIONAL",
+        processing_mode: str = "STANDARD",
+    ) -> Scenario:
         """Crea escenario no-plantilla por defecto."""
         obj = Scenario(
             name=name,
             description=description,
             owner=owner,
             edit_policy=edit_policy,
+            simulation_type=simulation_type,
+            processing_mode=processing_mode,
             is_template=False,
         )
         db.add(obj)

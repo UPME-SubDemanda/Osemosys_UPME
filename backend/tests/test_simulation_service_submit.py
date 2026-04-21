@@ -6,42 +6,29 @@ import uuid
 
 import pytest
 
-from app.core.exceptions import ConflictError
 import app.services.simulation_service as simulation_service_module
 from app.services.simulation_service import SimulationService
-
-
-class _DummyScalarResult:
-    """Imita Result.scalars() para `execute` estilo SQLAlchemy 2."""
-
-    def __init__(self, rows: list) -> None:
-        self._rows = rows
-
-    def all(self) -> list:
-        return list(self._rows)
-
-    def __iter__(self):
-        return iter(self._rows)
-
-
-class _DummyExecuteResult:
-    def __init__(self, rows: list | None = None) -> None:
-        self._rows = rows if rows is not None else []
-
-    def scalars(self) -> _DummyScalarResult:
-        return _DummyScalarResult(self._rows)
 
 
 class DummyDbSession:
     def __init__(self) -> None:
         self.commit_calls = 0
         self.refresh_calls = 0
-        self.rollback_calls = 0
         self.flush_calls = 0
 
-    def execute(self, _stmt) -> _DummyExecuteResult:
-        """submit() consulta tags de escenario; en estos tests no hace falta DB real."""
-        return _DummyExecuteResult([])
+    def execute(self, _stmt):
+        class _Result:
+            def scalars(self):
+                class _Scalars:
+                    def all(self_inner):
+                        return []
+
+                    def __iter__(self_inner):
+                        return iter([])
+
+                return _Scalars()
+
+        return _Result()
 
     def commit(self) -> None:
         self.commit_calls += 1
@@ -52,20 +39,20 @@ class DummyDbSession:
     def refresh(self, _obj: object) -> None:
         self.refresh_calls += 1
 
-    def rollback(self) -> None:
-        self.rollback_calls += 1
 
-
-def _build_job(user_id: uuid.UUID) -> SimpleNamespace:
+def _build_job(user_id: uuid.UUID, *, scenario_id: int | None = 1) -> SimpleNamespace:
     return SimpleNamespace(
         id=123,
-        scenario_id=1,
+        scenario_id=scenario_id,
         user_id=user_id,
         solver_name="highs",
+        input_mode="SCENARIO" if scenario_id is not None else "CSV_UPLOAD",
+        input_name=None,
+        simulation_type="NATIONAL",
+        parallel_weight=1,
         status="QUEUED",
         progress=0.0,
         cancel_requested=False,
-        queue_position=None,
         result_ref=None,
         error_message=None,
         queued_at=datetime.now(timezone.utc),
@@ -75,19 +62,33 @@ def _build_job(user_id: uuid.UUID) -> SimpleNamespace:
     )
 
 
-def test_submit_persists_task_id_after_enqueue(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_submit_derives_simulation_type_and_weight_from_scenario(monkeypatch: pytest.MonkeyPatch) -> None:
     current_user = SimpleNamespace(id=uuid.uuid4(), username="seed")
-    scenario = SimpleNamespace(id=1, owner="seed", name="Escenario seed")
+    scenario = SimpleNamespace(id=1, owner="seed", name="Escenario nacional", simulation_type="REGIONAL")
     job = _build_job(current_user.id)
     db = DummyDbSession()
     events: list[dict] = []
+    create_kwargs: dict[str, object] = {}
+    dispatch_calls: list[int | None] = []
 
     monkeypatch.setattr(
         simulation_service_module,
         "get_settings",
-        lambda: SimpleNamespace(sim_user_active_limit=4, simulation_mode="async"),
+        lambda: SimpleNamespace(
+            sim_user_active_limit=3,
+            sim_total_weight_limit=8,
+            sim_weight_national=1,
+            sim_weight_regional=3,
+            simulation_mode="async",
+        ),
     )
     from app.services.scenario_service import ScenarioService
+
+    def _create_job(_db, **kwargs):
+        create_kwargs.update(kwargs)
+        for key, value in kwargs.items():
+            setattr(job, key, value)
+        return job
 
     monkeypatch.setattr(
         ScenarioService,
@@ -102,7 +103,7 @@ def test_submit_persists_task_id_after_enqueue(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(
         simulation_service_module.SimulationRepository,
         "create_job",
-        lambda _db, **kwargs: job,
+        _create_job,
     )
     monkeypatch.setattr(
         simulation_service_module.SimulationRepository,
@@ -118,18 +119,20 @@ def test_submit_persists_task_id_after_enqueue(monkeypatch: pytest.MonkeyPatch) 
         ),
     )
     monkeypatch.setattr(
+        simulation_service_module,
+        "_MAIN_VARIABLES",
+        simulation_service_module._MAIN_VARIABLES,
+    )
+    monkeypatch.setattr(
+        SimulationService,
+        "_dispatch_queued_jobs",
+        staticmethod(lambda _db, *, fail_fast_job_id=None: dispatch_calls.append(fail_fast_job_id)),
+    )
+    monkeypatch.setattr(
         simulation_service_module.SimulationRepository,
         "queue_position",
         lambda _db, *, job_id: 1,
     )
-
-    class _TaskStub:
-        @staticmethod
-        def delay(job_id: int) -> SimpleNamespace:
-            assert job_id == job.id
-            return SimpleNamespace(id="task-123")
-
-    monkeypatch.setattr(simulation_service_module, "run_simulation_job", _TaskStub())
 
     payload = SimulationService.submit(
         db,
@@ -138,27 +141,165 @@ def test_submit_persists_task_id_after_enqueue(monkeypatch: pytest.MonkeyPatch) 
         solver_name="highs",
     )
 
-    assert payload["id"] == job.id
-    assert payload["queue_position"] == 1
-    assert job.celery_task_id == "task-123"
-    assert db.flush_calls == 1
-    assert db.commit_calls == 2
-    assert len(events) == 2
+    assert create_kwargs["simulation_type"] == "REGIONAL"
+    assert create_kwargs["parallel_weight"] == 3
+    assert dispatch_calls == [job.id]
+    assert payload["simulation_type"] == "REGIONAL"
     assert events[0]["message"] == "Job creado y listo para encolar."
-    assert events[1]["message"] == "Simulacion encolada."
 
 
-def test_submit_marks_job_failed_when_enqueue_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_submit_from_csv_uses_visible_name_type_and_weight(monkeypatch: pytest.MonkeyPatch) -> None:
     current_user = SimpleNamespace(id=uuid.uuid4(), username="seed")
-    scenario = SimpleNamespace(id=1, owner="seed", name="Escenario seed")
-    job = _build_job(current_user.id)
+    job = _build_job(current_user.id, scenario_id=None)
+    job.input_mode = "CSV_UPLOAD"
+    job.input_name = "Modelo regional abril"
+    job.simulation_type = "REGIONAL"
+    job.parallel_weight = 3
     db = DummyDbSession()
-    events: list[dict] = []
+    create_kwargs: dict[str, object] = {}
+
+    def _create_job(_db, **kwargs):
+        create_kwargs.update(kwargs)
+        for key, value in kwargs.items():
+            setattr(job, key, value)
+        return job
 
     monkeypatch.setattr(
         simulation_service_module,
         "get_settings",
-        lambda: SimpleNamespace(sim_user_active_limit=4, simulation_mode="async"),
+        lambda: SimpleNamespace(
+            sim_user_active_limit=3,
+            sim_total_weight_limit=8,
+            sim_weight_national=1,
+            sim_weight_regional=3,
+            simulation_mode="async",
+        ),
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "count_user_active_jobs",
+        lambda _db, *, user_id: 0,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "create_job",
+        _create_job,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "add_event",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        SimulationService,
+        "_dispatch_queued_jobs",
+        staticmethod(lambda _db, *, fail_fast_job_id=None: None),
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "queue_position",
+        lambda _db, *, job_id: 2,
+    )
+
+    payload = SimulationService.submit_from_csv(
+        db,
+        current_user=current_user,
+        solver_name="highs",
+        input_name="Modelo regional abril",
+        input_ref="/tmp/job/input",
+        simulation_type="REGIONAL",
+    )
+
+    assert create_kwargs["input_name"] == "Modelo regional abril"
+    assert create_kwargs["simulation_type"] == "REGIONAL"
+    assert create_kwargs["parallel_weight"] == 3
+    assert payload["scenario_name"] == "Modelo regional abril"
+    assert payload["simulation_type"] == "REGIONAL"
+
+
+def test_dispatch_queued_jobs_respects_reserved_weight(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = DummyDbSession()
+    first = _build_job(uuid.uuid4())
+    first.id = 1
+    first.parallel_weight = 4
+    second = _build_job(uuid.uuid4())
+    second.id = 2
+    second.parallel_weight = 2
+    third = _build_job(uuid.uuid4())
+    third.id = 3
+    third.parallel_weight = 1
+    pending = [first, second, third]
+    dispatched: list[int] = []
+
+    monkeypatch.setattr(
+        simulation_service_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            sim_user_active_limit=3,
+            sim_total_weight_limit=5,
+            sim_weight_national=1,
+            sim_weight_regional=3,
+            simulation_mode="async",
+        ),
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "get_reserved_parallel_weight",
+        lambda _db: 2,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "get_reserved_user_job_counts",
+        lambda _db: {},
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "list_queued_undispatched_jobs",
+        lambda _db, *, limit=500: pending,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "get_job_by_id",
+        lambda _db, *, job_id: next((job for job in pending if job.id == job_id), None),
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "add_event",
+        lambda *args, **kwargs: None,
+    )
+
+    class _TaskStub:
+        @staticmethod
+        def delay(job_id: int):
+            dispatched.append(job_id)
+            return SimpleNamespace(id=f"task-{job_id}")
+
+    monkeypatch.setattr(simulation_service_module, "run_simulation_job", _TaskStub())
+
+    SimulationService.dispatch_pending_jobs(db)
+
+    assert dispatched == [2, 3]
+    assert second.celery_task_id == "task-2"
+    assert third.celery_task_id == "task-3"
+    assert first.celery_task_id is None
+
+def test_submit_creates_queued_job_even_when_user_has_many_active(monkeypatch: pytest.MonkeyPatch) -> None:
+    current_user = SimpleNamespace(id=uuid.uuid4(), username="seed")
+    scenario = SimpleNamespace(id=1, owner="seed", name="Escenario seed", simulation_type="NATIONAL")
+    job = _build_job(current_user.id)
+    db = DummyDbSession()
+    create_kwargs: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        simulation_service_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            sim_user_active_limit=3,
+            sim_total_weight_limit=8,
+            sim_weight_national=1,
+            sim_weight_regional=3,
+            simulation_mode="async",
+        ),
     )
     from app.services.scenario_service import ScenarioService
 
@@ -169,51 +310,97 @@ def test_submit_marks_job_failed_when_enqueue_fails(monkeypatch: pytest.MonkeyPa
     )
     monkeypatch.setattr(
         simulation_service_module.SimulationRepository,
-        "count_user_active_jobs",
-        lambda _db, *, user_id: 0,
-    )
-    monkeypatch.setattr(
-        simulation_service_module.SimulationRepository,
         "create_job",
-        lambda _db, **kwargs: job,
-    )
-    monkeypatch.setattr(
-        simulation_service_module.SimulationRepository,
-        "get_job_by_id",
-        lambda _db, *, job_id: job,
+        lambda _db, **kwargs: create_kwargs.update(kwargs) or job,
     )
     monkeypatch.setattr(
         simulation_service_module.SimulationRepository,
         "add_event",
-        lambda _db, *, job_id, event_type, stage, message, progress: events.append(
-            {
-                "job_id": job_id,
-                "event_type": event_type,
-                "stage": stage,
-                "message": message,
-                "progress": progress,
-            }
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "queue_position",
+        lambda _db, *, job_id: 4,
+    )
+    monkeypatch.setattr(
+        SimulationService,
+        "_dispatch_queued_jobs",
+        staticmethod(lambda _db, *, fail_fast_job_id=None: None),
+    )
+
+    payload = SimulationService.submit(
+        db,
+        current_user=current_user,
+        scenario_id=1,
+        solver_name="highs",
+    )
+
+    assert create_kwargs["scenario_id"] == 1
+    assert payload["status"] == "QUEUED"
+
+
+def test_dispatch_queued_jobs_respects_user_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = DummyDbSession()
+    user_a = uuid.uuid4()
+    user_b = uuid.uuid4()
+    first = _build_job(user_a)
+    first.id = 11
+    second = _build_job(user_a)
+    second.id = 12
+    third = _build_job(user_b)
+    third.id = 13
+    pending = [first, second, third]
+    dispatched: list[int] = []
+
+    monkeypatch.setattr(
+        simulation_service_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            sim_user_active_limit=3,
+            sim_total_weight_limit=8,
+            sim_weight_national=1,
+            sim_weight_regional=3,
+            simulation_mode="async",
         ),
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "get_reserved_parallel_weight",
+        lambda _db: 2,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "get_reserved_user_job_counts",
+        lambda _db: {user_a: 3, user_b: 1},
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "list_queued_undispatched_jobs",
+        lambda _db, *, limit=500: pending,
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "get_job_by_id",
+        lambda _db, *, job_id: next((job for job in pending if job.id == job_id), None),
+    )
+    monkeypatch.setattr(
+        simulation_service_module.SimulationRepository,
+        "add_event",
+        lambda *args, **kwargs: None,
     )
 
     class _TaskStub:
         @staticmethod
-        def delay(_job_id: int) -> SimpleNamespace:
-            raise RuntimeError("broker down")
+        def delay(job_id: int):
+            dispatched.append(job_id)
+            return SimpleNamespace(id=f"task-{job_id}")
 
     monkeypatch.setattr(simulation_service_module, "run_simulation_job", _TaskStub())
 
-    with pytest.raises(ConflictError):
-        SimulationService.submit(
-            db,
-            current_user=current_user,
-            scenario_id=1,
-            solver_name="highs",
-        )
+    SimulationService.dispatch_pending_jobs(db)
 
-    assert db.flush_calls == 1
-    assert db.commit_calls == 2
-    assert db.rollback_calls == 1
-    assert job.status == "FAILED"
-    assert "QUEUE_ENQUEUE_ERROR" in (job.error_message or "")
-    assert any(e["event_type"] == "ERROR" and e["stage"] == "queue" for e in events)
+    assert dispatched == [13]
+    assert first.celery_task_id is None
+    assert second.celery_task_id is None
+    assert third.celery_task_id == "task-13"

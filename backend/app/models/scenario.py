@@ -21,6 +21,14 @@ class Scenario(Base):
             "edit_policy IN ('OWNER_ONLY','OPEN','RESTRICTED')",
             name="scenario_edit_policy",
         ),
+        CheckConstraint(
+            "simulation_type IN ('NATIONAL','REGIONAL')",
+            name="scenario_simulation_type",
+        ),
+        CheckConstraint(
+            "processing_mode IN ('STANDARD','PREPROCESSED_CSV')",
+            name="scenario_processing_mode",
+        ),
         Index("ix_scenario_base_scenario_id", "base_scenario_id"),
         Index("ix_scenario_tag_id", "tag_id"),
         {"schema": "osemosys"},
@@ -37,6 +45,8 @@ class Scenario(Base):
     )
     changed_param_names: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=None)
     edit_policy: Mapped[str] = mapped_column(String(20), nullable=False, default="OWNER_ONLY")
+    simulation_type: Mapped[str] = mapped_column(String(20), nullable=False, default="NATIONAL")
+    processing_mode: Mapped[str] = mapped_column(String(30), nullable=False, default="STANDARD")
     is_template: Mapped[bool] = mapped_column(nullable=False, default=False)
     created_at: Mapped[object] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

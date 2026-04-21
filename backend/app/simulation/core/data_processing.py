@@ -33,6 +33,7 @@ from app.models import (
     Fuel,
     ModeOfOperation,
     Region,
+    Scenario,
     Season,
     StorageSet,
     Technology,
@@ -246,6 +247,14 @@ def _load_catalog_lookups(db: Session) -> dict[str, dict]:
         name_to_id = {v: k for k, v in id_to_name.items()}
         lookups[set_name] = {"id_to_name": id_to_name, "name_to_id": name_to_id}
     return lookups
+
+
+def _get_scenario_processing_mode(db: Session, *, scenario_id: int) -> str:
+    """Retorna el modo de procesamiento configurado para el escenario."""
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        return "STANDARD"
+    return str(getattr(scenario, "processing_mode", "STANDARD") or "STANDARD").upper()
 
 
 # ========================================================================
@@ -1010,15 +1019,8 @@ def apply_udc_config(db: Session, scenario_id: int, csv_dir: str) -> None:
         udc_config = getattr(scenario, "udc_config", None)
 
     if udc_config is None:
-        udc_config = {
-            "multipliers": [
-                {
-                    "type": "TotalCapacity",
-                    "tech_dict": _UDC_RESERVE_MARGIN_DICT,
-                }
-            ],
-            "tag_value": 0,
-        }
+        logger.warning("apply_udc_config llamado sin udc_config en escenario %s", scenario_id)
+        return
 
     for mult_cfg in udc_config.get("multipliers", []):
         mtype = mult_cfg.get("type")
@@ -1233,20 +1235,18 @@ def run_data_processing_from_excel(
             path_csv,
         )
 
-    # 5. UDC (celdas 17-19) y 6. UDC por defecto (sin BD)
-    ensure_udc_csvs(csv_dir)
-    try:
-        actualizar_UDCMultiplier(
-            "TotalCapacity",
-            carpeta=csv_dir,
-            tech_multiplier_dict=_UDC_RESERVE_MARGIN_DICT,
-        )
-    except FileNotFoundError:
-        logger.debug("UDCMultiplierTotalCapacity.csv no encontrado, omitiendo")
-    try:
-        actualizar_UDCTag(0, carpeta=csv_dir)
-    except (FileNotFoundError, ValueError):
-        logger.debug("No se pudo actualizar UDCTag por defecto")
+    # 5. UDC — deshabilitado en modo Excel (generate_notebook_csvs crea UDC con Tag=0;
+    #    eliminamos esos archivos para que has_udc=False y no se apliquen restricciones)
+    _udc_files = [
+        "UDC.csv", "UDCConstant.csv", "UDCTag.csv",
+        "UDCMultiplierTotalCapacity.csv", "UDCMultiplierNewCapacity.csv",
+        "UDCMultiplierActivity.csv",
+    ]
+    for _f in _udc_files:
+        _fp = os.path.join(csv_dir, _f)
+        if os.path.exists(_fp):
+            os.remove(_fp)
+            logger.debug("UDC eliminado para modo Excel: %s", _f)
 
     # 7. Reordenar columnas de ActivityRatio para DataPortal
     reorder_activity_ratio_csvs_for_dataportal(csv_dir)
@@ -1301,6 +1301,13 @@ def run_data_processing(
     result = export_scenario_to_csv(db, scenario_id=scenario_id, csv_dir=csv_dir)
     logger.info("Exportados %d registros de parámetros", result.param_count)
 
+    if _get_scenario_processing_mode(db, scenario_id=scenario_id) == "PREPROCESSED_CSV":
+        logger.info(
+            "Escenario %d marcado como PREPROCESSED_CSV; se omite reprocesamiento posterior a la exportación.",
+            scenario_id,
+        )
+        return result
+
     normalize_mode_of_operation_in_csv_dir(csv_dir)
 
     # 2. Eliminar valores fuera de índices (celda 8)
@@ -1329,11 +1336,16 @@ def run_data_processing(
             path_csv,
         )
 
-    # 5. UDC (celdas 17-19 del notebook — siempre se genera)
-    ensure_udc_csvs(csv_dir)
-
-    # 6. Aplicar configuración UDC del escenario (celda 20 del notebook)
-    apply_udc_config(db, scenario_id, csv_dir)
+    # 5-6. UDC — solo si el escenario tiene udc_config con enabled=True
+    from app.models import Scenario as _Scenario
+    _scenario = db.get(_Scenario, scenario_id)
+    _udc_active = False
+    _udc_cfg = getattr(_scenario, "udc_config", None)
+    if _udc_cfg and _udc_cfg.get("enabled", True):
+        ensure_udc_csvs(csv_dir)
+        apply_udc_config(db, scenario_id, csv_dir)
+        _udc_active = True
+    result.has_udc = _udc_active
 
     # 7. Reordenar columnas de ActivityRatio para compatibilidad con DataPortal
     reorder_activity_ratio_csvs_for_dataportal(csv_dir)

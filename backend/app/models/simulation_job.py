@@ -32,8 +32,13 @@ class SimulationJob(Base):
             "input_mode IN ('SCENARIO','CSV_UPLOAD')",
             name="simulation_job_input_mode",
         ),
+        CheckConstraint(
+            "simulation_type IN ('NATIONAL','REGIONAL')",
+            name="simulation_job_simulation_type",
+        ),
         Index("ix_simulation_job_user_status", "user_id", "status"),
         Index("ix_simulation_job_scenario", "scenario_id"),
+        Index("ix_simulation_job_status_queue", "status", "queued_at"),
         {"schema": "osemosys"},
     )
 
@@ -46,6 +51,10 @@ class SimulationJob(Base):
     )
     solver_name: Mapped[str] = mapped_column(String(20), nullable=False, default="highs")
     input_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="SCENARIO")
+    simulation_type: Mapped[str] = mapped_column(String(20), nullable=False, default="NATIONAL")
+    parallel_weight: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    #: Nombre opcional definido por el usuario para identificar la corrida en resultados/exportación.
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     input_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     input_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="QUEUED")

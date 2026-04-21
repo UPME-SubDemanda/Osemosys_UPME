@@ -63,6 +63,7 @@ export const simulationApi = {
       tag_id?: number | null;
       display_name?: string | null;
     },
+    options?: { display_name?: string | null },
   ) {
     const formData = new FormData();
     formData.append("csv_zip", file);
@@ -75,6 +76,7 @@ export const simulationApi = {
     if (input.edit_policy) formData.append("edit_policy", input.edit_policy);
     if (input.tag_id != null) formData.append("tag_id", String(input.tag_id));
     const dn = input.display_name?.trim();
+    const dn = options?.display_name?.trim();
     if (dn) formData.append("display_name", dn.slice(0, 255));
     const { data } = await httpClient.post<SimulationRun>("/simulations/from-csv", formData, {
       headers: { "Content-Type": "multipart/form-data" },

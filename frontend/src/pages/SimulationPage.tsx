@@ -333,6 +333,7 @@ export function SimulationPage() {
   /** Nombre opcional al encolar desde escenario (si está vacío, el backend usa el nombre del escenario). */
   const [newRunDisplayName, setNewRunDisplayName] = useState("");
   const [csvSolverName, setCsvSolverName] = useState<SimulationSolver>("highs");
+  const [csvRunDisplayName, setCsvRunDisplayName] = useState("");
   const [csvZipFile, setCsvZipFile] = useState<File | null>(null);
   const [csvInputName, setCsvInputName] = useState("");
   const [csvSimulationType, setCsvSimulationType] = useState<SimulationType>("NATIONAL");
@@ -592,6 +593,12 @@ export function SimulationPage() {
         "success",
       );
       setCsvInputName("");
+        display_name: csvRunDisplayName.trim() || null,
+      });
+      setCsvTrackedJobId(job.id);
+      setRuns((prev) => [job, ...prev.filter((run) => run.id !== job.id)]);
+      push(`Simulación desde CSV encolada como job ${job.id}.`, "success");
+      setCsvRunDisplayName("");
       await refreshRuns();
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Error ejecutando simulación desde CSV.";
@@ -748,6 +755,19 @@ export function SimulationPage() {
                   ? "Ej: Corrida base importada desde CSV"
                   : (csvZipFile?.name ?? "Ej: Modelo nacional abril")
               }
+              disabled={csvSubmitting}
+              autoComplete="off"
+            />
+          </label>
+          <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">Nombre del resultado (opcional)</span>
+            <input
+              className="field__input"
+              type="text"
+              maxLength={255}
+              value={csvRunDisplayName}
+              onChange={(e) => setCsvRunDisplayName(e.target.value)}
+              placeholder="Ej. Prueba importación Q1"
               disabled={csvSubmitting}
               autoComplete="off"
             />

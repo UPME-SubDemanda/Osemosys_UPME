@@ -2,6 +2,7 @@
  * Tipos del dominio del negocio: escenarios, usuarios, simulaciones, catálogos, etc.
  */
 export type ScenarioEditPolicy = "OWNER_ONLY" | "OPEN" | "RESTRICTED";
+export type SimulationType = "NATIONAL" | "REGIONAL";
 
 export type ChangeRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
 export type ScenarioPermissionScope = "mine" | "readable" | "editable" | "readonly";
@@ -45,6 +46,7 @@ export type Scenario = {
   base_scenario_name?: string | null;
   changed_param_names?: string[];
   edit_policy: ScenarioEditPolicy;
+  simulation_type: SimulationType;
   is_template: boolean;
   created_at: string;
   tag?: ScenarioTag | null;
@@ -111,6 +113,7 @@ export type SimulationRun = {
   solver_name: SimulationSolver;
   input_mode: SimulationInputMode;
   input_name?: string | null;
+  simulation_type: SimulationType;
   status: RunStatus;
   progress: number;
   cancel_requested: boolean;

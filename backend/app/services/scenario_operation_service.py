@@ -327,6 +327,8 @@ class ScenarioOperationService:
             base_scenario_id=source.id,
             changed_param_names=[],
             edit_policy=str(payload.get("edit_policy") or "OWNER_ONLY"),
+            simulation_type=getattr(source, "simulation_type", "NATIONAL"),
+            processing_mode=getattr(source, "processing_mode", "STANDARD"),
             is_template=False,
             udc_config=source.udc_config,
             tag_id=source.tag_id,

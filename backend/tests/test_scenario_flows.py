@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
 
+import app.simulation.core.data_processing as data_processing_module
 import app.services.scenario_service as scenario_service_module
 from app.core.exceptions import ForbiddenError
-from app.models import Emission, Fuel, OsemosysParamValue, Technology
+from app.models import Emission, Fuel, OsemosysParamValue, Scenario, Technology
+from app.services.csv_scenario_import_service import CsvScenarioImportService
 from app.services.official_import_service import OfficialImportService
 from app.services.scenario_service import ScenarioService
 
@@ -84,11 +87,13 @@ def test_scenario_visibility_metadata_and_changed_params(db_session, monkeypatch
             "name": "Restringido editado",
             "description": "Nueva descripción",
             "edit_policy": "OPEN",
+            "simulation_type": "REGIONAL",
         },
     )
     assert updated["name"] == "Restringido editado"
     assert updated["description"] == "Nueva descripción"
     assert updated["edit_policy"] == "OPEN"
+    assert updated["simulation_type"] == "REGIONAL"
 
     parent = create_scenario(
         db_session, name="Padre", owner=owner.username, edit_policy="RESTRICTED"
@@ -280,6 +285,152 @@ def test_root_scenario_tracks_changed_param_names(db_session) -> None:
         current_user=owner,
     )
     assert refreshed["changed_param_names"] == ["ReserveMargin"]
+
+
+def _write_csv(root: Path, name: str, rows: list[str]) -> None:
+    (root / name).write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def test_import_csv_directory_creates_scenario_and_values(db_session, tmp_path: Path) -> None:
+    owner = create_user(db_session, username="csv-owner")
+    csv_root = tmp_path / "csv-model"
+    csv_root.mkdir(parents=True)
+
+    _write_csv(csv_root, "YEAR.csv", ["VALUE", "2025"])
+    _write_csv(csv_root, "REGION.csv", ["VALUE", "R1"])
+    _write_csv(csv_root, "TECHNOLOGY.csv", ["VALUE", "T1"])
+    _write_csv(csv_root, "TIMESLICE.csv", ["VALUE", "TS1"])
+    _write_csv(csv_root, "MODE_OF_OPERATION.csv", ["VALUE", "1"])
+    _write_csv(csv_root, "FUEL.csv", ["VALUE", "F1"])
+    _write_csv(csv_root, "SpecifiedAnnualDemand.csv", ["REGION,FUEL,YEAR,VALUE", "R1,F1,2025,100"])
+    _write_csv(
+        csv_root,
+        "OutputActivityRatio.csv",
+        ["REGION,TECHNOLOGY,FUEL,MODE_OF_OPERATION,YEAR,VALUE", "R1,T1,F1,1,2025,1"],
+    )
+    _write_csv(csv_root, "CapitalCost.csv", ["REGION,TECHNOLOGY,YEAR,VALUE", "R1,T1,2025,55"])
+
+    created = CsvScenarioImportService.import_from_directory(
+        db_session,
+        current_user=owner,
+        csv_root=csv_root,
+        scenario_name="Escenario CSV regional",
+        description="Importado desde ZIP",
+        edit_policy="OWNER_ONLY",
+        tag_id=None,
+        simulation_type="REGIONAL",
+    )
+
+    assert created["simulation_type"] == "REGIONAL"
+    assert created["name"] == "Escenario CSV regional"
+    rows = (
+        db_session.query(OsemosysParamValue)
+        .filter(OsemosysParamValue.id_scenario == created["id"])
+        .all()
+    )
+    created_scenario = db_session.get(Scenario, created["id"])
+    assert created_scenario is not None
+    assert created_scenario.processing_mode == "PREPROCESSED_CSV"
+    assert len(rows) == 3
+    assert {row.param_name for row in rows} == {
+        "SpecifiedAnnualDemand",
+        "OutputActivityRatio",
+        "CapitalCost",
+    }
+
+
+def test_import_csv_directory_reuses_existing_catalogs_without_duplicate_violation(
+    db_session,
+    tmp_path: Path,
+) -> None:
+    owner = create_user(db_session, username="csv-existing-owner")
+    existing_technology = Technology(name="EXPOIL_1LIV", is_active=True)
+    db_session.add(existing_technology)
+    db_session.commit()
+
+    csv_root = tmp_path / "csv-existing-model"
+    csv_root.mkdir(parents=True)
+
+    _write_csv(csv_root, "YEAR.csv", ["VALUE", "2025"])
+    _write_csv(csv_root, "REGION.csv", ["VALUE", "R1"])
+    _write_csv(csv_root, "TECHNOLOGY.csv", ["VALUE", "EXPOIL_1LIV"])
+    _write_csv(csv_root, "TIMESLICE.csv", ["VALUE", "TS1"])
+    _write_csv(csv_root, "MODE_OF_OPERATION.csv", ["VALUE", "1"])
+    _write_csv(csv_root, "FUEL.csv", ["VALUE", "F1"])
+    _write_csv(csv_root, "SpecifiedAnnualDemand.csv", ["REGION,FUEL,YEAR,VALUE", "R1,F1,2025,100"])
+    _write_csv(
+        csv_root,
+        "OutputActivityRatio.csv",
+        ["REGION,TECHNOLOGY,FUEL,MODE_OF_OPERATION,YEAR,VALUE", "R1,EXPOIL_1LIV,F1,1,2025,1"],
+    )
+
+    created = CsvScenarioImportService.import_from_directory(
+        db_session,
+        current_user=owner,
+        csv_root=csv_root,
+        scenario_name="Escenario con catálogos existentes",
+        description=None,
+        edit_policy="OWNER_ONLY",
+        tag_id=None,
+        simulation_type="NATIONAL",
+    )
+
+    assert created["name"] == "Escenario con catálogos existentes"
+    technologies = db_session.query(Technology).filter(Technology.name == "EXPOIL_1LIV").all()
+    assert len(technologies) == 1
+
+
+def test_run_data_processing_skips_postprocessing_for_preprocessed_csv_scenario(
+    db_session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = create_user(db_session, username="preprocessed-owner")
+    scenario = create_scenario(
+        db_session,
+        name="Escenario preprocesado",
+        owner=owner.username,
+        edit_policy="OWNER_ONLY",
+        processing_mode="PREPROCESSED_CSV",
+    )
+
+    export_result = data_processing_module.ProcessingResult(
+        has_storage=False,
+        has_udc=False,
+        sets={"YEAR": [2025], "REGION": ["R1"]},
+        param_count=3,
+    )
+    called_steps: list[str] = []
+
+    def fake_export(db, *, scenario_id: int, csv_dir: str):
+        assert scenario_id == scenario.id
+        return export_result
+
+    def _mark(name: str):
+        def inner(*args, **kwargs):
+            called_steps.append(name)
+        return inner
+
+    monkeypatch.setattr(data_processing_module, "export_scenario_to_csv", fake_export)
+    monkeypatch.setattr(data_processing_module, "normalize_mode_of_operation_in_csv_dir", _mark("normalize"))
+    monkeypatch.setattr(data_processing_module, "eliminar_valores_fuera_de_indices", _mark("filter"))
+    monkeypatch.setattr(data_processing_module, "completar_Matrix_Act_Ratio", _mark("act_ratio"))
+    monkeypatch.setattr(data_processing_module, "completar_Matrix_Emission", _mark("emission"))
+    monkeypatch.setattr(data_processing_module, "completar_Matrix_Storage", _mark("storage"))
+    monkeypatch.setattr(data_processing_module, "completar_Matrix_Cost", _mark("cost"))
+    monkeypatch.setattr(data_processing_module, "process_and_save_emission_ratios", _mark("emission_ratios"))
+    monkeypatch.setattr(data_processing_module, "ensure_udc_csvs", _mark("udc"))
+    monkeypatch.setattr(data_processing_module, "apply_udc_config", _mark("apply_udc"))
+    monkeypatch.setattr(data_processing_module, "reorder_activity_ratio_csvs_for_dataportal", _mark("reorder"))
+
+    result = data_processing_module.run_data_processing(
+        db_session,
+        scenario_id=scenario.id,
+        csv_dir=str(tmp_path),
+    )
+
+    assert result is export_result
+    assert called_steps == []
 
 
 def test_excel_preview_detects_inserts_and_apply_creates_missing_catalogs(db_session) -> None:

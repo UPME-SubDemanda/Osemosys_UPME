@@ -33,15 +33,18 @@ import type {
   CsvSimulationResult,
   RunResult,
   Scenario,
+  ScenarioEditPolicy,
   SimulationLog,
   SimulationOverview,
   SimulationRun,
   SimulationSolver,
+  SimulationType,
 } from "@/types/domain";
 
 const ACTIVE_STATUSES = new Set(["QUEUED", "RUNNING"]);
 const CSV_PREVIEW_LIMIT = 50;
 const CRITICAL_SIMULATION_LOG_STAGES = new Set(["create_instance", "solver"]);
+const CSV_SUBMIT_SPINNER_FRAMES = ["◐", "◓", "◑", "◒"];
 
 const SIMULATION_LOG_STAGE_LABELS: Record<string, string> = {
   extract_data: "Leer insumos",
@@ -332,12 +335,21 @@ export function SimulationPage() {
   const [csvSolverName, setCsvSolverName] = useState<SimulationSolver>("highs");
   const [csvRunDisplayName, setCsvRunDisplayName] = useState("");
   const [csvZipFile, setCsvZipFile] = useState<File | null>(null);
+  const [csvInputName, setCsvInputName] = useState("");
+  const [csvSimulationType, setCsvSimulationType] = useState<SimulationType>("NATIONAL");
+  const [csvSaveAsScenario, setCsvSaveAsScenario] = useState(false);
+  const [csvScenarioName, setCsvScenarioName] = useState("");
+  const [csvScenarioDescription, setCsvScenarioDescription] = useState("");
+  const [csvScenarioEditPolicy, setCsvScenarioEditPolicy] = useState<ScenarioEditPolicy>("OWNER_ONLY");
   const [csvSubmitting, setCsvSubmitting] = useState(false);
   const [csvResult, setCsvResult] = useState<CsvSimulationResult | null>(null);
   const [csvResultOpen, setCsvResultOpen] = useState(false);
   const [csvTrackedJobId, setCsvTrackedJobId] = useState<number | null>(null);
   const [csvResultSourceJobId, setCsvResultSourceJobId] = useState<number | null>(null);
   const [csvLoadingResultForJobId, setCsvLoadingResultForJobId] = useState<number | null>(null);
+  const [csvSubmitPhase, setCsvSubmitPhase] = useState<"uploading" | "importing_scenario" | null>(null);
+  const [csvSubmitStartedAt, setCsvSubmitStartedAt] = useState<number | null>(null);
+  const [csvSubmitElapsedSeconds, setCsvSubmitElapsedSeconds] = useState(0);
   const [cancellingJobId, setCancellingJobId] = useState<number | null>(null);
 
   const [udcConfig, setUdcConfig] = useState<UdcConfig | null>(null);
@@ -363,6 +375,18 @@ export function SimulationPage() {
     if (!id) { setUdcConfig(null); return; }
     void scenariosApi.getUdcConfig(id).then(setUdcConfig).catch(() => setUdcConfig(null));
   }, [selectedScenario]);
+
+  useEffect(() => {
+    if (!csvSubmitting || csvSubmitStartedAt == null) {
+      setCsvSubmitElapsedSeconds(0);
+      return;
+    }
+    setCsvSubmitElapsedSeconds(Math.max(0, Math.floor((Date.now() - csvSubmitStartedAt) / 1000)));
+    const timer = window.setInterval(() => {
+      setCsvSubmitElapsedSeconds(Math.max(0, Math.floor((Date.now() - csvSubmitStartedAt) / 1000)));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [csvSubmitting, csvSubmitStartedAt]);
 
   async function saveUdcConfig() {
     const id = Number(selectedScenario);
@@ -539,24 +563,43 @@ export function SimulationPage() {
       push("Selecciona un archivo ZIP con los CSV antes de ejecutar.", "error");
       return;
     }
+    if (csvSaveAsScenario && !csvScenarioName.trim()) {
+      push("El nombre del escenario es obligatorio cuando eliges guardar el ZIP como escenario.", "error");
+      return;
+    }
     setCsvSubmitting(true);
     setCsvResultOpen(false);
     setCsvResult(null);
     setCsvResultSourceJobId(null);
     setCsvTrackedJobId(null);
+    setCsvSubmitPhase(csvSaveAsScenario ? "importing_scenario" : "uploading");
+    setCsvSubmitStartedAt(Date.now());
     try {
       const job = await simulationApi.submitFromCsv(csvZipFile, csvSolverName, {
-        display_name: csvRunDisplayName.trim() || null,
+        input_name: csvInputName,
+        simulation_type: csvSimulationType,
+        save_as_scenario: csvSaveAsScenario,
+        scenario_name: csvScenarioName,
+        description: csvScenarioDescription,
+        edit_policy: csvScenarioEditPolicy,
+        display_name: csvInputName.trim() || null,
       });
       setCsvTrackedJobId(job.id);
       setRuns((prev) => [job, ...prev.filter((run) => run.id !== job.id)]);
-      push(`Simulación desde CSV encolada como job ${job.id}.`, "success");
-      setCsvRunDisplayName("");
+      push(
+        csvSaveAsScenario
+          ? `Escenario creado y simulación encolada como job ${job.id}.`
+          : `Simulación desde CSV encolada como job ${job.id}.`,
+        "success",
+      );
+      setCsvInputName("");
       await refreshRuns();
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Error ejecutando simulación desde CSV.";
       push(detail, "error");
     } finally {
+      setCsvSubmitPhase(null);
+      setCsvSubmitStartedAt(null);
       setCsvSubmitting(false);
     }
   }
@@ -583,6 +626,14 @@ export function SimulationPage() {
   }, []);
 
   const selectedLogs = logsOpenForJob ? logsByJob[logsOpenForJob] ?? [] : [];
+  const csvSpinnerFrame =
+    CSV_SUBMIT_SPINNER_FRAMES[csvSubmitElapsedSeconds % CSV_SUBMIT_SPINNER_FRAMES.length] ?? "◐";
+  const csvEstimatedDurationLabel =
+    csvSubmitPhase === "importing_scenario" ? "1 a 4 min" : "10 a 30 s";
+  const csvCurrentPhaseLabel =
+    csvSubmitPhase === "importing_scenario"
+      ? "Importando ZIP como escenario"
+      : "Subiendo ZIP y creando el job";
 
   return (
     <section style={{ display: "grid", gap: 14 }}>
@@ -663,7 +714,8 @@ export function SimulationPage() {
           style={{
             display: "grid",
             gap: 10,
-            gridTemplateColumns: "minmax(260px, 1fr) minmax(200px, 1fr) minmax(160px, 220px) auto",
+            gridTemplateColumns:
+              "minmax(220px, 1fr) minmax(180px, 240px) minmax(180px, 220px) minmax(200px, 1fr) auto",
             alignItems: "end",
           }}
         >
@@ -673,7 +725,32 @@ export function SimulationPage() {
               className="field__input"
               type="file"
               accept=".zip,application/zip"
-              onChange={(e) => setCsvZipFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                const nextFile = e.target.files?.[0] ?? null;
+                setCsvZipFile(nextFile);
+                if (csvSaveAsScenario && nextFile && !csvScenarioName.trim()) {
+                  setCsvScenarioName(nextFile.name.replace(/\.zip$/i, ""));
+                }
+              }}
+            />
+          </label>
+          <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">
+              {csvSaveAsScenario
+                ? "Nombre visible de la simulación (opcional)"
+                : "Nombre visible de la corrida"}
+            </span>
+            <input
+              className="field__input"
+              value={csvInputName}
+              onChange={(e) => setCsvInputName(e.target.value)}
+              placeholder={
+                csvSaveAsScenario
+                  ? "Ej: Corrida base importada desde CSV"
+                  : (csvZipFile?.name ?? "Ej: Modelo nacional abril")
+              }
+              disabled={csvSubmitting}
+              autoComplete="off"
             />
           </label>
           <label className="field" style={{ margin: 0 }}>
@@ -700,14 +777,176 @@ export function SimulationPage() {
               <option value="glpk">GLPK</option>
             </select>
           </label>
+          <label className="field" style={{ margin: 0 }}>
+            <span className="field__label">Tipo de simulación</span>
+            <select
+              className="field__input"
+              value={csvSimulationType}
+              onChange={(e) => setCsvSimulationType(e.target.value as SimulationType)}
+            >
+              <option value="NATIONAL">Nacional</option>
+              <option value="REGIONAL">Regional</option>
+            </select>
+          </label>
           <Button variant="primary" onClick={runCsvSimulation} disabled={csvSubmitting || !csvZipFile}>
-            {csvSubmitting ? "Encolando..." : "Ejecutar desde CSV"}
+            {csvSubmitting
+              ? (csvSaveAsScenario ? "Creando escenario..." : "Encolando...")
+              : "Ejecutar desde CSV"}
           </Button>
         </div>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={csvSaveAsScenario}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setCsvSaveAsScenario(checked);
+              if (checked && csvZipFile && !csvScenarioName.trim()) {
+                setCsvScenarioName(csvZipFile.name.replace(/\.zip$/i, ""));
+              }
+            }}
+          />
+          <span>Guardar estos CSV como escenario y correr sobre ese escenario</span>
+        </label>
+        {csvSaveAsScenario ? (
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(255,255,255,0.03)",
+              borderRadius: 12,
+              padding: 12,
+              display: "grid",
+              gap: 4,
+            }}
+          >
+            <strong style={{ fontSize: 13 }}>Este flujo tarda más.</strong>
+            <small style={{ opacity: 0.78 }}>
+              Primero importa el ZIP completo como escenario y luego encola la simulación. Puede tardar varios minutos antes de devolver el job.
+            </small>
+          </div>
+        ) : null}
+        {csvSaveAsScenario ? (
+          <div
+            style={{
+              display: "grid",
+              gap: 10,
+              gridTemplateColumns: "minmax(220px, 1fr) minmax(220px, 1fr) minmax(180px, 220px)",
+              alignItems: "end",
+            }}
+          >
+            <label className="field" style={{ margin: 0 }}>
+              <span className="field__label">Nombre del escenario</span>
+              <input
+                className="field__input"
+                value={csvScenarioName}
+                onChange={(e) => setCsvScenarioName(e.target.value)}
+                placeholder="Ej: Escenario nacional CSV"
+              />
+            </label>
+            <label className="field" style={{ margin: 0 }}>
+              <span className="field__label">Descripción</span>
+              <input
+                className="field__input"
+                value={csvScenarioDescription}
+                onChange={(e) => setCsvScenarioDescription(e.target.value)}
+                placeholder="Opcional"
+              />
+            </label>
+            <label className="field" style={{ margin: 0 }}>
+              <span className="field__label">Política de edición</span>
+              <select
+                className="field__input"
+                value={csvScenarioEditPolicy}
+                onChange={(e) => setCsvScenarioEditPolicy(e.target.value as ScenarioEditPolicy)}
+              >
+                <option value="OWNER_ONLY">Solo propietario</option>
+                <option value="OPEN">Abierta</option>
+                <option value="RESTRICTED">Restringida</option>
+              </select>
+            </label>
+          </div>
+        ) : null}
         {csvZipFile ? (
           <small style={{ opacity: 0.78 }}>
             Archivo seleccionado: <strong>{csvZipFile.name}</strong>
           </small>
+        ) : null}
+        {csvSubmitting ? (
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.08)",
+              background:
+                csvSubmitPhase === "importing_scenario"
+                  ? "linear-gradient(135deg, rgba(59,130,246,0.14), rgba(15,23,42,0.22))"
+                  : "linear-gradient(135deg, rgba(16,185,129,0.14), rgba(15,23,42,0.22))",
+              borderRadius: 12,
+              padding: 12,
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 999,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "rgba(255,255,255,0.08)",
+                  fontSize: 16,
+                  fontWeight: 700,
+                }}
+              >
+                {csvSpinnerFrame}
+              </span>
+              <div style={{ display: "grid", gap: 2 }}>
+                <strong>{csvCurrentPhaseLabel}...</strong>
+                <small style={{ opacity: 0.78 }}>
+                  {csvSubmitPhase === "importing_scenario"
+                    ? "El backend está guardando los insumos del ZIP antes de encolar la simulación."
+                    : "El backend está validando el ZIP y preparando la corrida."}
+                </small>
+              </div>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gap: 6,
+                gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              }}
+            >
+              <div
+                style={{
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  background: "rgba(255,255,255,0.04)",
+                }}
+              >
+                <small style={{ display: "block", opacity: 0.7 }}>Tiempo transcurrido</small>
+                <strong>{formatReadableDuration(csvSubmitElapsedSeconds)}</strong>
+              </div>
+              <div
+                style={{
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  background: "rgba(255,255,255,0.04)",
+                }}
+              >
+                <small style={{ display: "block", opacity: 0.7 }}>Tiempo estimado</small>
+                <strong>{csvEstimatedDurationLabel}</strong>
+              </div>
+            </div>
+            <small style={{ opacity: 0.72 }}>
+              {csvSubmitPhase === "importing_scenario"
+                ? "Si el ZIP es grande, esta fase puede tardar más de lo normal. No cierres la página."
+                : "La respuesta debería llegar pronto con el identificador del job."}
+            </small>
+          </div>
         ) : null}
         {csvResult ? (
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -723,187 +962,181 @@ export function SimulationPage() {
         ) : null}
       </article>
 
-      {selectedScenario && udcConfig !== null ? (
+      {selectedScenario && udcConfig ? (
         <article className="pageSection" style={{ display: "grid", gap: 10 }}>
           <div
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
             onClick={() => setUdcOpen(!udcOpen)}
           >
             <h2 style={{ margin: 0 }}>
-              UDC — Restricciones definidas por usuario
-              {udcConfig.enabled ? (
-                <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 400, color: "rgba(74,222,128,0.9)", verticalAlign: "middle" }}>● activo</span>
-              ) : (
-                <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 400, color: "rgba(156,163,175,0.7)", verticalAlign: "middle" }}>● inactivo</span>
-              )}
+              Configuración UDC (Restricciones definidas por usuario)
+              <span style={{ marginLeft: 10, fontSize: 13, fontWeight: 400, color: udcConfig.enabled ? "#4ade80" : "#9ca3af" }}>
+                {udcConfig.enabled ? "● activo" : "● inactivo"}
+              </span>
             </h2>
             <span style={{ fontSize: 18 }}>{udcOpen ? "▲" : "▼"}</span>
           </div>
 
           {udcOpen ? (
-            <div style={{ display: "grid", gap: 16 }}>
-              {/* Toggle habilitar/deshabilitar UDC */}
-              <label style={{ display: "flex", gap: 10, alignItems: "center", cursor: "pointer", userSelect: "none" }}>
+            <div style={{ display: "grid", gap: 12 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
                 <input
                   type="checkbox"
                   checked={udcConfig.enabled}
-                  style={{ width: 16, height: 16, cursor: "pointer" }}
                   onChange={(e) => {
                     const enabled = e.target.checked;
                     setUdcConfig({
                       ...udcConfig,
                       enabled,
                       multipliers: enabled && udcConfig.multipliers.length === 0
-                        ? [{ type: "TotalCapacity", tech_dict: {} }]
+                        ? [{ type: "TotalCapacity" as const, tech_dict: {} }]
                         : udcConfig.multipliers,
                     });
                   }}
                 />
-                <span>Habilitar UDC en esta simulación</span>
+                Habilitar UDC en esta simulación
               </label>
 
-              {!udcConfig.enabled ? (
-                <p style={{ margin: 0, opacity: 0.6, fontSize: 13 }}>
-                  UDC desactivado. La simulación correrá sin restricciones definidas por usuario.
-                </p>
-              ) : (
-                <div style={{ display: "grid", gap: 12 }}>
-                  <div style={{ display: "flex", gap: 16, alignItems: "end", flexWrap: "wrap" }}>
-                    <label className="field" style={{ margin: 0, width: 200 }}>
-                      <span className="field__label">Tipo de restricción (UDCTag)</span>
+              {udcConfig.enabled && (
+              <div style={{ display: "flex", gap: 16, alignItems: "end", flexWrap: "wrap" }}>
+                <label className="field" style={{ margin: 0, width: 200 }}>
+                  <span className="field__label">Tipo de restricción (UDCTag)</span>
+                  <select
+                    className="field__input"
+                    value={udcConfig.tag_value}
+                    onChange={(e) =>
+                      setUdcConfig({ ...udcConfig, tag_value: Number(e.target.value) as 0 | 1 })
+                    }
+                  >
+                    <option value={0}>0 — Desigualdad (≤)</option>
+                    <option value={1}>1 — Igualdad (=)</option>
+                  </select>
+                </label>
+              </div>
+              )}
+
+              {udcConfig.enabled && udcConfig.multipliers.map((mult, mIdx) => (
+                <div key={mIdx} style={{ border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: 12, display: "grid", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "end" }}>
+                    <label className="field" style={{ margin: 0, width: 220 }}>
+                      <span className="field__label">Tipo de multiplicador</span>
                       <select
                         className="field__input"
-                        value={udcConfig.tag_value}
-                        onChange={(e) =>
-                          setUdcConfig({ ...udcConfig, tag_value: Number(e.target.value) as 0 | 1 })
-                        }
+                        value={mult.type}
+                        onChange={(e) => {
+                          const updated = [...udcConfig.multipliers];
+                          updated[mIdx] = { ...mult, type: e.target.value as UdcMultiplierEntry["type"] };
+                          setUdcConfig({ ...udcConfig, multipliers: updated });
+                        }}
                       >
-                        <option value={0}>0 — Desigualdad (≤)</option>
-                        <option value={1}>1 — Igualdad (=)</option>
+                        <option value="TotalCapacity">TotalCapacity</option>
+                        <option value="NewCapacity">NewCapacity</option>
+                        <option value="Activity">Activity</option>
                       </select>
                     </label>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        const updated = udcConfig.multipliers.filter((_, i) => i !== mIdx);
+                        setUdcConfig({ ...udcConfig, multipliers: updated });
+                      }}
+                    >
+                      Eliminar multiplicador
+                    </Button>
                   </div>
 
-                  {udcConfig.multipliers.map((mult, mIdx) => (
-                    <div key={mIdx} style={{ border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: 12, display: "grid", gap: 8 }}>
-                      <div style={{ display: "flex", gap: 12, alignItems: "end" }}>
-                        <label className="field" style={{ margin: 0, width: 220 }}>
-                          <span className="field__label">Tipo de multiplicador</span>
-                          <select
-                            className="field__input"
-                            value={mult.type}
-                            onChange={(e) => {
-                              const updated = [...udcConfig.multipliers];
-                              updated[mIdx] = { ...mult, type: e.target.value as UdcMultiplierEntry["type"] };
-                              setUdcConfig({ ...udcConfig, multipliers: updated });
-                            }}
-                          >
-                            <option value="TotalCapacity">TotalCapacity</option>
-                            <option value="NewCapacity">NewCapacity</option>
-                            <option value="Activity">Activity</option>
-                          </select>
-                        </label>
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            const updated = udcConfig.multipliers.filter((_, i) => i !== mIdx);
-                            setUdcConfig({ ...udcConfig, multipliers: updated });
-                          }}
-                        >
-                          Eliminar multiplicador
-                        </Button>
-                      </div>
+                  <div style={{ maxHeight: 300, overflow: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Tecnología</th>
+                          <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Valor</th>
+                          <th style={{ width: 40 }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(mult.tech_dict).map(([tech, val]) => (
+                          <tr key={tech}>
+                            <td style={{ padding: "2px 8px" }}>{tech}</td>
+                            <td style={{ padding: "2px 8px", textAlign: "right" }}>
+                              <input
+                                type="number"
+                                step="any"
+                                style={{ width: 100, textAlign: "right" }}
+                                value={val}
+                                onChange={(e) => {
+                                  const updated = [...udcConfig.multipliers];
+                                  updated[mIdx] = {
+                                    ...mult,
+                                    tech_dict: { ...mult.tech_dict, [tech]: Number(e.target.value) },
+                                  };
+                                  setUdcConfig({ ...udcConfig, multipliers: updated });
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                style={{ cursor: "pointer", border: "none", background: "none", color: "rgba(248,113,113,0.9)" }}
+                                onClick={() => {
+                                  const rest = { ...mult.tech_dict };
+                                  delete rest[tech];
+                                  const updated = [...udcConfig.multipliers];
+                                  updated[mIdx] = { ...mult, tech_dict: rest };
+                                  setUdcConfig({ ...udcConfig, multipliers: updated });
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
 
-                      <div style={{ maxHeight: 300, overflow: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                          <thead>
-                            <tr>
-                              <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Tecnología</th>
-                              <th style={{ textAlign: "right", padding: "4px 8px", borderBottom: "1px solid rgba(255,255,255,0.2)" }}>Valor</th>
-                              <th style={{ width: 40 }}></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {Object.entries(mult.tech_dict).map(([tech, val]) => (
-                              <tr key={tech}>
-                                <td style={{ padding: "2px 8px" }}>{tech}</td>
-                                <td style={{ padding: "2px 8px", textAlign: "right" }}>
-                                  <input
-                                    type="number"
-                                    step="any"
-                                    style={{ width: 100, textAlign: "right" }}
-                                    value={val}
-                                    onChange={(e) => {
-                                      const updated = [...udcConfig.multipliers];
-                                      updated[mIdx] = {
-                                        ...mult,
-                                        tech_dict: { ...mult.tech_dict, [tech]: Number(e.target.value) },
-                                      };
-                                      setUdcConfig({ ...udcConfig, multipliers: updated });
-                                    }}
-                                  />
-                                </td>
-                                <td>
-                                  <button
-                                    type="button"
-                                    style={{ cursor: "pointer", border: "none", background: "none", color: "rgba(248,113,113,0.9)" }}
-                                    onClick={() => {
-                                      const rest = { ...mult.tech_dict };
-                                      delete rest[tech];
-                                      const updated = [...udcConfig.multipliers];
-                                      updated[mIdx] = { ...mult, tech_dict: rest };
-                                      setUdcConfig({ ...udcConfig, multipliers: updated });
-                                    }}
-                                  >
-                                    ✕
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
+                    <label className="field" style={{ margin: 0, flex: 1 }}>
+                      <span className="field__label">Agregar tecnología</span>
+                      <input
+                        className="field__input"
+                        placeholder="Ej: PWRNUC"
+                        value={udcNewTech}
+                        onChange={(e) => setUdcNewTech(e.target.value)}
+                      />
+                    </label>
+                    <label className="field" style={{ margin: 0, width: 120 }}>
+                      <span className="field__label">Valor</span>
+                      <input
+                        className="field__input"
+                        type="number"
+                        step="any"
+                        value={udcNewValue}
+                        onChange={(e) => setUdcNewValue(e.target.value)}
+                      />
+                    </label>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        if (!udcNewTech.trim()) return;
+                        const updated = [...udcConfig.multipliers];
+                        updated[mIdx] = {
+                          ...mult,
+                          tech_dict: { ...mult.tech_dict, [udcNewTech.trim()]: Number(udcNewValue) },
+                        };
+                        setUdcConfig({ ...udcConfig, multipliers: updated });
+                        setUdcNewTech("");
+                        setUdcNewValue("0");
+                      }}
+                    >
+                      Agregar
+                    </Button>
+                  </div>
+                </div>
+              ))}
 
-                      <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
-                        <label className="field" style={{ margin: 0, flex: 1 }}>
-                          <span className="field__label">Agregar tecnología</span>
-                          <input
-                            className="field__input"
-                            placeholder="Ej: PWRNUC"
-                            value={udcNewTech}
-                            onChange={(e) => setUdcNewTech(e.target.value)}
-                          />
-                        </label>
-                        <label className="field" style={{ margin: 0, width: 120 }}>
-                          <span className="field__label">Valor</span>
-                          <input
-                            className="field__input"
-                            type="number"
-                            step="any"
-                            value={udcNewValue}
-                            onChange={(e) => setUdcNewValue(e.target.value)}
-                          />
-                        </label>
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            if (!udcNewTech.trim()) return;
-                            const updated = [...udcConfig.multipliers];
-                            updated[mIdx] = {
-                              ...mult,
-                              tech_dict: { ...mult.tech_dict, [udcNewTech.trim()]: Number(udcNewValue) },
-                            };
-                            setUdcConfig({ ...udcConfig, multipliers: updated });
-                            setUdcNewTech("");
-                            setUdcNewValue("0");
-                          }}
-                        >
-                          Agregar
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-
+              <div style={{ display: "flex", gap: 8 }}>
+                {udcConfig.enabled && (
                   <Button
                     variant="ghost"
                     onClick={() =>
@@ -918,10 +1151,7 @@ export function SimulationPage() {
                   >
                     + Agregar multiplicador
                   </Button>
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: 8 }}>
+                )}
                 <Button variant="primary" onClick={saveUdcConfig} disabled={udcSaving}>
                   {udcSaving ? "Guardando..." : "Guardar configuración UDC"}
                 </Button>

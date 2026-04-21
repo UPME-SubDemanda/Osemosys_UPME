@@ -181,6 +181,7 @@ def create_scenario_from_excel(
     edit_policy: str = Form(default="OWNER_ONLY"),
     tag_id: int | None = Form(default=None),
     simulation_type: str = Form(default="NATIONAL"),
+    include_udc_reserve_margin: str = Form(default="false"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -225,7 +226,8 @@ def create_scenario_from_excel(
             scenario_id_override=sid,
         )
         ScenarioService.sync_catalogs_from_scenario_values(db, scenario_id=sid)
-        ScenarioService.ensure_default_reserve_margin_udc(db, scenario_id=sid)
+        if _form_bool_flag(include_udc_reserve_margin):
+            ScenarioService.ensure_default_reserve_margin_udc(db, scenario_id=sid)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

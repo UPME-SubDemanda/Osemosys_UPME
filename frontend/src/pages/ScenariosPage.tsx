@@ -225,6 +225,7 @@ export function ScenariosPage() {
   const [scenarioTags, setScenarioTags] = useState<ScenarioTag[]>([]);
   const [tagSelectCreate, setTagSelectCreate] = useState("");
   const [tagSelectExcel, setTagSelectExcel] = useState("");
+  const [includeUdcExcel, setIncludeUdcExcel] = useState(false);
   const [openTagsCatalog, setOpenTagsCatalog] = useState(false);
   const [tagCatName, setTagCatName] = useState("");
   const [tagCatColor, setTagCatColor] = useState("#3B82F6");
@@ -436,6 +437,7 @@ export function ScenariosPage() {
           description: description.trim(),
           edit_policy: editPolicy,
           simulation_type: simulationType,
+          include_udc_reserve_margin: includeUdcExcel,
           ...(tagSelectExcel ? { tag_id: Number(tagSelectExcel) } : {}),
         },
         (percent) => {
@@ -505,6 +507,7 @@ export function ScenariosPage() {
     setEditPolicy("OWNER_ONLY");
     setSimulationType("NATIONAL");
     setTagSelectExcel("");
+    setIncludeUdcExcel(false);
     setExcelUploadPhase("idle");
     setExcelUploadPercent(0);
     setExcelUploadStartedAt(null);
@@ -1373,6 +1376,15 @@ export function ScenariosPage() {
                 </option>
               ))}
             </select>
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={includeUdcExcel}
+              onChange={(e) => setIncludeUdcExcel(e.target.checked)}
+            />
+            Incluir restricción UDC de Reserva de Margen de Capacidad
           </label>
 
           {excelUploadPhase !== "idle" ? (

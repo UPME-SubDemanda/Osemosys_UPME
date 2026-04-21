@@ -593,12 +593,6 @@ export function SimulationPage() {
         "success",
       );
       setCsvInputName("");
-        display_name: csvRunDisplayName.trim() || null,
-      });
-      setCsvTrackedJobId(job.id);
-      setRuns((prev) => [job, ...prev.filter((run) => run.id !== job.id)]);
-      push(`Simulación desde CSV encolada como job ${job.id}.`, "success");
-      setCsvRunDisplayName("");
       await refreshRuns();
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Error ejecutando simulación desde CSV.";

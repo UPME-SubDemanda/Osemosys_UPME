@@ -24,17 +24,19 @@ def db_session() -> Session:
             "schema_translate_map": {"core": schema_name, "osemosys": schema_name}
         },
     )
-    with engine.begin() as connection:
-        connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
-
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    session = SessionLocal()
     try:
-        yield session
+        with engine.begin() as connection:
+            connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
+        Base.metadata.create_all(engine)
+
+        SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+        session = SessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+            Base.metadata.drop_all(engine)
     finally:
-        session.close()
-        Base.metadata.drop_all(engine)
         with engine.begin() as connection:
             connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
         engine.dispose()

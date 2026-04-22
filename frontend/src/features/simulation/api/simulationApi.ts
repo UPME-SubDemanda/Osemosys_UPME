@@ -119,6 +119,24 @@ export const simulationApi = {
     return data;
   },
 
+  /** Cambia la visibilidad del resultado (solo dueño). */
+  async patchVisibility(jobId: number, isPublic: boolean) {
+    const { data } = await httpClient.patch<SimulationRun>(
+      `/simulations/${jobId}`,
+      { is_public: isPublic },
+    );
+    return data;
+  },
+
+  /** Marca/desmarca como favorito del usuario actual. */
+  async setFavorite(jobId: number, isFavorite: boolean) {
+    const { data } = await httpClient.patch<SimulationRun>(
+      `/simulations/${jobId}/favorite`,
+      { is_favorite: isFavorite },
+    );
+    return data;
+  },
+
   async cancel(jobId: number) {
     const { data } = await httpClient.post<SimulationRun>(
       `/simulations/${jobId}/cancel`,

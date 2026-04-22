@@ -254,6 +254,41 @@ const FIRST_MODULE = MENU[0] as Module;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Etiqueta legible de una gráfica (para mostrar en UI fuera del selector). */
+export function getChartLabel(tipo: string): string | undefined {
+  return findChartItem(tipo)?.label;
+}
+
+export type ChartLocation = { moduleId: string; subsectorId?: string };
+
+/** Devuelve módulo (y subsector si aplica, sólo Demanda Final) para un chart `tipo`. */
+export function getChartLocation(tipo: string): ChartLocation {
+  return findLocation(tipo);
+}
+
+/** Subsectores definidos para un módulo (vacío si no aplica). */
+export function getChartSubsectors(
+  moduleId: string,
+): { id: string; label: string }[] {
+  const mod = MENU.find((m) => m.id === moduleId);
+  if (!mod || !mod.subsectors) return [];
+  return mod.subsectors.map((s) => ({ id: s.id, label: s.label }));
+}
+
+export type ChartModuleInfo = { id: string; label: string; emoji: string };
+
+/** Módulos (primer nivel) del menú — para agrupar plantillas en UI externas. */
+export function getChartModules(): ChartModuleInfo[] {
+  return MENU.map((m) => ({ id: m.id, label: m.label, emoji: m.emoji }));
+}
+
+/** Módulo al que pertenece una gráfica (primer nivel de agrupación). */
+export function getChartModule(tipo: string): ChartModuleInfo | undefined {
+  const { moduleId } = findLocation(tipo);
+  const mod = MENU.find((m) => m.id === moduleId);
+  return mod ? { id: mod.id, label: mod.label, emoji: mod.emoji } : undefined;
+}
+
 function findChartItem(tipo: string): ChartItem | undefined {
   for (const mod of MENU) {
     const inFlat = mod.charts?.find((c) => c.id === tipo);

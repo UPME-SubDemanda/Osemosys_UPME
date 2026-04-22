@@ -157,6 +157,7 @@ class SimulationService:
         username: str | None = None,
         scenario_name: str | None = None,
         scenario_tag: dict | None = None,
+        is_favorite: bool = False,
     ) -> dict:
         effective_scenario_name = scenario_name
         if effective_scenario_name is None and getattr(job, "input_mode", "SCENARIO") == "CSV_UPLOAD":
@@ -184,6 +185,8 @@ class SimulationService:
             "started_at": job.started_at,
             "finished_at": job.finished_at,
             "run_iis_analysis": bool(getattr(job, "run_iis_analysis", False)),
+            "is_public": bool(getattr(job, "is_public", True)),
+            "is_favorite": bool(is_favorite),
             "is_infeasible_result": SimulationService._is_infeasible_succeeded_job(job),
             **SimulationService._diagnostic_info_for(job),
         }
@@ -396,7 +399,9 @@ class SimulationService:
 
     @staticmethod
     def get_by_id(db: Session, *, current_user: User, job_id: int) -> dict:
-        visible = SimulationRepository.get_job_visible(db, job_id=job_id)
+        visible = SimulationRepository.get_job_visible(
+            db, job_id=job_id, current_user_id=current_user.id
+        )
         if not visible:
             raise NotFoundError("Simulacion no encontrada.")
         job, username, scenario_name = visible
@@ -407,14 +412,49 @@ class SimulationService:
             db, {int(job.scenario_id)} if job.scenario_id else set()
         )
         scenario_tag = tags_by_sid.get(int(job.scenario_id)) if job.scenario_id else None
+        is_favorite = SimulationRepository.is_favorite(
+            db, user_id=current_user.id, job_id=job.id
+        )
         return SimulationService._to_public(
             job,
             queue_position=queue_position,
             username=username,
             scenario_name=scenario_name,
             scenario_tag=scenario_tag,
+            is_favorite=is_favorite,
         )
 
+    @staticmethod
+    def patch_metadata(
+        db: Session,
+        *,
+        current_user: User,
+        job_id: int,
+        display_name: str | None | object = ...,
+        is_public: bool | None = None,
+    ) -> dict:
+        """Actualiza metadatos editables del job (solo el dueño).
+
+        ``display_name`` es tri-valente: ``...`` = no tocar, ``None``/``''`` =
+        limpiar, string = asignar. ``is_public=None`` = no tocar.
+        """
+        job = SimulationRepository.get_job_for_user(
+            db, job_id=job_id, user_id=current_user.id
+        )
+        if not job:
+            raise NotFoundError("Simulacion no encontrada.")
+        if display_name is not ...:
+            cleaned = (display_name or "").strip() or None if display_name is not None else None
+            job.display_name = cleaned[:255] if cleaned else None
+        if is_public is not None:
+            job.is_public = bool(is_public)
+        db.commit()
+        db.refresh(job)
+        return SimulationService.get_by_id(
+            db, current_user=current_user, job_id=job_id
+        )
+
+    # Alias retrocompatible: algunos callers históricos esperan `patch_display_name`.
     @staticmethod
     def patch_display_name(
         db: Session,
@@ -423,15 +463,39 @@ class SimulationService:
         job_id: int,
         display_name: str | None,
     ) -> dict:
-        """Actualiza el nombre visible del job (solo el dueño)."""
-        job = SimulationRepository.get_job_for_user(db, job_id=job_id, user_id=current_user.id)
-        if not job:
+        return SimulationService.patch_metadata(
+            db,
+            current_user=current_user,
+            job_id=job_id,
+            display_name=display_name,
+        )
+
+    @staticmethod
+    def set_favorite(
+        db: Session,
+        *,
+        current_user: User,
+        job_id: int,
+        favorite: bool,
+    ) -> dict:
+        """Marca/desmarca un job como favorito del usuario actual."""
+        # Solo exige que el job sea visible para el usuario.
+        visible = SimulationRepository.get_job_visible(
+            db, job_id=job_id, current_user_id=current_user.id
+        )
+        if not visible:
             raise NotFoundError("Simulacion no encontrada.")
-        cleaned = (display_name or "").strip() or None
-        job.display_name = cleaned[:255] if cleaned else None
-        db.commit()
-        db.refresh(job)
-        return SimulationService.get_by_id(db, current_user=current_user, job_id=job_id)
+        if favorite:
+            SimulationRepository.add_favorite(
+                db, user_id=current_user.id, job_id=job_id
+            )
+        else:
+            SimulationRepository.remove_favorite(
+                db, user_id=current_user.id, job_id=job_id
+            )
+        return SimulationService.get_by_id(
+            db, current_user=current_user, job_id=job_id
+        )
 
     @staticmethod
     def list_jobs(
@@ -461,6 +525,9 @@ class SimulationService:
         )
         scenario_ids = {j.scenario_id for j, _, _ in items if j.scenario_id}
         tags_by_sid = SimulationService._batch_scenario_tags_by_scenario_ids(db, {int(x) for x in scenario_ids})
+        favorite_ids = SimulationRepository.list_favorite_job_ids(
+            db, user_id=current_user.id
+        )
         data = [
             SimulationService._to_public(
                 job,
@@ -470,6 +537,7 @@ class SimulationService:
                 username=job_username,
                 scenario_name=job_scenario_name,
                 scenario_tag=tags_by_sid.get(int(job.scenario_id)) if job.scenario_id else None,
+                is_favorite=int(job.id) in favorite_ids,
             )
             for job, job_username, job_scenario_name in items
         ]

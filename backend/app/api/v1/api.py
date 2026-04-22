@@ -17,6 +17,7 @@ from app.api.v1 import (
     parameter_values,
     parameters,
     regions,
+    saved_chart_templates,
     scenario_tags,
     scenarios,
     simulations,
@@ -45,6 +46,8 @@ router.include_router(scenario_tags.router, tags=["scenario_tags"])
 router.include_router(parameter_values.router, tags=["parameter_values"])
 router.include_router(change_requests.router, tags=["change_requests"])
 router.include_router(visualizations.router, tags=["visualizations"])
+router.include_router(saved_chart_templates.router, tags=["saved_chart_templates"])
+router.include_router(saved_chart_templates.reports_router, tags=["saved_reports"])
 router.include_router(simulations.router, tags=["simulations"])
 
 

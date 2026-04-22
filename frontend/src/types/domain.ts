@@ -133,6 +133,10 @@ export type SimulationRun = {
   diagnostic_started_at?: string | null;
   diagnostic_finished_at?: string | null;
   diagnostic_seconds?: number | null;
+  /** Visibilidad del resultado: true = público (todos los usuarios), false = solo dueño. */
+  is_public?: boolean;
+  /** True si el usuario actual marcó este resultado como favorito. */
+  is_favorite?: boolean;
 };
 
 export type SimulationOverview = {
@@ -388,6 +392,130 @@ export type ChartCatalogItem = {
   es_capacidad: boolean;
 };
 
+/** Plantilla de gráfica guardada por un usuario para generar reportes. */
+export type SavedChartTemplate = {
+  id: number;
+  name: string;
+  description: string | null;
+  tipo: string;
+  un: string;
+  sub_filtro: string | null;
+  loc: string | null;
+  variable: string | null;
+  agrupar_por: string | null;
+  view_mode: "column" | "line" | null;
+  compare_mode: "off" | "facet";
+  bar_orientation: "vertical" | "horizontal" | null;
+  facet_placement: "inline" | "stacked" | null;
+  facet_legend_mode: "shared" | "perFacet" | null;
+  num_scenarios: number;
+  legend_title: string | null;
+  filename_mode: "result" | "tags" | null;
+  created_at: string;
+  /** Visibilidad: false = solo dueño, true = visible a todos (solo lectura). */
+  is_public?: boolean;
+  /** Username del dueño (siempre poblado por el backend). */
+  owner_username?: string | null;
+  /** True si el usuario actual es el dueño. */
+  is_owner?: boolean;
+};
+
+export type SavedChartTemplateCreate = Omit<
+  SavedChartTemplate,
+  "id" | "created_at"
+>;
+
+export type SavedChartTemplateUpdate = {
+  name?: string;
+  description?: string | null;
+  is_public?: boolean;
+};
+
+export type ReportTemplateItem = {
+  template_id: number;
+  job_ids: number[];
+};
+
+/** Subcategoría dentro de una categoría del reporte. */
+export type ReportLayoutSubcategory = {
+  id: string;
+  label: string;
+  items: number[];
+};
+
+export type ReportLayoutCategory = {
+  id: string;
+  label: string;
+  items: number[];
+  subcategories: ReportLayoutSubcategory[];
+};
+
+export type SubcategoryDisplay = "tabs" | "accordions";
+
+export type ReportLayout = {
+  categories: ReportLayoutCategory[];
+  /** Modo de presentación de subcategorías en el dashboard. Default "tabs". */
+  subcategory_display?: SubcategoryDisplay;
+};
+
+/** Subcategoría con items expandidos (template_id + job_ids) — para export. */
+export type ReportCategoryExportSub = {
+  id: string;
+  label: string;
+  items: ReportTemplateItem[];
+};
+
+export type ReportCategoryExport = {
+  id: string;
+  label: string;
+  items: ReportTemplateItem[];
+  subcategories: ReportCategoryExportSub[];
+};
+
+export type ReportRequest = {
+  items: ReportTemplateItem[];
+  fmt: "png" | "svg";
+  report_name?: string | null;
+  organize_by_category?: boolean;
+  categories?: ReportCategoryExport[];
+};
+
+/** Reporte guardado: colección ordenada de IDs de SavedChartTemplate. */
+export type SavedReport = {
+  id: number;
+  name: string;
+  description: string | null;
+  fmt: "png" | "svg";
+  items: number[];
+  created_at: string;
+  updated_at: string;
+  is_public?: boolean;
+  is_official?: boolean;
+  owner_username?: string | null;
+  is_owner?: boolean;
+  /** null = modo automático (frontend computa por módulo); objeto = override manual. */
+  layout?: ReportLayout | null;
+};
+
+export type SavedReportCreate = {
+  name: string;
+  description?: string | null;
+  fmt: "png" | "svg";
+  items: number[];
+  layout?: ReportLayout | null;
+};
+
+export type SavedReportUpdate = {
+  name?: string;
+  description?: string | null;
+  fmt?: "png" | "svg";
+  items?: number[];
+  is_public?: boolean;
+  is_official?: boolean;
+  /** Enviar `null` resetea al modo automático; enviar objeto guarda el override. */
+  layout?: ReportLayout | null;
+};
+
 export type ResultSummaryResponse = {
   job_id: number;
   scenario_id: number | null;
@@ -403,4 +531,12 @@ export type ResultSummaryResponse = {
   total_dispatch: number;
   total_unmet: number;
   total_co2: number;
+  /** Visibilidad del resultado. */
+  is_public?: boolean;
+  /** True si el usuario actual lo marcó como favorito. */
+  is_favorite?: boolean;
+  /** True si el solver terminó infactible (aunque el job esté SUCCEEDED). */
+  is_infeasible_result?: boolean;
+  /** Username del dueño del resultado. */
+  owner_username?: string | null;
 };

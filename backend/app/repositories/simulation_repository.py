@@ -9,7 +9,13 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm import Session
 
-from app.models import Scenario, SimulationJob, SimulationJobEvent, User
+from app.models import (
+    Scenario,
+    SimulationJob,
+    SimulationJobEvent,
+    SimulationJobFavorite,
+    User,
+)
 
 
 ACTIVE_STATUSES = ("QUEUED", "RUNNING")
@@ -130,8 +136,13 @@ class SimulationRepository:
         db: Session,
         *,
         job_id: int,
+        current_user_id: uuid.UUID | None = None,
     ) -> tuple[SimulationJob, str | None, str | None] | None:
-        """Obtiene job visible globalmente con username y nombre de escenario."""
+        """Obtiene job visible con username y nombre de escenario.
+
+        Si ``current_user_id`` se provee, aplica visibilidad: el job es
+        accesible solo si es público o si pertenece al usuario actual.
+        """
         scenario_alias = aliased(Scenario)
         stmt = (
             select(
@@ -146,7 +157,12 @@ class SimulationRepository:
         row = db.execute(stmt).one_or_none()
         if row is None:
             return None
-        return row[0], row.username, row.scenario_name
+        job = row[0]
+        if current_user_id is not None:
+            is_public = bool(getattr(job, "is_public", True))
+            if not is_public and job.user_id != current_user_id:
+                return None
+        return job, row.username, row.scenario_name
 
     @staticmethod
     def get_job_by_id(db: Session, *, job_id: int) -> SimulationJob | None:
@@ -191,7 +207,13 @@ class SimulationRepository:
         row_offset: int,
         limit: int,
     ) -> tuple[list[tuple[SimulationJob, str | None, str | None]], int]:
-        """Lista jobs visibles con metadatos de usuario y escenario."""
+        """Lista jobs visibles con metadatos de usuario y escenario.
+
+        Aplica visibilidad: en scope=global se incluyen los jobs públicos más
+        los propios; en scope=mine solo los propios. Ordena favoritos del
+        usuario primero (vía LEFT JOIN con ``simulation_job_favorite``).
+        """
+        fav_alias = aliased(SimulationJobFavorite)
         stmt = (
             select(
                 SimulationJob,
@@ -200,11 +222,26 @@ class SimulationRepository:
             )
             .join(User, User.id == SimulationJob.user_id)
             .outerjoin(Scenario, Scenario.id == SimulationJob.scenario_id)
+            .outerjoin(
+                fav_alias,
+                and_(
+                    fav_alias.job_id == SimulationJob.id,
+                    fav_alias.user_id == user_id,
+                ),
+            )
         )
 
         filters = []
         if scope == "mine":
             filters.append(SimulationJob.user_id == user_id)
+        else:
+            # Global: público o del usuario actual.
+            filters.append(
+                or_(
+                    SimulationJob.is_public.is_(True),
+                    SimulationJob.user_id == user_id,
+                )
+            )
         if status:
             filters.append(SimulationJob.status == status)
         if username:
@@ -227,15 +264,71 @@ class SimulationRepository:
             count_stmt = count_stmt.where(and_(*filters))
         total = int(db.scalar(count_stmt) or 0)
 
+        # Favoritos primero, luego por fecha descendente.
+        fav_priority = func.coalesce(
+            func.nullif(fav_alias.job_id.is_(None), True),
+            fav_alias.job_id.is_(None),
+        )
         items = (
             db.execute(
-                stmt.order_by(SimulationJob.queued_at.desc(), SimulationJob.id.desc())
+                stmt.order_by(
+                    fav_alias.job_id.is_(None).asc(),
+                    SimulationJob.queued_at.desc(),
+                    SimulationJob.id.desc(),
+                )
                 .offset(row_offset)
                 .limit(limit)
             )
             .all()
         )
+        del fav_priority  # (solo para docstring de claridad; no se usa)
         return [(row[0], row.username, row.scenario_name) for row in items], total
+
+    # ── Favoritos ──
+
+    @staticmethod
+    def list_favorite_job_ids(
+        db: Session, *, user_id: uuid.UUID
+    ) -> set[int]:
+        """IDs de jobs marcados como favoritos por el usuario."""
+        stmt = select(SimulationJobFavorite.job_id).where(
+            SimulationJobFavorite.user_id == user_id
+        )
+        return {int(x) for x in db.execute(stmt).scalars().all()}
+
+    @staticmethod
+    def is_favorite(
+        db: Session, *, user_id: uuid.UUID, job_id: int
+    ) -> bool:
+        stmt = select(SimulationJobFavorite).where(
+            SimulationJobFavorite.user_id == user_id,
+            SimulationJobFavorite.job_id == job_id,
+        )
+        return db.execute(stmt).scalar_one_or_none() is not None
+
+    @staticmethod
+    def add_favorite(
+        db: Session, *, user_id: uuid.UUID, job_id: int
+    ) -> None:
+        if SimulationRepository.is_favorite(db, user_id=user_id, job_id=job_id):
+            return
+        db.add(SimulationJobFavorite(user_id=user_id, job_id=job_id))
+        db.commit()
+
+    @staticmethod
+    def remove_favorite(
+        db: Session, *, user_id: uuid.UUID, job_id: int
+    ) -> None:
+        obj = db.execute(
+            select(SimulationJobFavorite).where(
+                SimulationJobFavorite.user_id == user_id,
+                SimulationJobFavorite.job_id == job_id,
+            )
+        ).scalar_one_or_none()
+        if obj is None:
+            return
+        db.delete(obj)
+        db.commit()
 
     @staticmethod
     def count_overview(db: Session) -> dict[str, int]:

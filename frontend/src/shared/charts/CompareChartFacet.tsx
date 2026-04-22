@@ -105,6 +105,85 @@ function useMediaMinWidth(px: number): boolean {
   return matches;
 }
 
+/**
+ * Pequeño kebab "⋯" con menú flotante para los controles de export del facet
+ * cuando el contenedor pide modo compacto (dashboard).
+ */
+function FacetExportKebab({
+  disabled,
+  showServerPng,
+  onExportPng,
+  onExportSvg,
+  exportingPng,
+  exportingSvg,
+}: {
+  disabled: boolean;
+  showServerPng: boolean;
+  onExportPng: () => Promise<void> | void;
+  onExportSvg: () => Promise<void> | void;
+  exportingPng: boolean;
+  exportingSvg: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        title="Opciones de la gráfica"
+        aria-label="Opciones de la gráfica"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-700 bg-slate-900/40 text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+      >
+        ⋯
+      </button>
+      {open ? (
+        <div className="absolute right-0 top-full z-30 mt-1 min-w-[220px] rounded-lg border border-slate-800 bg-slate-900/95 p-1 shadow-2xl backdrop-blur-md">
+          {showServerPng ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={async () => {
+                setOpen(false);
+                await onExportPng();
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs text-slate-200 hover:bg-slate-800/80 disabled:opacity-50"
+            >
+              <FileDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {exportingPng ? "Generando PNG…" : "Descargar PNG"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={async () => {
+              setOpen(false);
+              await onExportSvg();
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs text-slate-200 hover:bg-slate-800/80 disabled:opacity-50"
+          >
+            <FileDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            {exportingSvg ? "Generando SVG…" : "Descargar SVG"}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 interface CompareChartFacetProps {
   data: CompareChartFacetResponse;
   barOrientation?: ChartBarOrientation;
@@ -117,6 +196,8 @@ interface CompareChartFacetProps {
     selection: ChartSelection;
     legendTitle?: string;
   };
+  /** Si true, los controles de export se colapsan en un menú kebab "⋯". */
+  compactToolbar?: boolean;
 }
 
 /** Metadatos en la instancia Chart para exportar sin depender de un array de refs (getSVG / update rompen ese enlace). */
@@ -426,6 +507,7 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
   facetPlacement = "inline",
   legendMode = "shared",
   serverFacetExport,
+  compactToolbar = false,
 }) => {
   const inverted = barOrientation === "horizontal";
   const n = data.facets.length;
@@ -680,50 +762,63 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
             {data.title}
           </h3>
           <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end lg:w-auto lg:flex-nowrap lg:shrink-0">
-            {serverFacetExport && serverFacetExport.jobIds.length > 1 ? (
+            {compactToolbar ? (
+              <FacetExportKebab
+                disabled={exportBusy}
+                showServerPng={Boolean(serverFacetExport && serverFacetExport.jobIds.length > 1)}
+                onExportPng={handleExportFacetPngServer}
+                onExportSvg={handleExportCombinedSvg}
+                exportingPng={exportingFacetPng}
+                exportingSvg={exportingFacetSvg}
+              />
+            ) : (
               <>
-                <div className="flex min-w-0 max-w-full items-center gap-2">
-                  <label
-                    htmlFor={exportFilenameSelectId}
-                    className="m-0 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500"
-                  >
-                    Títulos de la gráfica
-                  </label>
-                  <select
-                    id={exportFilenameSelectId}
-                    value={facetExportFilenameMode}
-                    onChange={(e) =>
-                      setFacetExportFilenameMode(e.target.value as CompareFacetExportFilenameMode)
-                    }
-                    disabled={exportBusy}
-                    className="h-9 min-w-[min(100%,12rem)] max-w-[min(100%,20rem)] shrink rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs text-slate-200 disabled:opacity-50"
-                  >
-                    <option value="result">Nombre del resultado</option>
-                    <option value="tags">Etiquetas (sin etiqueta → nombre del resultado)</option>
-                  </select>
-                </div>
+                {serverFacetExport && serverFacetExport.jobIds.length > 1 ? (
+                  <>
+                    <div className="flex min-w-0 max-w-full items-center gap-2">
+                      <label
+                        htmlFor={exportFilenameSelectId}
+                        className="m-0 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500"
+                      >
+                        Títulos de la gráfica
+                      </label>
+                      <select
+                        id={exportFilenameSelectId}
+                        value={facetExportFilenameMode}
+                        onChange={(e) =>
+                          setFacetExportFilenameMode(e.target.value as CompareFacetExportFilenameMode)
+                        }
+                        disabled={exportBusy}
+                        className="h-9 min-w-[min(100%,12rem)] max-w-[min(100%,20rem)] shrink rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs text-slate-200 disabled:opacity-50"
+                      >
+                        <option value="result">Nombre del resultado</option>
+                        <option value="tags">Etiquetas (sin etiqueta → nombre del resultado)</option>
+                      </select>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={exportBusy}
+                      onClick={() => void handleExportFacetPngServer()}
+                      className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-emerald-700/50 bg-emerald-950/40 px-3 py-2 text-xs font-semibold text-emerald-100 hover:border-emerald-600 hover:bg-emerald-900/50 disabled:opacity-50"
+                    >
+                      <FileDown className="h-4 w-4 shrink-0" aria-hidden />
+                      {exportingFacetPng ? "Generando PNG…" : "Descargar PNG (servidor)"}
+                    </Button>
+                  </>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"
                   disabled={exportBusy}
-                  onClick={() => void handleExportFacetPngServer()}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-emerald-700/50 bg-emerald-950/40 px-3 py-2 text-xs font-semibold text-emerald-100 hover:border-emerald-600 hover:bg-emerald-900/50 disabled:opacity-50"
+                  onClick={handleExportCombinedSvg}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-600 hover:bg-slate-800/80 disabled:opacity-50"
                 >
                   <FileDown className="h-4 w-4 shrink-0" aria-hidden />
-                  {exportingFacetPng ? "Generando PNG…" : "Descargar PNG (servidor)"}
+                  {exportingFacetSvg ? "Generando SVG…" : "Descargar SVG (todas las facetas)"}
                 </Button>
               </>
-            ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={exportBusy}
-              onClick={handleExportCombinedSvg}
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-600 hover:bg-slate-800/80 disabled:opacity-50"
-            >
-              <FileDown className="h-4 w-4 shrink-0" aria-hidden />
-              {exportingFacetSvg ? "Generando SVG…" : "Descargar SVG (todas las facetas)"}
-            </Button>
+            )}
           </div>
         </div>
         {useSharedLegendPanel ? (

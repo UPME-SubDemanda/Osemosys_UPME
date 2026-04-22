@@ -29,14 +29,22 @@ const ChangeRequestsPage = lazy(() => import("@/pages/ChangeRequestsPage").then(
 const OfficialImportPage = lazy(() => import("@/pages/OfficialImportPage").then((m) => ({ default: m.OfficialImportPage })));
 const UsersAdminPage = lazy(() => import("@/pages/UsersAdminPage").then((m) => ({ default: m.UsersAdminPage })));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage").then((m) => ({ default: m.ProfilePage })));
+const ReportsPage = lazy(() => import("@/pages/ReportsPage").then((m) => ({ default: m.ReportsPage })));
+const ReportDashboardPage = lazy(() => import("@/pages/ReportDashboardPage").then((m) => ({ default: m.ReportDashboardPage })));
 
-/** Skeleton mostrado mientras se carga una página lazy */
+/** Placeholder mínimo mientras se carga una página lazy (sin artefactos visuales). */
 function LazyFallback() {
   return (
-    <div style={{ display: "grid", gap: 8, padding: 20 }}>
-      <div className="skeletonLine" style={{ width: "60%" }} />
-      <div className="skeletonLine" style={{ width: "80%" }} />
-      <div className="skeletonLine" style={{ width: "45%" }} />
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        padding: 24,
+        opacity: 0.6,
+        fontSize: 13,
+      }}
+    >
+      Cargando…
     </div>
   );
 }
@@ -82,6 +90,8 @@ export const router = createBrowserRouter([
               { path: "simulation", element: <SuspenseWrapper><SimulationPage /></SuspenseWrapper> },
               { path: "results", element: <SuspenseWrapper><ResultsPage /></SuspenseWrapper> },
               { path: "results/:runId", element: <SuspenseWrapper><ResultDetailRoute /></SuspenseWrapper> },
+              { path: "reports", element: <SuspenseWrapper><ReportsPage /></SuspenseWrapper> },
+              { path: "reports/:reportId", element: <SuspenseWrapper><ReportDashboardPage /></SuspenseWrapper> },
               { path: "simulations/:runId/infeasibility", element: <SuspenseWrapper><InfeasibilityReportPage /></SuspenseWrapper> },
               { path: "profile", element: <SuspenseWrapper><ProfilePage /></SuspenseWrapper> },
               {

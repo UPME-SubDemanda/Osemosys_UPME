@@ -466,6 +466,12 @@ select.field__input optgroup {
   grid-template-columns: 250px 1fr;
 }
 
+/* Sidebar colapsada: el grid pasa a una sola columna y el aside no se renderiza
+   (lo gestiona AppLayout via React). */
+.appShell[data-sidebar-collapsed="true"] {
+  grid-template-columns: 1fr;
+}
+
 /* El contenido de la ruta queda en un contexto de apilamiento por debajo del header sticky,
    para que gráficas (Highcharts) y bloques con z-index no tapen la barra superior. */
 .appTopHeader {

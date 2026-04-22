@@ -27,6 +27,7 @@ from app.models import User
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.simulation import (
     SimulationJobDisplayNamePatch,
+    SimulationJobFavoritePatch,
     SimulationJobPublic,
     SimulationLogPublic,
     SimulationOverviewPublic,
@@ -255,13 +256,37 @@ def patch_simulation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Actualiza metadatos del job (p. ej. nombre visible para resultados y exportación)."""
+    """Actualiza metadatos editables del job (nombre visible, visibilidad).
+
+    Solo el dueño puede cambiar estos campos. Campos no enviados no se tocan.
+    """
+    data = payload.model_dump(exclude_unset=True)
     try:
-        return SimulationService.patch_display_name(
+        return SimulationService.patch_metadata(
             db,
             current_user=current_user,
             job_id=job_id,
-            display_name=payload.display_name,
+            display_name=data.get("display_name", ...),
+            is_public=data.get("is_public"),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.patch("/{job_id}/favorite", response_model=SimulationJobPublic)
+def patch_simulation_favorite(
+    job_id: int,
+    payload: SimulationJobFavoritePatch,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Marca/desmarca el resultado como favorito del usuario actual."""
+    try:
+        return SimulationService.set_favorite(
+            db,
+            current_user=current_user,
+            job_id=job_id,
+            favorite=payload.is_favorite,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

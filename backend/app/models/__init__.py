@@ -18,6 +18,8 @@ from .parameter_value_audit import ParameterValueAudit
 from .parameter_value import ParameterValue
 from .region import Region
 from .relation_categorie import RelationCategorie
+from .report_template import ReportTemplate
+from .saved_chart_template import SavedChartTemplate
 from .scenario import Scenario
 from .scenario_tag import ScenarioTag
 from .scenario_operation_job import ScenarioOperationJob
@@ -27,6 +29,7 @@ from .season import Season
 from .simulation_benchmark import SimulationBenchmark
 from .simulation_job import SimulationJob
 from .simulation_job_event import SimulationJobEvent
+from .simulation_job_favorite import SimulationJobFavorite
 from .solver import Solver
 from .storage_set import StorageSet
 from .timeslice import Timeslice
@@ -66,10 +69,13 @@ __all__ = [
     "Categorie",
     "SimulationJob",
     "SimulationJobEvent",
+    "SimulationJobFavorite",
     "SimulationBenchmark",
     "RelationCategorie",
     "DocumentType",
     "User",
+    "SavedChartTemplate",
+    "ReportTemplate",
 ]
 
 

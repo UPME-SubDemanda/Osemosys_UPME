@@ -35,13 +35,28 @@ class SimulationSubmit(BaseModel):
 
 
 class SimulationJobDisplayNamePatch(BaseModel):
-    """Actualización del nombre visible de una corrida (solo metadatos)."""
+    """Actualización parcial de metadatos editables por el dueño.
+
+    Conserva el nombre histórico (``display_name``) por compatibilidad, pero
+    ahora acepta también ``is_public`` para cambiar la visibilidad del
+    resultado (solo el dueño).
+    """
 
     display_name: str | None = Field(
         default=None,
         max_length=255,
         description="Nombre corto para resultados y archivos; vacío o null borra el alias.",
     )
+    is_public: bool | None = Field(
+        default=None,
+        description="True = visible por todos los usuarios; False = solo el dueño.",
+    )
+
+
+class SimulationJobFavoritePatch(BaseModel):
+    """Marca/desmarca un resultado como favorito del usuario autenticado."""
+
+    is_favorite: bool
 
 
 class SimulationJobPublic(BaseModel):
@@ -68,6 +83,8 @@ class SimulationJobPublic(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     #: True si el job terminó en SUCCEEDED pero el solver reportó infactibilidad o hay diagnóstico estructurado.
+    is_public: bool = True
+    is_favorite: bool = False
     is_infeasible_result: bool = False
     #: El usuario pidió diagnóstico automático al encolar la simulación.
     run_iis_analysis: bool = False

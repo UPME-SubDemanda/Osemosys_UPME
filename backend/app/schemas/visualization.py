@@ -111,3 +111,11 @@ class ResultSummaryResponse(BaseModel):
     total_dispatch: float
     total_unmet: float
     total_co2: float = 0.0
+    #: Visibilidad del resultado (público: lo ven todos; privado: solo dueño).
+    is_public: bool = True
+    #: True si el usuario actual lo marcó como favorito.
+    is_favorite: bool = False
+    #: True si el job terminó SUCCEEDED pero el solver reportó infactibilidad.
+    is_infeasible_result: bool = False
+    #: Username del dueño (para mostrar en tablas comparativas).
+    owner_username: str | None = None

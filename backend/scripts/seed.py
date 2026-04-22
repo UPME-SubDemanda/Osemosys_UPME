@@ -231,6 +231,7 @@ def main() -> None:
                 user.document_type_id = dt_cc.id
             if not user.document_number:
                 user.document_number = "1234567890"
+            user.is_active = True
             user.can_manage_catalogs = True
             user.can_import_official_data = True
             user.can_manage_users = True

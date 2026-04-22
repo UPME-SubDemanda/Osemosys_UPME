@@ -67,6 +67,12 @@ class SimulationJob(Base):
     run_iis_analysis: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: Visibilidad del resultado.
+    #: ``True`` (default) → cualquier usuario autenticado lo ve en global scope.
+    #: ``False`` → solo lo ve el dueño (aunque se liste con scope=global).
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     result_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

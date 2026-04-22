@@ -109,6 +109,41 @@ class SimulationService:
         return False
 
     @staticmethod
+    def _is_celery_task_alive(task_id: str | None) -> bool:
+        """Reporta si una task Celery sigue viva en algún worker.
+
+        Retorna ``True`` si se encuentra en ``active`` / ``reserved`` /
+        ``scheduled`` de algún worker alcanzable, ``False`` si tras una
+        consulta exitosa no aparece en ningún worker (task caída o nunca
+        distribuida). Ante errores de RPC devolvemos ``True`` (conservador:
+        preferimos no forzar transiciones cuando no podemos inspeccionar).
+        """
+        if not task_id:
+            return False
+        try:
+            from app.simulation.celery_app import celery_app  # noqa: WPS433
+
+            inspect = celery_app.control.inspect(timeout=1.5)
+            active_all = inspect.active() or None
+            reserved_all = inspect.reserved() or None
+            scheduled_all = inspect.scheduled() or None
+        except Exception:  # pragma: no cover — broker caído / red
+            return True
+
+        # Si ningún worker contestó, no tenemos evidencia fiable: conservador.
+        if active_all is None and reserved_all is None and scheduled_all is None:
+            return True
+
+        for bucket in (active_all or {}, reserved_all or {}, scheduled_all or {}):
+            for tasks in bucket.values():
+                for entry in tasks or []:
+                    # `scheduled` envuelve la task real dentro de `request`.
+                    candidate_id = entry.get("id") or (entry.get("request") or {}).get("id")
+                    if candidate_id == task_id:
+                        return True
+        return False
+
+    @staticmethod
     def _diagnostic_status_for(job) -> tuple[str, str | None]:
         """Devuelve ``(status, error)`` del análisis enriquecido de infactibilidad.
 
@@ -692,6 +727,30 @@ class SimulationService:
             diag["diagnostic_error"] = "Cancelado por el usuario antes de iniciar."
             # Los segundos se quedan en 0 porque started_at no se fijó.
             diag["diagnostic_seconds"] = 0.0
+
+        # Caso zombie: el diagnóstico figura RUNNING pero el worker Celery ya
+        # no tiene la task activa (típicamente porque el proceso murió entre
+        # "marcar RUNNING" y "escribir resultado final" — OOM kill, reinicio
+        # del contenedor, etc.). Sin esta transición forzada la fila queda en
+        # RUNNING indefinidamente y el contador de la UI no se detiene.
+        elif current_status == "RUNNING" and not SimulationService._is_celery_task_alive(task_id):
+            now_utc = datetime.now(timezone.utc)
+            diag["diagnostic_status"] = "FAILED"
+            diag["diagnostic_finished_at"] = now_utc.isoformat()
+            diag["diagnostic_error"] = (
+                "El worker del diagnóstico no responde (probablemente fue "
+                "terminado por el sistema). Estado forzado a FAILED."
+            )
+            diag.pop("diagnostic_cancel_requested", None)
+            started = diag.get("diagnostic_started_at")
+            if started:
+                try:
+                    t0 = datetime.fromisoformat(str(started))
+                    if t0.tzinfo is None:
+                        t0 = t0.replace(tzinfo=timezone.utc)
+                    diag["diagnostic_seconds"] = max(0.0, (now_utc - t0).total_seconds())
+                except ValueError:
+                    pass
 
         job.infeasibility_diagnostics_json = diag
         SimulationRepository.add_event(

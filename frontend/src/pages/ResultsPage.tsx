@@ -267,7 +267,7 @@ export function ResultsPage() {
               />
             ),
             filter: {
-              type: "select",
+              type: "multiselect",
               getValue: (r) => (r.is_favorite ? "fav" : "no"),
               options: [
                 { value: "fav", label: "★ Solo favoritos" },
@@ -301,13 +301,13 @@ export function ResultsPage() {
                 ? (r.input_name ?? "CSV upload")
                 : (scenarioMap[r.scenario_id]?.name ?? `#${r.scenario_id}`)),
             filter: {
-              type: "text",
+              type: "multiselect",
               getValue: (r) => {
                 const fallback =
                   r.scenario_id === null
                     ? r.input_name ?? ""
                     : scenarioMap[r.scenario_id]?.name ?? "";
-                return r.scenario_name ?? fallback;
+                return r.scenario_name ?? fallback ?? "—";
               },
               placeholder: "Escenario…",
             },
@@ -331,8 +331,8 @@ export function ResultsPage() {
               <span style={{ opacity: 0.85 }}>{r.username ?? "—"}</span>
             ),
             filter: {
-              type: "text",
-              getValue: (r) => r.username ?? "",
+              type: "multiselect",
+              getValue: (r) => r.username ?? "—",
               placeholder: "Usuario…",
             },
           },
@@ -350,12 +350,12 @@ export function ResultsPage() {
               );
             },
             filter: {
-              type: "text",
+              type: "multiselect",
               getValue: (r) => {
                 const tag =
                   r.scenario_tag ??
                   (r.scenario_id != null ? scenarioMap[r.scenario_id]?.tag : null);
-                return tag?.name ?? "";
+                return tag?.name ?? "—";
               },
               placeholder: "Etiqueta…",
             },
@@ -368,8 +368,16 @@ export function ResultsPage() {
               return <Badge variant={variant}>{label}</Badge>;
             },
             filter: {
-              type: "select",
+              type: "multiselect",
               getValue: (r) => r.status,
+              getLabel: (v) =>
+                ({
+                  QUEUED: "En cola",
+                  RUNNING: "En ejecución",
+                  SUCCEEDED: "Exitosa",
+                  FAILED: "Fallida",
+                  CANCELLED: "Cancelada",
+                })[v] ?? v,
               options: [
                 { value: "QUEUED", label: "En cola" },
                 { value: "RUNNING", label: "En ejecución" },
@@ -392,7 +400,7 @@ export function ResultsPage() {
               />
             ),
             filter: {
-              type: "select",
+              type: "multiselect",
               getValue: (r) => ((r.is_public ?? true) ? "public" : "private"),
               options: [
                 { value: "public", label: "Público" },

@@ -2,21 +2,26 @@
  * Tabla de datos genérica con búsqueda global, filtro por columna y paginación.
  *
  * Cada columna puede declarar un filtro independiente:
- *   - `filter: { type: 'text' }`    → input de texto (busca "contains")
- *   - `filter: { type: 'select', options }` → dropdown con opciones
- * Ambos casos requieren `getFilterValue(row)` (o, por defecto, usa el mismo
- * `render` convertido a string — pero es mejor definirlo explícitamente).
+ *   - `filter: { type: 'text' }`         → input de texto (busca "contains")
+ *   - `filter: { type: 'select', options }` → dropdown single-select
+ *   - `filter: { type: 'multiselect' }`  → dropdown con búsqueda + checkboxes.
+ *       Las opciones se auto-derivan de los valores únicos devueltos por
+ *       `getValue(row)`; si se pasan `options`, se usa ese catálogo fijo
+ *       y además se garantiza que aparezcan las opciones aún sin datos.
+ * Todos los casos requieren `getValue(row)` (cadena).
  */
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TextField } from "@/shared/components/TextField";
 
 export type ColumnFilterConfig<T> = {
-  type: "text" | "select";
+  type: "text" | "select" | "multiselect";
   /** Valor que se evalúa para el filtro (cadena) */
   getValue: (row: T) => string;
-  /** Opciones cuando type='select' (value = label) */
+  /** Opciones cuando type='select' o para extender multiselect */
   options?: { value: string; label: string }[];
+  /** Label opcional al renderizar un valor como chip/opción (multiselect). */
+  getLabel?: (value: string) => string;
   placeholder?: string;
 };
 
@@ -49,13 +54,40 @@ export function DataTable<T>({
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [pageSizeState, setPageSizeState] = useState(pageSize);
-  /** Filtro por columna: columnKey → string (vacío = sin filtro). */
+  /** Filtros text + single-select: columnKey → string. */
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  /** Filtros multiselect: columnKey → array de valores seleccionados (OR). */
+  const [multiFilters, setMultiFilters] = useState<Record<string, string[]>>({});
 
   const hasColumnFilters = useMemo(
     () => columns.some((c) => c.filter),
     [columns],
   );
+
+  /** Opciones auto-derivadas de los datos por cada columna multiselect. */
+  const multiOptionsByKey = useMemo(() => {
+    const byKey: Record<string, { value: string; label: string }[]> = {};
+    for (const c of columns) {
+      if (!c.filter || c.filter.type !== "multiselect") continue;
+      const seen = new Set<string>();
+      const opts: { value: string; label: string }[] = [];
+      for (const o of c.filter.options ?? []) {
+        if (!seen.has(o.value)) {
+          seen.add(o.value);
+          opts.push(o);
+        }
+      }
+      for (const r of rows) {
+        const v = c.filter.getValue(r);
+        if (!v || seen.has(v)) continue;
+        seen.add(v);
+        opts.push({ value: v, label: c.filter.getLabel?.(v) ?? v });
+      }
+      opts.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+      byKey[c.key] = opts;
+    }
+    return byKey;
+  }, [columns, rows]);
 
   /** Filtra: búsqueda global + filtros por columna. */
   const filtered = useMemo(() => {
@@ -66,6 +98,13 @@ export function DataTable<T>({
     }
     for (const c of columns) {
       if (!c.filter) continue;
+      if (c.filter.type === "multiselect") {
+        const selected = multiFilters[c.key];
+        if (!selected || selected.length === 0) continue;
+        const set = new Set(selected);
+        out = out.filter((r) => set.has(c.filter!.getValue(r)));
+        continue;
+      }
       const raw = (columnFilters[c.key] ?? "").trim();
       if (!raw) continue;
       const needle = raw.toLowerCase();
@@ -76,7 +115,7 @@ export function DataTable<T>({
       out = out.filter(matcher);
     }
     return out;
-  }, [rows, query, searchableText, columns, columnFilters]);
+  }, [rows, query, searchableText, columns, columnFilters, multiFilters]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSizeState));
   const safePage = Math.min(page, totalPages);
@@ -97,14 +136,29 @@ export function DataTable<T>({
     });
   };
 
+  const setMulti = (key: string, values: string[]) => {
+    setPage(1);
+    setMultiFilters((prev) => {
+      if (values.length === 0) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: values };
+    });
+  };
+
   const clearAllFilters = () => {
     setQuery("");
     setColumnFilters({});
+    setMultiFilters({});
     setPage(1);
   };
 
   const anyFilterActive =
-    query.trim().length > 0 || Object.keys(columnFilters).length > 0;
+    query.trim().length > 0 ||
+    Object.keys(columnFilters).length > 0 ||
+    Object.values(multiFilters).some((v) => v.length > 0);
 
   return (
     <div style={{ display: "grid", gap: 10 }}>
@@ -175,7 +229,14 @@ export function DataTable<T>({
                     style={{ padding: "6px 10px", verticalAlign: "top" }}
                   >
                     {c.filter ? (
-                      c.filter.type === "select" ? (
+                      c.filter.type === "multiselect" ? (
+                        <MultiSelectFilter
+                          options={multiOptionsByKey[c.key] ?? []}
+                          selected={multiFilters[c.key] ?? []}
+                          onChange={(values) => setMulti(c.key, values)}
+                          placeholder={c.filter.placeholder ?? "Filtrar…"}
+                        />
+                      ) : c.filter.type === "select" ? (
                         <select
                           value={columnFilters[c.key] ?? ""}
                           onChange={(e) => setFilter(c.key, e.target.value)}
@@ -313,6 +374,193 @@ export function DataTable<T>({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Dropdown compacto: botón con resumen + popover con búsqueda y checkboxes. */
+function MultiSelectFilter({
+  options,
+  selected,
+  onChange,
+  placeholder,
+}: {
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const filteredOpts = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, query]);
+
+  const summary =
+    selected.length === 0
+      ? placeholder
+      : selected.length === 1
+        ? options.find((o) => o.value === selected[0])?.label ?? selected[0]
+        : `${selected.length} seleccionados`;
+
+  const toggle = (value: string) => {
+    if (selectedSet.has(value)) {
+      onChange(selected.filter((v) => v !== value));
+    } else {
+      onChange([...selected, value]);
+    }
+  };
+
+  return (
+    <div ref={rootRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 6,
+          padding: "4px 6px",
+          borderRadius: 6,
+          border: "1px solid rgba(255,255,255,0.15)",
+          background: "rgba(15,23,42,0.6)",
+          color: "inherit",
+          fontSize: 12,
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        <span
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            opacity: selected.length === 0 ? 0.65 : 1,
+          }}
+        >
+          {summary}
+        </span>
+        <span style={{ opacity: 0.7, fontSize: 10 }}>{open ? "▴" : "▾"}</span>
+      </button>
+      {open ? (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            right: 0,
+            minWidth: 180,
+            zIndex: 30,
+            background: "#0f172a",
+            border: "1px solid rgba(255,255,255,0.2)",
+            borderRadius: 10,
+            padding: 6,
+            maxHeight: 280,
+            overflowY: "auto",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
+          }}
+        >
+          <input
+            autoFocus
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar…"
+            style={{
+              width: "100%",
+              padding: "4px 6px",
+              borderRadius: 6,
+              border: "1px solid rgba(255,255,255,0.15)",
+              background: "rgba(15,23,42,0.85)",
+              color: "inherit",
+              fontSize: 12,
+              marginBottom: 4,
+            }}
+          />
+          <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              style={{ flex: 1, fontSize: 11, padding: "2px 6px" }}
+              onClick={() => onChange(filteredOpts.map((o) => o.value))}
+            >
+              Todos
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              style={{ flex: 1, fontSize: 11, padding: "2px 6px" }}
+              onClick={() => onChange([])}
+            >
+              Ninguno
+            </button>
+          </div>
+          {filteredOpts.length === 0 ? (
+            <div style={{ fontSize: 12, opacity: 0.6, padding: "6px 4px" }}>
+              Sin coincidencias
+            </div>
+          ) : (
+            filteredOpts.map((o) => {
+              const checked = selectedSet.has(o.value);
+              return (
+                <label
+                  key={o.value}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "4px 6px",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    background: checked ? "rgba(56,189,248,0.12)" : "transparent",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!checked)
+                      e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!checked) e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(o.value)}
+                  />
+                  <span
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {o.label}
+                  </span>
+                </label>
+              );
+            })
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

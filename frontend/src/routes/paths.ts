@@ -19,5 +19,6 @@ export const paths = {
   infeasibilityReport: (runId: string | number) => `/app/simulations/${runId}/infeasibility`,
   reports: "/app/reports",
   reportDashboard: (reportId: string | number) => `/app/reports/${reportId}`,
+  history: "/app/history",
 } as const;
 

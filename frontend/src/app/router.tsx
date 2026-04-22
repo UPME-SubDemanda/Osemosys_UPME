@@ -31,6 +31,7 @@ const UsersAdminPage = lazy(() => import("@/pages/UsersAdminPage").then((m) => (
 const ProfilePage = lazy(() => import("@/pages/ProfilePage").then((m) => ({ default: m.ProfilePage })));
 const ReportsPage = lazy(() => import("@/pages/ReportsPage").then((m) => ({ default: m.ReportsPage })));
 const ReportDashboardPage = lazy(() => import("@/pages/ReportDashboardPage").then((m) => ({ default: m.ReportDashboardPage })));
+const HistoryPage = lazy(() => import("@/pages/HistoryPage").then((m) => ({ default: m.HistoryPage })));
 
 /** Placeholder mínimo mientras se carga una página lazy (sin artefactos visuales). */
 function LazyFallback() {
@@ -91,6 +92,7 @@ export const router = createBrowserRouter([
               { path: "results", element: <SuspenseWrapper><ResultsPage /></SuspenseWrapper> },
               { path: "results/:runId", element: <SuspenseWrapper><ResultDetailRoute /></SuspenseWrapper> },
               { path: "reports", element: <SuspenseWrapper><ReportsPage /></SuspenseWrapper> },
+              { path: "history", element: <SuspenseWrapper><HistoryPage /></SuspenseWrapper> },
               { path: "reports/:reportId", element: <SuspenseWrapper><ReportDashboardPage /></SuspenseWrapper> },
               { path: "simulations/:runId/infeasibility", element: <SuspenseWrapper><InfeasibilityReportPage /></SuspenseWrapper> },
               { path: "profile", element: <SuspenseWrapper><ProfilePage /></SuspenseWrapper> },

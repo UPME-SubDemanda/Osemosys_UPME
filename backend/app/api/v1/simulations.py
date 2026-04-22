@@ -23,7 +23,14 @@ from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.db.session import get_db
-from app.models import User
+from app.models import (
+    DeletionLog,
+    OsemosysOutputParamValue,
+    SimulationJob,
+    SimulationJobEvent,
+    SimulationJobFavorite,
+    User,
+)
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.simulation import (
     SimulationJobDisplayNamePatch,
@@ -314,6 +321,71 @@ def cancel_simulation(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.delete("/{job_id}", status_code=204)
+def delete_simulation(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Elimina un job de simulación junto con sus outputs, logs y favoritos.
+
+    Reglas:
+    - Solo el dueño del job puede eliminarlo.
+    - El job no puede estar QUEUED/RUNNING (hay que cancelarlo primero para
+      que el worker no escriba sobre una fila inexistente).
+    - La eliminación queda registrada en ``osemosys.deletion_log`` con
+      ``entity_type='SIMULATION_JOB'`` y snapshot de los campos clave.
+    - Las tablas hijas (output_param_value, simulation_job_event,
+      simulation_job_favorite) tienen ``ON DELETE CASCADE`` en sus FK: se
+      limpian automáticamente al borrar la fila del job.
+    """
+    job = db.get(SimulationJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Simulación no encontrada.")
+    if job.user_id != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el dueño del job puede eliminarlo.",
+        )
+    if job.status in ("QUEUED", "RUNNING"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El job está en cola o ejecución. Cancela primero antes de "
+                "eliminarlo para evitar que el worker escriba sobre una fila "
+                "inexistente."
+            ),
+        )
+
+    label = job.display_name or job.input_name or f"Job #{job.id}"
+    snapshot = {
+        "scenario_id": job.scenario_id,
+        "display_name": job.display_name,
+        "input_name": job.input_name,
+        "input_mode": job.input_mode,
+        "solver_name": job.solver_name,
+        "status": job.status,
+        "queued_at": job.queued_at.isoformat() if job.queued_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "error_message": job.error_message,
+        "is_infeasible_result": bool(getattr(job, "is_infeasible_result", False)),
+    }
+
+    db.add(
+        DeletionLog(
+            entity_type="SIMULATION_JOB",
+            entity_id=job.id,
+            entity_name=label[:400],
+            deleted_by_user_id=current_user.id,
+            deleted_by_username=current_user.username,
+            details_json=snapshot,
+        )
+    )
+    db.delete(job)
+    db.commit()
 
 
 @router.get("/{job_id}/logs", response_model=PaginatedResponse[SimulationLogPublic])

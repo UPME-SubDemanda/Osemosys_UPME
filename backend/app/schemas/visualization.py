@@ -79,6 +79,16 @@ class CompareChartFacetResponse(BaseModel):
 # Catálogo de gráficas disponibles
 # ---------------------------------------------------------------------------
 
+class ParetoChartResponse(BaseModel):
+    """Respuesta para gráfica Pareto por tecnología (barras + % acumulado)."""
+
+    categories: list[str]
+    values: list[float]
+    cumulative_percent: list[float]
+    title: str
+    yAxisLabel: str
+
+
 class ChartCatalogItem(BaseModel):
     """Metadatos de un tipo de gráfica disponible en el sistema."""
 
@@ -89,6 +99,7 @@ class ChartCatalogItem(BaseModel):
     has_loc: bool = False
     sub_filtros: list[str] | None = None
     es_capacidad: bool = False
+    soporta_pareto: bool = False
 
 
 # ---------------------------------------------------------------------------

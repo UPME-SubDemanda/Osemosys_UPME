@@ -22,6 +22,7 @@ from app.schemas.visualization import (
     ChartDataResponse,
     CompareChartFacetResponse,
     CompareChartResponse,
+    ParetoChartResponse,
     ResultSummaryResponse,
 )
 from app.services.simulation_service import SimulationService
@@ -173,6 +174,27 @@ def get_comparison_facet_data(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/chart-data/compare-line", response_model=ChartDataResponse)
+def get_comparison_line_data(
+    job_ids: str = Query(..., description="Job IDs separados por coma (max 10)"),
+    tipo: str = Query(...),
+    un: str = Query("PJ"),
+    sub_filtro: str | None = Query(None),
+    loc: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Líneas totales multi-escenario consolidadas (todos los escenarios en el mismo eje, X=años)."""
+    job_id_list = _validate_compare_job_ids(job_ids, db, current_user)
+    try:
+        return chart_service.build_comparison_line_data(
+            db=db, job_ids=job_id_list, tipo=tipo,
+            un=un, sub_filtro=sub_filtro, loc=loc,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 def _validate_compare_job_ids(
     job_ids: str,
     db: Session,
@@ -272,6 +294,32 @@ def export_comparison_facet_image(
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/{job_id}/pareto-data", response_model=ParetoChartResponse)
+def get_pareto_data(
+    job_id: int,
+    tipo: str = Query(...),
+    un: str = Query("PJ"),
+    sub_filtro: str | None = Query(None),
+    loc: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Datos de Pareto por tecnología para un escenario (barras desc + % acumulado)."""
+    try:
+        job = SimulationService.get_by_id(db, current_user=current_user, job_id=job_id)
+        if job["status"] != "SUCCEEDED":
+            raise HTTPException(status_code=400, detail="Job no está en estado SUCCEEDED")
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Job no encontrado o sin acceso")
+    try:
+        return chart_service.build_pareto_data(
+            db=db, job_id=job["id"], tipo=tipo,
+            un=un, sub_filtro=sub_filtro, loc=loc,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/{job_id}/result-summary", response_model=ResultSummaryResponse)

@@ -94,13 +94,13 @@ class SimulationService:
         """Corrida técnicamente exitosa pero con modelo infactible o diagnóstico asociado."""
         if getattr(job, "status", None) != "SUCCEEDED":
             return False
-        mt = job.model_timings_json or {}
+        mt = getattr(job, "model_timings_json", None) or {}
         if not isinstance(mt, dict):
             mt = {}
         ss = str(mt.get("solver_status") or "").lower()
         if "infeasible" in ss or "infactible" in ss:
             return True
-        sid = job.infeasibility_diagnostics_json
+        sid = getattr(job, "infeasibility_diagnostics_json", None)
         if isinstance(sid, dict):
             cv = sid.get("constraint_violations") or []
             vb = sid.get("var_bound_conflicts") or []
@@ -121,7 +121,7 @@ class SimulationService:
     @staticmethod
     def _diagnostic_info_for(job) -> dict:
         """Extrae ``status`` + timestamps + duración del diagnóstico desde el JSON."""
-        diag = job.infeasibility_diagnostics_json
+        diag = getattr(job, "infeasibility_diagnostics_json", None)
         out = {
             "diagnostic_status": "NONE",
             "diagnostic_error": None,

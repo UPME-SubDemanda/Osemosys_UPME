@@ -3,7 +3,7 @@ import { simulationApi } from '../../features/simulation/api/simulationApi';
 import { ScenarioTagChip } from '@/shared/components/ScenarioTagChip';
 import type { SimulationRun } from '../../types/domain';
 
-export type CompareViewMode = 'facet' | 'by-year';
+export type CompareViewMode = 'facet' | 'by-year' | 'line-total';
 
 interface ScenarioComparerProps {
   currentRunId: number;
@@ -132,6 +132,16 @@ export const ScenarioComparer: React.FC<ScenarioComparerProps> = ({
                   className="w-4 h-4 border-2 border-slate-500 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 focus:ring-offset-[#1e293b] bg-[#0f172a]"
                 />
                 <span className="text-sm text-slate-300">Por años seleccionados</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="compareView"
+                  checked={compareViewMode === 'line-total'}
+                  onChange={() => handleViewModeChange('line-total')}
+                  className="w-4 h-4 border-2 border-slate-500 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 focus:ring-offset-[#1e293b] bg-[#0f172a]"
+                />
+                <span className="text-sm text-slate-300">Líneas totales</span>
               </label>
             </div>
             <div className="overflow-y-auto max-h-[180px] pr-1 space-y-1 custom-scrollbar">

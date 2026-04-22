@@ -4,17 +4,18 @@
  */
 import { httpClient } from "@/shared/api/httpClient";
 import type { PaginatedResponse } from "@/shared/api/pagination";
-import type { 
-  ChartCatalogItem, 
-  ChartDataResponse, 
+import type {
+  ChartCatalogItem,
+  ChartDataResponse,
   CompareChartFacetResponse,
   CompareChartResponse,
   CompareFacetExportFilenameMode,
+  ParetoChartResponse,
   ResultSummaryResponse,
-  RunResult, 
-  SimulationLog, 
-  SimulationOverview, 
-  SimulationRun, 
+  RunResult,
+  SimulationLog,
+  SimulationOverview,
+  SimulationRun,
   SimulationSolver,
   SimulationType,
 } from "@/types/domain";
@@ -267,6 +268,31 @@ export const simulationApi = {
     agrupar_por?: string;
   }) {
     const { data } = await httpClient.get<CompareChartFacetResponse>(`/visualizations/chart-data/compare-facet`, { params });
+    return data;
+  },
+
+  async getCompareLineData(params: {
+    job_ids: string;
+    tipo: string;
+    un?: string;
+    sub_filtro?: string;
+    loc?: string;
+  }) {
+    const { data } = await httpClient.get<ChartDataResponse>(
+      `/visualizations/chart-data/compare-line`,
+      { params },
+    );
+    return data;
+  },
+
+  async getParetoData(
+    jobId: number,
+    params: { tipo: string; un?: string; sub_filtro?: string; loc?: string },
+  ) {
+    const { data } = await httpClient.get<ParetoChartResponse>(
+      `/visualizations/${jobId}/pareto-data`,
+      { params },
+    );
     return data;
   },
 

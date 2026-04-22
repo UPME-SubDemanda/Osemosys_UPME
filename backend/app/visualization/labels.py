@@ -129,9 +129,9 @@ _USO: dict[str, str] = {
 
 # Eficiencia → label corto
 _EFIC: dict[str, str] = {
-    "_LOW": "(Act.)",
-    "_MID": "(Col.)",
-    "_HIG": "(Mun.)",
+    "_LOW": "(Baja)",
+    "_MID": "(Media)",
+    "_HIG": "(Alta)",
 }
 
 # Área/Subtipo → label corto

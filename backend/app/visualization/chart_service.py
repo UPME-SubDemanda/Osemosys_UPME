@@ -29,6 +29,7 @@ from app.schemas.visualization import (
     CompareChartFacetResponse,
     CompareChartResponse,
     FacetData,
+    ParetoChartResponse,
     ResultSummaryResponse,
     SubplotData,
 )
@@ -873,6 +874,228 @@ def _procesar_bloque_single(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 4c. build_comparison_line_data — LÍNEAS MULTI-ESCENARIO CONSOLIDADAS
+# ═══════════════════════════════════════════════════════════════════════════
+
+_SCENARIO_LINE_COLORS = [
+    "#3b82f6", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6",
+    "#06b6d4", "#f97316", "#84cc16", "#ec4899", "#6366f1",
+]
+
+
+def build_comparison_line_data(
+    db: Session,
+    job_ids: list[int],
+    tipo: str,
+    un: str = "PJ",
+    sub_filtro: str | None = None,
+    loc: str | None = None,
+) -> ChartDataResponse:
+    """Construye líneas totales multi-escenario sobre el mismo eje.
+
+    Todos los escenarios se trazan en la misma figura (sin subplots).
+    X = años, Y = total agregado (suma de todas las tecnologías), una línea por escenario.
+
+    Parámetros
+    ----------
+    db : Session
+    job_ids : list[int]
+        IDs de simulation_job a comparar (max 10).
+    tipo : str
+        Clave en CONFIGS_COMPARACION o CONFIGS.
+    un : str
+        Unidades de salida (PJ, GW, etc.).
+    sub_filtro, loc : str | None
+        Filtros opcionales de tecnología/localización.
+    """
+    MAPEO_COMPARACION = {
+        "tra_total": "tra_comparacion",
+        "ind_total": "ind_comparacion",
+        "res_total": "res_comparacion",
+        "ter_total": "ter_comparacion",
+    }
+    if tipo in MAPEO_COMPARACION:
+        tipo = MAPEO_COMPARACION[tipo]
+
+    if tipo in CONFIGS_COMPARACION:
+        cfg = CONFIGS_COMPARACION[tipo]
+        variable_name: str = cfg["variable_default"]
+        prefijo = cfg["prefijo"]
+        es_emision = False
+        title_base = cfg["titulo_base"]
+
+        def _apply_filter(df: pd.DataFrame) -> pd.DataFrame:
+            return _filtrar_df(df, prefijo, sub_filtro, loc)
+
+    elif tipo in CONFIGS:
+        cfg = CONFIGS[tipo]
+        variable_name = cfg["variable_default"]
+        es_emision = cfg.get("es_emision", False)
+        title_base = cfg.get("titulo", cfg.get("titulo_base", tipo))
+        filtro_fn = cfg.get("filtro")
+
+        def _apply_filter(df: pd.DataFrame) -> pd.DataFrame:
+            if filtro_fn is not None:
+                return filtro_fn(df, sub_filtro=sub_filtro, loc=loc)
+            return df
+    else:
+        raise ValueError(f"tipo='{tipo}' no existe en CONFIGS ni en CONFIGS_COMPARACION.")
+
+    title = title_base
+    if sub_filtro:
+        title += f" — {NOMBRES_COMBUSTIBLES.get(sub_filtro, sub_filtro)}"
+    if loc:
+        title += f" ({loc})"
+    title += f" — Total ({un})"
+
+    # Cargar nombres de escenarios
+    scenario_names: dict[int, str] = {}
+    for jid in job_ids:
+        job = db.query(SimulationJob).filter(SimulationJob.id == jid).first()
+        if job:
+            from app.models import Scenario
+            scenario = (
+                db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
+                if job.scenario_id else None
+            )
+            base = scenario.name if scenario else (job.input_name or f"Job {jid}")
+            disp = (getattr(job, "display_name", None) or "").strip()
+            scenario_names[jid] = disp if disp else base
+        else:
+            scenario_names[jid] = f"Job {jid}"
+
+    # Agregar total por año para cada job
+    all_years: set[int] = set()
+    totals_per_job: dict[int, dict[int, float]] = {}
+
+    for jid in job_ids:
+        df = _load_variable_data(db, jid, variable_name)
+        if df.empty:
+            totals_per_job[jid] = {}
+            continue
+        df = _apply_filter(df)
+        if df.empty:
+            totals_per_job[jid] = {}
+            continue
+        if not es_emision:
+            df = _convertir_unidades(df, un)
+        year_totals = df.groupby("YEAR")["VALUE"].sum()
+        totals_per_job[jid] = {int(y): round(float(v), 6) for y, v in year_totals.items()}
+        all_years.update(totals_per_job[jid].keys())
+
+    if not all_years:
+        return ChartDataResponse(categories=[], series=[], title=title,
+                                 yAxisLabel="MtCO₂eq" if es_emision else un)
+
+    years_sorted = sorted(all_years)
+    categories = [str(y) for y in years_sorted]
+
+    series: list[ChartSeries] = []
+    for idx, jid in enumerate(job_ids):
+        year_data = totals_per_job.get(jid, {})
+        if not year_data:
+            continue
+        data = [year_data.get(y, 0.0) for y in years_sorted]
+        series.append(ChartSeries(
+            name=scenario_names.get(jid, f"Job {jid}"),
+            data=data,
+            color=_SCENARIO_LINE_COLORS[idx % len(_SCENARIO_LINE_COLORS)],
+        ))
+
+    y_label = "MtCO₂eq" if es_emision else un
+    return ChartDataResponse(categories=categories, series=series, title=title, yAxisLabel=y_label)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4d. build_pareto_data — PARETO POR TECNOLOGÍA
+# ═══════════════════════════════════════════════════════════════════════════
+
+def build_pareto_data(
+    db: Session,
+    job_id: int,
+    tipo: str,
+    un: str = "PJ",
+    sub_filtro: str | None = None,
+    loc: str | None = None,
+) -> ParetoChartResponse:
+    """Construye los datos para un gráfico de Pareto por tecnología.
+
+    Agrega valores de todas las tecnologías sumando sobre todos los años,
+    ordena de mayor a menor y calcula el porcentaje acumulado.
+
+    Parámetros
+    ----------
+    db : Session
+    job_id : int
+    tipo : str
+        Clave en CONFIGS con agrupar_por='TECNOLOGIA' y no es_capacidad.
+    un : str
+        Unidades de salida.
+    sub_filtro, loc : str | None
+        Filtros opcionales.
+    """
+    if tipo not in CONFIGS:
+        raise ValueError(f"tipo='{tipo}' no encontrado en CONFIGS.")
+
+    cfg = CONFIGS[tipo]
+    es_capacidad = cfg.get("es_capacidad", False)
+    es_emision = cfg.get("es_emision", False)
+    variable_name: str = cfg["variable_default"]
+    filtro_fn = cfg.get("filtro")
+    title_base = cfg.get("titulo", cfg.get("titulo_base", tipo))
+
+    title = f"{title_base} — Pareto por Tecnología ({un})"
+    if sub_filtro:
+        title += f" [{NOMBRES_COMBUSTIBLES.get(sub_filtro, sub_filtro)}]"
+
+    df = _load_variable_data(db, job_id, variable_name)
+    if df.empty:
+        return ParetoChartResponse(
+            categories=[], values=[], cumulative_percent=[],
+            title=title, yAxisLabel="MtCO₂eq" if es_emision else un,
+        )
+
+    if filtro_fn is not None:
+        df = filtro_fn(df, sub_filtro=sub_filtro, loc=loc)
+    if df.empty:
+        return ParetoChartResponse(
+            categories=[], values=[], cumulative_percent=[],
+            title=title, yAxisLabel="MtCO₂eq" if es_emision else un,
+        )
+
+    if not es_emision and not es_capacidad:
+        df = _convertir_unidades(df, un)
+
+    # Agregar por tecnología (suma sobre todos los años)
+    tech_totals = df.groupby("TECHNOLOGY")["VALUE"].sum().reset_index()
+    tech_totals = tech_totals[tech_totals["VALUE"] > 1e-5]
+    tech_totals = tech_totals.sort_values("VALUE", ascending=False).reset_index(drop=True)
+
+    if tech_totals.empty:
+        return ParetoChartResponse(
+            categories=[], values=[], cumulative_percent=[],
+            title=title, yAxisLabel="MtCO₂eq" if es_emision else un,
+        )
+
+    total = tech_totals["VALUE"].sum()
+    tech_totals["CUMSUM"] = tech_totals["VALUE"].cumsum()
+    tech_totals["CUM_PCT"] = (tech_totals["CUMSUM"] / total * 100).round(2)
+
+    categories = [get_label(str(t)) for t in tech_totals["TECHNOLOGY"]]
+    values = [round(float(v), 6) for v in tech_totals["VALUE"]]
+    cumulative_percent = [float(p) for p in tech_totals["CUM_PCT"]]
+
+    y_label = "MtCO₂eq" if es_emision else un
+    return ParetoChartResponse(
+        categories=categories,
+        values=values,
+        cumulative_percent=cumulative_percent,
+        title=title,
+        yAxisLabel=y_label,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 5. get_result_summary — KPIs
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -979,6 +1202,7 @@ def get_chart_catalog() -> list[ChartCatalogItem]:
                 has_loc=_config_has_loc(cfg),
                 sub_filtros=_config_sub_filtros(cfg),
                 es_capacidad=cfg.get("es_capacidad", False),
+                soporta_pareto=_config_soporta_pareto(cfg),
             )
         )
 
@@ -1016,6 +1240,15 @@ def _config_has_loc(cfg: dict) -> bool:
         return False
     filtro_name = getattr(filtro, "__name__", "")
     return filtro_name == "_filtro_residencial"
+
+
+def _config_soporta_pareto(cfg: dict) -> bool:
+    """Pareto disponible para configs con agrupación TECNOLOGIA, no capacidad, no solo emisiones totales."""
+    return (
+        cfg.get("agrupar_por") == "TECNOLOGIA"
+        and not cfg.get("es_capacidad", False)
+        and cfg.get("variable_default") not in ("AnnualEmissions",)
+    )
 
 
 def _config_sub_filtros(cfg: dict) -> list[str] | None:

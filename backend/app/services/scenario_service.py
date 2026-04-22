@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
+from app.db.dialect import osemosys_table as _osemosys_table
 from app.models import (
     Emission,
     Fuel,
@@ -38,6 +39,9 @@ from app.services.pagination import build_meta, normalize_pagination
 from app.services.user_service import UserService
 
 logger = logging.getLogger(__name__)
+
+# Compatibilidad para tests legacy que hacen monkeypatch de este símbolo.
+osemosys_table = _osemosys_table
 
 
 CLONE_BATCH_SIZE = 500_000

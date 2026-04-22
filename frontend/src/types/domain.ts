@@ -540,3 +540,14 @@ export type ResultSummaryResponse = {
   /** Username del dueño del resultado. */
   owner_username?: string | null;
 };
+
+export type DeletionLogEntry = {
+  id: number;
+  entity_type: "SCENARIO" | "SIMULATION_JOB";
+  entity_id: number;
+  entity_name: string;
+  deleted_by_user_id: string;
+  deleted_by_username: string;
+  deleted_at: string;
+  details_json?: Record<string, unknown> | null;
+};

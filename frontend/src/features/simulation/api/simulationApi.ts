@@ -144,6 +144,10 @@ export const simulationApi = {
     return data;
   },
 
+  async deleteJob(jobId: number): Promise<void> {
+    await httpClient.delete(`/simulations/${jobId}`);
+  },
+
   async listLogs(jobId: number, cantidad = 100, offset = 1) {
     const { data } = await httpClient.get<PaginatedResponse<SimulationLog>>(
       `/simulations/${jobId}/logs`,

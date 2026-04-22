@@ -4,6 +4,7 @@ from .change_request import ChangeRequest
 from .change_request_value import ChangeRequestValue
 from .catalog_change_log import CatalogChangeLog
 from .categorie import Categorie
+from .deletion_log import DeletionLog
 from .dailytimebracket import Dailytimebracket
 from .daytype import Daytype
 from .emission import Emission
@@ -67,6 +68,7 @@ __all__ = [
     "ChangeRequestValue",
     "CatalogChangeLog",
     "Categorie",
+    "DeletionLog",
     "SimulationJob",
     "SimulationJobEvent",
     "SimulationJobFavorite",

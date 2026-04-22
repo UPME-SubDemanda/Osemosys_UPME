@@ -12,21 +12,22 @@
  * - scenariosApi.listScenarios()
  * - simulationApi.listRuns(), submit(), cancel(), listLogs()
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useCurrentUser } from "@/app/providers/useCurrentUser";
 import { useToast } from "@/app/providers/useToast";
 import { scenariosApi } from "@/features/scenarios/api/scenariosApi";
 import type { UdcConfig, UdcMultiplierEntry } from "@/features/scenarios/api/scenariosApi";
 import { simulationApi } from "@/features/simulation/api/simulationApi";
 import { RunDisplayNameEditor } from "@/features/simulation/components/RunDisplayNameEditor";
+import { VisibilityToggle } from "@/features/simulation/components/VisibilityToggle";
 import { getSimulationRunStatusDisplay } from "@/features/simulation/simulationRunStatus";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { DataTable } from "@/shared/components/DataTable";
 import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
 import { Modal } from "@/shared/components/Modal";
-import { TextField } from "@/shared/components/TextField";
 import { paths } from "@/routes/paths";
 import type {
   CsvSimulationResult,
@@ -321,6 +322,7 @@ function CsvResultTableSection({
 export function SimulationPage() {
   const { user } = useCurrentUser();
   const { push } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [selectedScenario, setSelectedScenario] = useState("");
   const [runs, setRuns] = useState<SimulationRun[]>([]);
@@ -332,8 +334,6 @@ export function SimulationPage() {
   const [logsOpenForJob, setLogsOpenForJob] = useState<number | null>(null);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<SimulationRun["status"] | "ALL">("ALL");
-  const [usernameFilter, setUsernameFilter] = useState("");
   const [solverName, setSolverName] = useState<SimulationSolver>("highs");
   /** Nombre opcional al encolar desde escenario (si está vacío, el backend usa el nombre del escenario). */
   const [newRunDisplayName, setNewRunDisplayName] = useState("");
@@ -366,6 +366,20 @@ export function SimulationPage() {
   // Tick de 1 s usado para refrescar los contadores de segundos en vivo cuando
   // algún diagnóstico está RUNNING.
   const [liveTickMs, setLiveTickMs] = useState<number>(() => Date.now());
+  const [simulationTab, setSimulationTab] = useState<"osemosys" | "csv">("osemosys");
+  const [scenarioDropdownOpen, setScenarioDropdownOpen] = useState(false);
+  const scenarioDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!scenarioDropdownOpen) return;
+    function onDocumentClick(e: MouseEvent) {
+      if (scenarioDropdownRef.current && !scenarioDropdownRef.current.contains(e.target as Node)) {
+        setScenarioDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocumentClick);
+    return () => document.removeEventListener("mousedown", onDocumentClick);
+  }, [scenarioDropdownOpen]);
 
   const [udcConfig, setUdcConfig] = useState<UdcConfig | null>(null);
   const [udcOpen, setUdcOpen] = useState(false);
@@ -418,17 +432,17 @@ export function SimulationPage() {
     }
   }
 
-  /** Recarga el historial de jobs; usa statusFilter si no es ALL */
-  const refreshRuns = useCallback(async () => {
-    setLoadingRuns(true);
+  /** Recarga el historial de jobs. Trae un lote amplio porque el filtrado
+   * ahora es 100% client-side desde los filtros por columna del DataTable.
+   * `silent=true` evita mostrar el skeleton (usado por el polling en background). */
+  const refreshRuns = useCallback(async (silent = false) => {
+    if (!silent) setLoadingRuns(true);
     setErrorRuns(null);
     try {
       const params = {
         scope: "global" as const,
-        cantidad: 50,
+        cantidad: 200,
         offset: 1,
-        ...(statusFilter === "ALL" ? {} : { status_filter: statusFilter }),
-        ...(usernameFilter.trim() ? { username: usernameFilter.trim() } : {}),
       };
       const [res, overviewRes] = await Promise.all([simulationApi.listRuns(params), simulationApi.getOverview()]);
       setRuns(res.data);
@@ -439,11 +453,11 @@ export function SimulationPage() {
           ? error.message
           : "No se pudo cargar el historial de simulaciones.";
       setErrorRuns(message);
-      push(message, "error");
+      if (!silent) push(message, "error");
     } finally {
-      setLoadingRuns(false);
+      if (!silent) setLoadingRuns(false);
     }
-  }, [push, statusFilter, usernameFilter]);
+  }, [push]);
 
   useEffect(() => {
     if (!user) return;
@@ -455,6 +469,22 @@ export function SimulationPage() {
       .finally(() => setLoadingScenarios(false));
   }, [user]);
 
+  // Preselecciona un escenario cuando se llega desde la tabla de /app/scenarios
+  // con `?scenario=<id>`. Se hace una vez que la lista está cargada y el id es
+  // válido; luego se limpia el query param para que un refresh no vuelva a
+  // sobrescribir cualquier selección manual del usuario.
+  useEffect(() => {
+    const raw = searchParams.get("scenario");
+    if (!raw || scenarios.length === 0) return;
+    const exists = scenarios.some((s) => String(s.id) === raw);
+    if (!exists) return;
+    setSelectedScenario(raw);
+    setSimulationTab("osemosys");
+    const next = new URLSearchParams(searchParams);
+    next.delete("scenario");
+    setSearchParams(next, { replace: true });
+  }, [scenarios, searchParams, setSearchParams]);
+
   // Polling cada 3s mientras haya jobs en cola/ejecución o diagnósticos en curso
   useEffect(() => {
     const hasActiveJob = runs.some((run) => ACTIVE_STATUSES.has(run.status));
@@ -464,7 +494,7 @@ export function SimulationPage() {
     );
     if (!hasActiveJob && !hasActiveDiagnostic) return;
     const timer = window.setInterval(() => {
-      void refreshRuns();
+      void refreshRuns(true);
     }, 3000);
     return () => window.clearInterval(timer);
   }, [refreshRuns, runs]);
@@ -558,6 +588,26 @@ export function SimulationPage() {
   }
 
   /** Cancela un job en curso; actualiza UI optimista antes de confirmar */
+  const [deleteCandidateJob, setDeleteCandidateJob] = useState<SimulationRun | null>(null);
+  const [deletingJobId, setDeletingJobId] = useState<number | null>(null);
+
+  async function confirmDeleteJob() {
+    if (!deleteCandidateJob) return;
+    const id = deleteCandidateJob.id;
+    setDeletingJobId(id);
+    try {
+      await simulationApi.deleteJob(id);
+      push(`Simulación ${id} eliminada.`, "success");
+      setDeleteCandidateJob(null);
+      await refreshRuns();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "No se pudo eliminar.";
+      push(detail, "error");
+    } finally {
+      setDeletingJobId(null);
+    }
+  }
+
   async function cancelSimulation(jobId: number) {
     setCancellingJobId(jobId);
     setRuns((prev) =>
@@ -689,14 +739,20 @@ export function SimulationPage() {
   }
 
   // Filtrado por estado seleccionado (ALL = sin filtrar)
-  const filteredRuns = useMemo(() => {
-    if (statusFilter === "ALL") return runs;
-    return runs.filter((run) => run.status === statusFilter);
-  }, [runs, statusFilter]);
 
   const handleRunDisplayNameSaved = useCallback((jobId: number, next: string | null) => {
     setRuns((prev) => prev.map((r) => (r.id === jobId ? { ...r, display_name: next } : r)));
   }, []);
+
+  const handleVisibilityChanged = useCallback((jobId: number, next: boolean) => {
+    setRuns((prev) => prev.map((r) => (r.id === jobId ? { ...r, is_public: next } : r)));
+  }, []);
+
+  const currentUserId = user?.id ?? null;
+  const ownedSet = useMemo(
+    () => new Set(runs.filter((r) => r.user_id === currentUserId).map((r) => r.id)),
+    [runs, currentUserId],
+  );
 
   const selectedLogs = logsOpenForJob ? logsByJob[logsOpenForJob] ?? [] : [];
   const csvSpinnerFrame =
@@ -798,6 +854,21 @@ export function SimulationPage() {
 
   return (
     <section style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Button
+          variant={simulationTab === "osemosys" ? "primary" : "ghost"}
+          onClick={() => setSimulationTab("osemosys")}
+        >
+          Simulación OSeMOSYS
+        </Button>
+        <Button
+          variant={simulationTab === "csv" ? "primary" : "ghost"}
+          onClick={() => setSimulationTab("csv")}
+        >
+          Simulación desde CSV
+        </Button>
+      </div>
+      {simulationTab === "osemosys" ? (
       <article className="pageSection" style={{ display: "grid", gap: 12 }}>
         <h1 style={{ margin: 0 }}>Simulación OSeMOSYS</h1>
         <small style={{ opacity: 0.78 }}>
@@ -814,19 +885,121 @@ export function SimulationPage() {
         >
           <label className="field" style={{ margin: 0 }}>
             <span className="field__label">Escenario</span>
-            <select
-              className="field__input"
-              value={selectedScenario}
-              onChange={(e) => setSelectedScenario(e.target.value)}
-              disabled={loadingScenarios}
-            >
-              <option value="">{loadingScenarios ? "Cargando escenarios..." : "Selecciona..."}</option>
-              {scenarios.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.tag ? `${s.tag.name} · ${s.name}` : s.name}
-                </option>
-              ))}
-            </select>
+            {(() => {
+              const selected = scenarios.find((s) => String(s.id) === selectedScenario);
+              return (
+                <div ref={scenarioDropdownRef} style={{ position: "relative" }}>
+                  <button
+                    type="button"
+                    className="field__input"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      textAlign: "left",
+                      cursor: loadingScenarios ? "not-allowed" : "pointer",
+                      opacity: loadingScenarios ? 0.6 : 1,
+                    }}
+                    disabled={loadingScenarios}
+                    onClick={() => setScenarioDropdownOpen((v) => !v)}
+                  >
+                    <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+                      {selected?.tag ? <ScenarioTagChip tag={selected.tag} /> : null}
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          opacity: selected ? 1 : 0.6,
+                        }}
+                      >
+                        {selected ? selected.name : loadingScenarios ? "Cargando escenarios..." : "Selecciona..."}
+                      </span>
+                    </span>
+                    <span style={{ opacity: 0.7 }}>{scenarioDropdownOpen ? "▴" : "▾"}</span>
+                  </button>
+                  {scenarioDropdownOpen ? (
+                    <div
+                      role="listbox"
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 4px)",
+                        left: 0,
+                        right: 0,
+                        zIndex: 20,
+                        background: "#0f172a",
+                        border: "1px solid rgba(255,255,255,0.2)",
+                        borderRadius: 12,
+                        padding: 4,
+                        maxHeight: 320,
+                        overflowY: "auto",
+                        boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
+                      }}
+                    >
+                      <div
+                        role="option"
+                        aria-selected={selectedScenario === ""}
+                        onClick={() => {
+                          setSelectedScenario("");
+                          setScenarioDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          cursor: "pointer",
+                          opacity: 0.7,
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      >
+                        Selecciona...
+                      </div>
+                      {scenarios.map((s) => (
+                        <div
+                          key={s.id}
+                          role="option"
+                          aria-selected={String(s.id) === selectedScenario}
+                          onClick={() => {
+                            setSelectedScenario(String(s.id));
+                            setScenarioDropdownOpen(false);
+                          }}
+                          style={{
+                            padding: "8px 10px",
+                            borderRadius: 8,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            background:
+                              String(s.id) === selectedScenario ? "rgba(56,189,248,0.15)" : "transparent",
+                          }}
+                          onMouseEnter={(e) => {
+                            if (String(s.id) !== selectedScenario)
+                              e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+                          }}
+                          onMouseLeave={(e) => {
+                            if (String(s.id) !== selectedScenario)
+                              e.currentTarget.style.background = "transparent";
+                          }}
+                        >
+                          {s.tag ? <ScenarioTagChip tag={s.tag} /> : null}
+                          <span
+                            style={{
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {s.name}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })()}
           </label>
           <label className="field" style={{ margin: 0 }}>
             <span className="field__label">Nombre del resultado (opcional)</span>
@@ -859,7 +1032,7 @@ export function SimulationPage() {
           <Button variant="primary" onClick={runSimulation} disabled={submitting || !selectedScenario}>
             {submitting ? "Encolando..." : "Ejecutar simulación"}
           </Button>
-          <Button variant="ghost" onClick={refreshRuns} disabled={loadingRuns}>
+          <Button variant="ghost" onClick={() => refreshRuns()} disabled={loadingRuns}>
             Refrescar estado
           </Button>
         </div>
@@ -895,7 +1068,9 @@ export function SimulationPage() {
           Si dejas el nombre vacío, se usará el nombre del escenario como etiqueta de la corrida.
         </small>
       </article>
+      ) : null}
 
+      {simulationTab === "csv" ? (
       <article className="pageSection" style={{ display: "grid", gap: 12 }}>
         <div style={{ display: "grid", gap: 4 }}>
           <h2 style={{ margin: 0 }}>Simulación desde CSV</h2>
@@ -1186,8 +1361,9 @@ export function SimulationPage() {
           </small>
         ) : null}
       </article>
+      ) : null}
 
-      {selectedScenario && udcConfig ? (
+      {simulationTab === "osemosys" && selectedScenario && udcConfig ? (
         <article className="pageSection" style={{ display: "grid", gap: 10 }}>
           <div
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
@@ -1407,29 +1583,6 @@ export function SimulationPage() {
       <article className="pageSection" style={{ display: "grid", gap: 10 }}>
         <div className="toolbarRow">
           <h2 style={{ margin: 0 }}>Cola global y ejecuciones</h2>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <TextField
-              label="Filtrar por usuario"
-              value={usernameFilter}
-              onChange={(e) => setUsernameFilter(e.target.value)}
-              placeholder="username"
-            />
-            <label className="field" style={{ width: 220 }}>
-              <span className="field__label">Filtrar por estado</span>
-              <select
-                className="field__input"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as SimulationRun["status"] | "ALL")}
-              >
-                <option value="ALL">Todos</option>
-                <option value="QUEUED">En cola</option>
-                <option value="RUNNING">En ejecución</option>
-                <option value="SUCCEEDED">Exitosa</option>
-                <option value="FAILED">Fallida</option>
-                <option value="CANCELLED">Cancelada</option>
-              </select>
-            </label>
-          </div>
         </div>
         {loadingRuns ? (
           <div style={{ display: "grid", gap: 8 }}>
@@ -1444,13 +1597,13 @@ export function SimulationPage() {
             <p style={{ marginBottom: 0 }}>{errorRuns}</p>
           </div>
         ) : null}
-        {!loadingRuns && !errorRuns && filteredRuns.length === 0 ? (
+        {!loadingRuns && !errorRuns && runs.length === 0 ? (
           <div style={{ border: "1px dashed rgba(255,255,255,0.2)", borderRadius: 12, padding: 12 }}>
             No hay jobs para el filtro seleccionado.
           </div>
         ) : null}
         <DataTable
-          rows={filteredRuns}
+          rows={runs}
           rowKey={(r) => String(r.id)}
           columns={[
             {
@@ -1464,6 +1617,11 @@ export function SimulationPage() {
                   compact
                 />
               ),
+              filter: {
+                type: "text",
+                getValue: (r) => r.display_name ?? "",
+                placeholder: "Nombre…",
+              },
             },
             {
               key: "scenario",
@@ -1475,11 +1633,27 @@ export function SimulationPage() {
                   : r.scenario_id === null
                     ? "—"
                     : `#${r.scenario_id}`),
+              filter: {
+                type: "multiselect",
+                getValue: (r) =>
+                  r.scenario_name ??
+                  (r.input_mode === "CSV_UPLOAD"
+                    ? r.input_name ?? "CSV upload"
+                    : r.scenario_id === null
+                      ? "—"
+                      : `#${r.scenario_id}`),
+                placeholder: "Escenario…",
+              },
             },
             {
               key: "id",
               header: "ID ejecución",
               render: (r) => <span style={{ fontFamily: "monospace", opacity: 0.75 }}>{r.id}</span>,
+              filter: {
+                type: "text",
+                getValue: (r) => String(r.id),
+                placeholder: "#id",
+              },
             },
             {
               key: "scenario_tag",
@@ -1490,12 +1664,34 @@ export function SimulationPage() {
                 ) : (
                   <span style={{ opacity: 0.65 }}>—</span>
                 ),
+              filter: {
+                type: "multiselect",
+                getValue: (r) => r.scenario_tag?.name ?? "—",
+                placeholder: "Etiqueta…",
+              },
             },
-            { key: "user", header: "Usuario", render: (r) => r.username ?? r.user_id },
+            {
+              key: "user",
+              header: "Usuario",
+              render: (r) => r.username ?? r.user_id,
+              filter: {
+                type: "multiselect",
+                getValue: (r) => r.username ?? String(r.user_id ?? "—"),
+                placeholder: "Usuario…",
+              },
+            },
             {
               key: "solver",
               header: "Solver",
               render: (r) => (r.solver_name === "highs" ? "HiGHS" : "GLPK"),
+              filter: {
+                type: "multiselect",
+                getValue: (r) => (r.solver_name === "highs" ? "HiGHS" : "GLPK"),
+                options: [
+                  { value: "HiGHS", label: "HiGHS" },
+                  { value: "GLPK", label: "GLPK" },
+                ],
+              },
             },
             {
               key: "status",
@@ -1503,6 +1699,46 @@ export function SimulationPage() {
               render: (r) => {
                 const { variant, label } = getSimulationRunStatusDisplay(r);
                 return <Badge variant={variant}>{label}</Badge>;
+              },
+              filter: {
+                type: "multiselect",
+                getValue: (r) => r.status,
+                getLabel: (v) =>
+                  ({
+                    QUEUED: "En cola",
+                    RUNNING: "En ejecución",
+                    SUCCEEDED: "Exitosa",
+                    FAILED: "Fallida",
+                    CANCELLED: "Cancelada",
+                  })[v] ?? v,
+                options: [
+                  { value: "QUEUED", label: "En cola" },
+                  { value: "RUNNING", label: "En ejecución" },
+                  { value: "SUCCEEDED", label: "Exitosa" },
+                  { value: "FAILED", label: "Fallida" },
+                  { value: "CANCELLED", label: "Cancelada" },
+                ],
+              },
+            },
+            {
+              key: "visibility",
+              header: "Visibilidad",
+              render: (r) => (
+                <VisibilityToggle
+                  jobId={r.id}
+                  isPublic={r.is_public ?? true}
+                  canEdit={ownedSet.has(r.id)}
+                  onChanged={(next) => handleVisibilityChanged(r.id, next)}
+                  compact
+                />
+              ),
+              filter: {
+                type: "multiselect",
+                getValue: (r) => ((r.is_public ?? true) ? "public" : "private"),
+                options: [
+                  { value: "public", label: "Público" },
+                  { value: "private", label: "Privado" },
+                ],
               },
             },
             { key: "progress", header: "Progreso", render: (r) => `${r.progress}%` },
@@ -1527,177 +1763,359 @@ export function SimulationPage() {
               render: (r) => (r.finished_at ? new Date(r.finished_at).toLocaleString() : "—"),
             },
             {
-              key: "error",
-              header: "Error",
-              render: (r) =>
-                r.error_message ? (
-                  <span style={{ color: "rgba(248,113,113,0.9)" }}>{r.error_message}</span>
-                ) : (
-                  "—"
-                ),
-            },
-            {
-              key: "logs",
-              header: "Registros",
-              render: (r) => (
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  onClick={() => void loadLogs(r.id)}
-                >
-                  Ver registros
-                </button>
-              ),
-            },
-            {
-              key: "go",
-              header: "Resultados",
+              key: "actions",
+              header: "Acciones",
               render: (r) => {
                 const isInfeasible = !!r.is_infeasible_result;
                 const solver = (r.solver_name ?? "").toLowerCase();
                 const diagStatus = r.diagnostic_status ?? "NONE";
                 const busy = triggeringDiagnosticFor === r.id;
+                const diagCancelBusy = cancellingDiagnosticFor === r.id;
+                const cancelBusy = cancellingJobId === r.id;
+                const iconBtn =
+                  "inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+                const sch = {
+                  primary:
+                    "border-slate-700 text-slate-300 hover:border-cyan-500/50 hover:bg-cyan-500/10 hover:text-cyan-300",
+                  neutral:
+                    "border-slate-700 text-slate-300 hover:border-slate-400/60 hover:bg-slate-500/10 hover:text-slate-100",
+                  danger:
+                    "border-rose-900/60 text-rose-300 hover:border-rose-500/60 hover:bg-rose-500/10 hover:text-rose-200",
+                  warning:
+                    "border-amber-900/60 text-amber-300 hover:border-amber-500/60 hover:bg-amber-500/10 hover:text-amber-200",
+                  warningActive:
+                    "border-amber-500/60 bg-amber-500/15 text-amber-200",
+                  mutedInfo:
+                    "border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-300 cursor-help",
+                } as const;
+                const svg = (children: ReactNode) => (
+                  <svg
+                    width={16}
+                    height={16}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    {children}
+                  </svg>
+                );
+                const icons = {
+                  chart: svg(
+                    <>
+                      <path d="M3 3v18h18" />
+                      <path d="M7 17V9" />
+                      <path d="M12 17V5" />
+                      <path d="M17 17v-7" />
+                    </>,
+                  ),
+                  logs: svg(
+                    <>
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <path d="M14 2v6h6" />
+                      <path d="M9 13h6" />
+                      <path d="M9 17h6" />
+                    </>,
+                  ),
+                  alert: svg(
+                    <>
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                      <line x1="12" y1="9" x2="12" y2="13" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </>,
+                  ),
+                  infeasDoc: svg(
+                    <>
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <path d="M14 2v6h6" />
+                      <line x1="12" y1="12" x2="12" y2="15" />
+                      <line x1="12" y1="18" x2="12.01" y2="18" />
+                    </>,
+                  ),
+                  clock: svg(
+                    <>
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </>,
+                  ),
+                  spinner: svg(
+                    <>
+                      <line x1="12" y1="2" x2="12" y2="6" />
+                      <line x1="12" y1="18" x2="12" y2="22" />
+                      <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
+                      <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
+                      <line x1="2" y1="12" x2="6" y2="12" />
+                      <line x1="18" y1="12" x2="22" y2="12" />
+                      <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
+                      <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
+                    </>,
+                  ),
+                  diagnose: svg(
+                    <>
+                      <circle cx="11" cy="11" r="7" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                      <line x1="11" y1="8" x2="11" y2="11" />
+                      <line x1="11" y1="13" x2="11.01" y2="13" />
+                    </>,
+                  ),
+                  info: svg(
+                    <>
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="16" x2="12" y2="12" />
+                      <line x1="12" y1="8" x2="12.01" y2="8" />
+                    </>,
+                  ),
+                  x: svg(
+                    <>
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </>,
+                  ),
+                  trash: svg(
+                    <>
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                      <path d="M10 11v6" />
+                      <path d="M14 11v6" />
+                      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                    </>,
+                  ),
+                } as const;
+
+                const runningSeconds =
+                  diagStatus === "RUNNING" && r.diagnostic_started_at
+                    ? Math.max(
+                        0,
+                        Math.floor(
+                          (liveTickMs -
+                            new Date(r.diagnostic_started_at).getTime()) /
+                            1000,
+                        ),
+                      )
+                    : null;
+
+                const buttons: ReactNode[] = [];
+
+                // Abrir resultados: solo para simulaciones exitosas y factibles
+                // (las QUEUED / RUNNING / FAILED / CANCELLED / infactibles no
+                // tienen output numérico que graficar).
+                if (r.status === "SUCCEEDED" && !isInfeasible) {
+                  buttons.push(
+                    <Link
+                      key="open"
+                      to={paths.resultsDetail(r.id)}
+                      className={`${iconBtn} ${sch.primary}`}
+                      title="Abrir resultados (gráficas)"
+                      aria-label="Abrir resultados"
+                    >
+                      {icons.chart}
+                    </Link>,
+                  );
+                }
+
+                // Registros / logs (siempre disponible)
+                buttons.push(
+                  <button
+                    key="logs"
+                    type="button"
+                    onClick={() => void loadLogs(r.id)}
+                    className={`${iconBtn} ${sch.neutral}`}
+                    title="Ver registros (logs) del job"
+                    aria-label="Ver registros"
+                  >
+                    {icons.logs}
+                  </button>,
+                );
+
+                // Error (si hay mensaje persistido)
+                if (r.error_message) {
+                  buttons.push(
+                    <span
+                      key="error"
+                      role="img"
+                      className={`${iconBtn} ${sch.danger} cursor-help`}
+                      title={`Error: ${r.error_message}`}
+                      aria-label={`Error: ${r.error_message}`}
+                    >
+                      {icons.alert}
+                    </span>,
+                  );
+                }
+
+                // Infactible + HiGHS: flujo del diagnóstico
+                if (isInfeasible && solver === "highs") {
+                  if (diagStatus === "SUCCEEDED") {
+                    const secs =
+                      typeof r.diagnostic_seconds === "number"
+                        ? ` — ${r.diagnostic_seconds.toFixed(1)} s`
+                        : "";
+                    buttons.push(
+                      <Link
+                        key="diag-view"
+                        to={paths.infeasibilityReport(r.id)}
+                        className={`${iconBtn} ${sch.warning}`}
+                        title={`Ver reporte de infactibilidad (IIS + mapeo a parámetros)${secs}`}
+                        aria-label="Ver reporte de infactibilidad"
+                      >
+                        {icons.infeasDoc}
+                      </Link>,
+                    );
+                  } else if (diagStatus === "QUEUED") {
+                    buttons.push(
+                      <span
+                        key="diag-queued"
+                        role="img"
+                        className={`${iconBtn} ${sch.neutral} cursor-help`}
+                        title="Diagnóstico de infactibilidad en cola — aún no inició."
+                        aria-label="Diagnóstico en cola"
+                      >
+                        {icons.clock}
+                      </span>,
+                    );
+                    buttons.push(
+                      <button
+                        key="diag-cancel"
+                        type="button"
+                        onClick={() => void cancelDiagnostic(r.id)}
+                        disabled={diagCancelBusy}
+                        className={`${iconBtn} ${sch.danger}`}
+                        title={
+                          diagCancelBusy
+                            ? "Cancelando diagnóstico…"
+                            : "Cancelar diagnóstico"
+                        }
+                        aria-label="Cancelar diagnóstico"
+                      >
+                        {icons.x}
+                      </button>,
+                    );
+                  } else if (diagStatus === "RUNNING") {
+                    buttons.push(
+                      <span
+                        key="diag-running"
+                        role="img"
+                        className={`${iconBtn} ${sch.warningActive} animate-spin [animation-duration:2s] cursor-help`}
+                        title={
+                          runningSeconds != null
+                            ? `Ejecutando diagnóstico de infactibilidad — ${runningSeconds} s`
+                            : "Ejecutando diagnóstico de infactibilidad"
+                        }
+                        aria-label="Ejecutando diagnóstico"
+                      >
+                        {icons.spinner}
+                      </span>,
+                    );
+                    buttons.push(
+                      <button
+                        key="diag-cancel"
+                        type="button"
+                        onClick={() => void cancelDiagnostic(r.id)}
+                        disabled={diagCancelBusy}
+                        className={`${iconBtn} ${sch.danger}`}
+                        title={
+                          diagCancelBusy
+                            ? "Cancelando diagnóstico…"
+                            : "Cancelar diagnóstico en curso"
+                        }
+                        aria-label="Cancelar diagnóstico"
+                      >
+                        {icons.x}
+                      </button>,
+                    );
+                  } else if (diagStatus === "NONE" || diagStatus === "FAILED") {
+                    const titleText = busy
+                      ? "Encolando diagnóstico…"
+                      : diagStatus === "FAILED" && r.diagnostic_error
+                        ? `Reintentar diagnóstico — último intento falló: ${r.diagnostic_error}`
+                        : "Correr diagnóstico de infactibilidad (IIS + mapeo a parámetros)";
+                    buttons.push(
+                      <button
+                        key="diag-run"
+                        type="button"
+                        onClick={() => void requestDiagnostic(r.id)}
+                        disabled={busy}
+                        className={`${iconBtn} ${sch.warning}`}
+                        title={titleText}
+                        aria-label={
+                          diagStatus === "FAILED"
+                            ? "Reintentar diagnóstico"
+                            : "Correr diagnóstico"
+                        }
+                      >
+                        {icons.diagnose}
+                      </button>,
+                    );
+                  }
+                }
+
+                // Infactible + GLPK: no hay IIS
+                if (isInfeasible && solver !== "highs") {
+                  buttons.push(
+                    <span
+                      key="diag-glpk"
+                      role="img"
+                      className={`${iconBtn} ${sch.mutedInfo}`}
+                      title="GLPK no expone IIS. Para diagnóstico detallado, vuelve a correr la simulación con HiGHS."
+                      aria-label="Diagnóstico no disponible con GLPK"
+                    >
+                      {icons.info}
+                    </span>,
+                  );
+                }
+
+                // Cancelar simulación activa (QUEUED/RUNNING)
+                if (ACTIVE_STATUSES.has(r.status)) {
+                  buttons.push(
+                    <button
+                      key="cancel-sim"
+                      type="button"
+                      onClick={() => void cancelSimulation(r.id)}
+                      disabled={cancelBusy}
+                      className={`${iconBtn} ${sch.danger}`}
+                      title={
+                        cancelBusy
+                          ? "Cancelando simulación…"
+                          : "Cancelar simulación"
+                      }
+                      aria-label="Cancelar simulación"
+                    >
+                      {icons.x}
+                    </button>,
+                  );
+                }
+
+                // Eliminar job (solo dueño, solo si no está activo). Eliminación
+                // permanente — queda registro en el Historial de eliminaciones.
+                if (
+                  !ACTIVE_STATUSES.has(r.status) &&
+                  ownedSet.has(r.id)
+                ) {
+                  const deleteBusy = deletingJobId === r.id;
+                  buttons.push(
+                    <button
+                      key="delete-job"
+                      type="button"
+                      onClick={() => setDeleteCandidateJob(r)}
+                      disabled={deleteBusy}
+                      className={`${iconBtn} ${sch.danger}`}
+                      title={
+                        deleteBusy
+                          ? "Eliminando simulación…"
+                          : "Eliminar simulación permanentemente"
+                      }
+                      aria-label="Eliminar simulación"
+                    >
+                      {icons.trash}
+                    </button>,
+                  );
+                }
 
                 return (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                    {!isInfeasible ? (
-                      <Link className="btn btn--ghost" to={paths.resultsDetail(r.id)}>
-                        Abrir
-                      </Link>
-                    ) : null}
-
-                    {/* Infactible con HiGHS: flujo por estado del diagnóstico */}
-                    {isInfeasible && solver === "highs" ? (
-                      <>
-                        {diagStatus === "SUCCEEDED" ? (
-                          <Link
-                            className="btn btn--ghost"
-                            to={paths.infeasibilityReport(r.id)}
-                            style={{ color: "rgba(248,113,113,0.95)" }}
-                            title={
-                              typeof r.diagnostic_seconds === "number"
-                                ? `Diagnóstico completado en ${r.diagnostic_seconds.toFixed(1)} s.`
-                                : "Ver reporte detallado (IIS + mapeo a parámetros)"
-                            }
-                          >
-                            ⚠ Ver reporte
-                            {typeof r.diagnostic_seconds === "number"
-                              ? ` · ${r.diagnostic_seconds.toFixed(1)} s`
-                              : ""}
-                          </Link>
-                        ) : null}
-                        {diagStatus === "QUEUED" ? (
-                          <>
-                            <span
-                              style={{
-                                fontSize: 12,
-                                padding: "4px 10px",
-                                borderRadius: 6,
-                                background: "rgba(148,163,184,0.18)",
-                                border: "1px solid rgba(148,163,184,0.4)",
-                              }}
-                              title="El diagnóstico está encolado pero todavía no empezó a ejecutarse."
-                            >
-                              En cola (sin iniciar)…
-                            </span>
-                            <Button
-                              variant="ghost"
-                              onClick={() => void cancelDiagnostic(r.id)}
-                              disabled={cancellingDiagnosticFor === r.id}
-                            >
-                              {cancellingDiagnosticFor === r.id
-                                ? "Cancelando…"
-                                : "Cancelar"}
-                            </Button>
-                          </>
-                        ) : null}
-                        {diagStatus === "RUNNING" ? (
-                          <>
-                            <span
-                              style={{
-                                fontSize: 12,
-                                padding: "4px 10px",
-                                borderRadius: 6,
-                                background: "rgba(245,158,11,0.18)",
-                                border: "1px solid rgba(245,158,11,0.45)",
-                                fontVariantNumeric: "tabular-nums",
-                              }}
-                              title={
-                                r.diagnostic_started_at
-                                  ? `Inició: ${new Date(r.diagnostic_started_at).toLocaleTimeString()}`
-                                  : "Ejecutando diagnóstico…"
-                              }
-                            >
-                              ⚙️ Ejecutando diagnóstico…
-                              {r.diagnostic_started_at
-                                ? ` (${Math.max(
-                                    0,
-                                    Math.floor(
-                                      (liveTickMs -
-                                        new Date(r.diagnostic_started_at).getTime()) /
-                                        1000,
-                                    ),
-                                  )} s)`
-                                : ""}
-                            </span>
-                            <Button
-                              variant="ghost"
-                              onClick={() => void cancelDiagnostic(r.id)}
-                              disabled={cancellingDiagnosticFor === r.id}
-                            >
-                              {cancellingDiagnosticFor === r.id
-                                ? "Cancelando…"
-                                : "Cancelar"}
-                            </Button>
-                          </>
-                        ) : null}
-                        {(diagStatus === "NONE" || diagStatus === "FAILED") ? (
-                          <Button
-                            variant="ghost"
-                            onClick={() => void requestDiagnostic(r.id)}
-                            disabled={busy}
-                            title={
-                              diagStatus === "FAILED" && r.diagnostic_error
-                                ? `Falló/cancelado el intento anterior: ${r.diagnostic_error}. Click para reintentar.`
-                                : "Ejecuta el análisis de infactibilidad (IIS + mapeo a parámetros)."
-                            }
-                          >
-                            {busy
-                              ? "Encolando…"
-                              : diagStatus === "FAILED"
-                                ? "⚠ Reintentar diagnóstico"
-                                : "⚠ Correr diagnóstico de infactibilidad"}
-                          </Button>
-                        ) : null}
-                      </>
-                    ) : null}
-
-                    {/* Infactible con GLPK: no hay IIS, se invita a re-correr con HiGHS */}
-                    {isInfeasible && solver !== "highs" ? (
-                      <span
-                        title="GLPK no expone IIS. Para diagnóstico detallado vuelve a correr la simulación con HiGHS."
-                        style={{
-                          fontSize: 12,
-                          padding: "4px 10px",
-                          borderRadius: 6,
-                          background: "rgba(148,163,184,0.14)",
-                          border: "1px solid rgba(148,163,184,0.3)",
-                          opacity: 0.9,
-                        }}
-                      >
-                        Para diagnóstico de infactibilidad, vuelve a correr con HiGHS.
-                      </span>
-                    ) : null}
-
-                    {ACTIVE_STATUSES.has(r.status) ? (
-                      <Button
-                        variant="ghost"
-                        onClick={() => void cancelSimulation(r.id)}
-                        disabled={cancellingJobId === r.id}
-                      >
-                        {cancellingJobId === r.id ? "Cancelando…" : "Cancelar"}
-                      </Button>
-                    ) : null}
+                  <div className="flex items-center gap-1.5 flex-nowrap">
+                    {buttons}
                   </div>
                 );
               },
@@ -2029,6 +2447,64 @@ export function SimulationPage() {
             )}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={deleteCandidateJob !== null}
+        title="Eliminar simulación"
+        onClose={() => (deletingJobId ? undefined : setDeleteCandidateJob(null))}
+        footer={
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Button
+              variant="ghost"
+              onClick={() => setDeleteCandidateJob(null)}
+              disabled={deletingJobId !== null}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => void confirmDeleteJob()}
+              disabled={deletingJobId !== null}
+              style={{
+                background: "rgba(239,68,68,0.85)",
+                borderColor: "rgba(239,68,68,0.9)",
+              }}
+            >
+              {deletingJobId !== null ? "Eliminando…" : "Eliminar definitivamente"}
+            </Button>
+          </div>
+        }
+      >
+        {deleteCandidateJob ? (
+          <div style={{ display: "grid", gap: 10 }}>
+            <p style={{ margin: 0 }}>
+              ¿Eliminar la simulación{" "}
+              <strong>
+                {deleteCandidateJob.display_name ??
+                  deleteCandidateJob.scenario_name ??
+                  `Job #${deleteCandidateJob.id}`}
+              </strong>{" "}
+              (#{deleteCandidateJob.id})?
+            </p>
+            <div
+              style={{
+                border: "1px solid rgba(245,158,11,0.4)",
+                background: "rgba(245,158,11,0.08)",
+                borderRadius: 8,
+                padding: 10,
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              <strong>Esta acción no se puede deshacer.</strong> Se eliminan
+              también los logs y resultados numéricos de esta corrida.
+              <br />
+              Queda un registro en el Historial de eliminaciones (quién, cuándo
+              y snapshot de los campos clave).
+            </div>
+          </div>
+        ) : null}
       </Modal>
     </section>
   );

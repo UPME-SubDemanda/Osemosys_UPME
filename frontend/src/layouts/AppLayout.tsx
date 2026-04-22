@@ -38,6 +38,7 @@ export function AppLayout() {
     { to: paths.simulation, label: "Simulación" },
     { to: paths.results, label: "Resultados" },
     { to: paths.reports, label: "Reportes" },
+    { to: paths.history, label: "Historial" },
     { to: paths.profile, label: "Perfil" },
   ];
 

@@ -57,13 +57,17 @@ class Settings(BaseSettings):
         alias="DOCKER_METRICS_SERVICES",
     )
     docker_metrics_timeout_seconds: float = Field(
-        default=0.5,
+        default=3.0,
         alias="DOCKER_METRICS_TIMEOUT_SECONDS",
     )
     docker_metrics_cache_ttl_seconds: float = Field(
         default=5.0,
         alias="DOCKER_METRICS_CACHE_TTL_SECONDS",
     )
+    # Proyecto Compose a considerar. Si está vacío, se auto-detecta a partir
+    # de la etiqueta `com.docker.compose.project` del propio contenedor (via
+    # /containers/{hostname}/json). Fallback: todos los proyectos.
+    docker_metrics_project: str = Field(default="", alias="DOCKER_METRICS_PROJECT")
 
     # Auth
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")

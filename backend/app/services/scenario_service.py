@@ -50,6 +50,69 @@ osemosys_table = _osemosys_table
 CLONE_BATCH_SIZE = 500_000
 
 
+def _eq_or_is_null(column, value):
+    """`column = value` o `column IS NULL` según el valor dado.
+
+    Necesario porque en `osemosys_param_value` las dimensiones no usadas son
+    NULL y `NULL = NULL` no es verdadero en SQL.
+    """
+    if value is None:
+        return column.is_(None)
+    return column == value
+
+
+def _value_rule_clause(value_col, op: str, val: float | None):
+    """Construye la comparación de una regla de año sobre `value`.
+
+    Ops admitidos: `gt`, `lt`, `gte`, `lte`, `eq`, `ne`, `nonzero`, `zero`.
+    Devuelve `None` si la op es desconocida o falta `val` para una op que lo requiere.
+    """
+    op = (op or "").lower()
+    if op == "nonzero":
+        return value_col != 0
+    if op == "zero":
+        return value_col == 0
+    if val is None:
+        return None
+    if op == "gt":
+        return value_col > val
+    if op == "lt":
+        return value_col < val
+    if op == "gte":
+        return value_col >= val
+    if op == "lte":
+        return value_col <= val
+    if op == "eq":
+        return value_col == val
+    if op == "ne":
+        return value_col != val
+    return None
+
+
+def _parse_year_rules(raw: str | None) -> list[tuple[int, str, float | None]]:
+    """Parsea `"2025:gt:0.5,2030:nonzero"` a `[(2025,"gt",0.5),(2030,"nonzero",None)]`."""
+    if not raw:
+        return []
+    out: list[tuple[int, str, float | None]] = []
+    for part in raw.split(","):
+        tokens = [t.strip() for t in part.split(":") if t.strip()]
+        if len(tokens) < 2:
+            continue
+        try:
+            year = int(tokens[0])
+        except ValueError:
+            continue
+        op = tokens[1].lower()
+        val: float | None = None
+        if len(tokens) >= 3:
+            try:
+                val = float(tokens[2])
+            except ValueError:
+                val = None
+        out.append((year, op, val))
+    return out
+
+
 class ScenarioService:
     """Reglas de negocio para gestión de escenarios OSEMOSYS."""
 
@@ -939,31 +1002,6 @@ class ScenarioService:
         )
 
     @staticmethod
-    def list_osemosys_summary(db: Session, *, scenario_id: int, current_user: User) -> list[dict]:
-        """Retorna resumen agregado por parámetro/año de `osemosys_param_value`."""
-        ScenarioService._require_access(db, scenario_id=scenario_id, current_user=current_user)
-        rows = db.execute(
-            select(
-                OsemosysParamValue.param_name.label("param_name"),
-                OsemosysParamValue.year.label("year"),
-                func.count().label("records"),
-                func.sum(OsemosysParamValue.value).label("total_value"),
-            )
-            .where(OsemosysParamValue.id_scenario == scenario_id)
-            .group_by(OsemosysParamValue.param_name, OsemosysParamValue.year)
-            .order_by(OsemosysParamValue.param_name.asc(), OsemosysParamValue.year.asc())
-        ).all()
-        return [
-            {
-                "param_name": str(r.param_name),
-                "year": int(r.year) if r.year is not None else None,
-                "records": int(r.records),
-                "total_value": float(r.total_value or 0.0),
-            }
-            for r in rows
-        ]
-
-    @staticmethod
     def list_osemosys_values(
         db: Session,
         *,
@@ -1058,6 +1096,582 @@ class ScenarioService:
         ]
 
         return {"items": items, "total": total, "offset": safe_offset, "limit": safe_limit}
+
+    # Sentinel que el frontend envía cuando selecciona la opción "(vacío)".
+    NULL_SENTINEL = "__NULL__"
+
+    @staticmethod
+    def _wide_filter_clauses(
+        *,
+        db: Session | None = None,
+        scenario_id: int,
+        param_name: str | None,
+        param_name_exact: bool,
+        search: str | None,
+        param_names: list[str] | None,
+        region_names: list[str] | None,
+        technology_names: list[str] | None,
+        fuel_names: list[str] | None,
+        emission_names: list[str] | None,
+        udc_names: list[str] | None,
+        year_rules: list[tuple[int, str, float | None]] | None = None,
+        skip_column: str | None = None,
+    ) -> tuple[list, bool]:
+        """Construye las cláusulas WHERE del wide endpoint.
+
+        Devuelve `(clauses, needs_search_joins)`. `skip_column` omite la
+        cláusula IN de esa columna — útil al calcular facets "exclude-self"
+        para que los valores de la propia columna no se auto-filtren.
+
+        Si se pasan `year_rules` y `db` no es None, se aplican usando la
+        estrategia rápida de `_year_rules_clauses`. Si `db` es None, las
+        reglas se ignoran (p.ej. en la query de años para evitar trabajo extra).
+
+        Cada lista `*_names` puede contener el sentinel `NULL_SENTINEL` para
+        incluir filas donde la columna es NULL; se combina con OR:
+        `col IN (...) OR col IS NULL`.
+
+        `year_rules` es una lista de `(year, op, value)` donde `op` ∈
+        {gt, lt, gte, lte, eq, ne, nonzero, zero}. Para cada regla se
+        requiere que exista al menos una fila del mismo grupo con ese año
+        satisfaciendo la comparación (EXISTS correlacionado).
+        """
+        clauses: list = [OsemosysParamValue.id_scenario == scenario_id]
+
+        if param_name and param_name.strip():
+            p = param_name.strip()
+            if param_name_exact:
+                clauses.append(OsemosysParamValue.param_name == p)
+            else:
+                clauses.append(OsemosysParamValue.param_name.ilike(f"%{p}%"))
+
+        def _split_null(values: list[str] | None) -> tuple[list[str], bool]:
+            """Devuelve `(valores_limpios_sin_null, incluye_null)`."""
+            if not values:
+                return [], False
+            include_null = False
+            cleaned: list[str] = []
+            for v in values:
+                s = (v or "").strip()
+                if not s:
+                    continue
+                if s == ScenarioService.NULL_SENTINEL:
+                    include_null = True
+                else:
+                    cleaned.append(s)
+            return cleaned, include_null
+
+        def _column_filter(id_col, values: list[str], include_null: bool, name_col=None, model=None):
+            """IN sobre ids (resueltos por nombre) y/o IS NULL según `include_null`."""
+            parts = []
+            if values:
+                if model is not None and name_col is not None:
+                    parts.append(
+                        id_col.in_(select(model.id).where(name_col.in_(values)))
+                    )
+                else:
+                    parts.append(id_col.in_(values))
+            if include_null:
+                parts.append(id_col.is_(None))
+            if not parts:
+                return None
+            return or_(*parts)
+
+        # param_name no puede ser NULL (NOT NULL en DB) — pero respetamos la API.
+        if skip_column != "param_name":
+            vals, include_null = _split_null(param_names)
+            c = _column_filter(OsemosysParamValue.param_name, vals, include_null)
+            if c is not None:
+                clauses.append(c)
+
+        column_specs = [
+            ("region", OsemosysParamValue.id_region, Region, Region.name, region_names),
+            ("technology", OsemosysParamValue.id_technology, Technology, Technology.name, technology_names),
+            ("fuel", OsemosysParamValue.id_fuel, Fuel, Fuel.name, fuel_names),
+            ("emission", OsemosysParamValue.id_emission, Emission, Emission.name, emission_names),
+            ("udc", OsemosysParamValue.id_udc_set, UdcSet, UdcSet.code, udc_names),
+        ]
+        for col_key, id_col, model, name_col, raw in column_specs:
+            if skip_column == col_key:
+                continue
+            vals, include_null = _split_null(raw)
+            c = _column_filter(id_col, vals, include_null, name_col=name_col, model=model)
+            if c is not None:
+                clauses.append(c)
+
+        # Reglas sobre años (estrategia rápida: id-IN o intersección en Python).
+        if db is not None and year_rules:
+            clauses.extend(ScenarioService._year_rules_clauses(db, scenario_id, year_rules))
+
+        needs_search_joins = bool((search or "").strip())
+        return clauses, needs_search_joins
+
+    @staticmethod
+    def _year_rules_clauses(
+        db: Session, scenario_id: int, year_rules: list[tuple[int, str, float | None]] | None
+    ) -> list:
+        """Clausulas SQL para aplicar reglas sobre años.
+
+        Estrategia:
+        - 1 regla: `outer.id IN (SELECT id ...)` — rápido, usa índice por `year`.
+          El `SELECT DISTINCT <dims>` posterior colapsa los rows que matchean a
+          tuplas de grupo.
+        - N reglas: calcula en Python la intersección de tuplas de dimensiones
+          que matchean cada regla, y aplica `OR` de `AND`s (con `_eq_or_is_null`
+          para los NULL) para restringir el outer. Más SQL pero evita el
+          EXISTS con `IS NOT DISTINCT FROM` que no usa índices en Postgres.
+        """
+        if not year_rules:
+            return []
+
+        # Filtrar reglas inválidas (op desconocida o valor faltante).
+        valid: list[tuple[int, str, float | None]] = []
+        for year, op, val in year_rules:
+            if _value_rule_clause(OsemosysParamValue.value, op, val) is not None:
+                valid.append((year, op, val))
+        if not valid:
+            return []
+
+        if len(valid) == 1:
+            year, op, val = valid[0]
+            value_clause = _value_rule_clause(OsemosysParamValue.value, op, val)
+            return [
+                OsemosysParamValue.id.in_(
+                    select(OsemosysParamValue.id).where(
+                        OsemosysParamValue.id_scenario == scenario_id,
+                        OsemosysParamValue.year == int(year),
+                        value_clause,
+                    )
+                )
+            ]
+
+        # Multi-regla: intersección en Python de tuplas de dimensiones.
+        surviving: set[tuple] | None = None
+        for year, op, val in valid:
+            value_clause = _value_rule_clause(OsemosysParamValue.value, op, val)
+            q = (
+                db.query(
+                    OsemosysParamValue.param_name,
+                    OsemosysParamValue.id_region,
+                    OsemosysParamValue.id_technology,
+                    OsemosysParamValue.id_fuel,
+                    OsemosysParamValue.id_emission,
+                    OsemosysParamValue.id_timeslice,
+                    OsemosysParamValue.id_mode_of_operation,
+                    OsemosysParamValue.id_season,
+                    OsemosysParamValue.id_daytype,
+                    OsemosysParamValue.id_dailytimebracket,
+                    OsemosysParamValue.id_storage_set,
+                    OsemosysParamValue.id_udc_set,
+                )
+                .distinct()
+                .filter(
+                    OsemosysParamValue.id_scenario == scenario_id,
+                    OsemosysParamValue.year == int(year),
+                    value_clause,
+                )
+            )
+            tuples = {tuple(row) for row in q.all()}
+            surviving = tuples if surviving is None else (surviving & tuples)
+            if not surviving:
+                break
+
+        if not surviving:
+            from sqlalchemy import literal
+            return [literal(False)]
+
+        conds = []
+        for t in surviving:
+            conds.append(
+                and_(
+                    OsemosysParamValue.param_name == t[0],
+                    _eq_or_is_null(OsemosysParamValue.id_region, t[1]),
+                    _eq_or_is_null(OsemosysParamValue.id_technology, t[2]),
+                    _eq_or_is_null(OsemosysParamValue.id_fuel, t[3]),
+                    _eq_or_is_null(OsemosysParamValue.id_emission, t[4]),
+                    _eq_or_is_null(OsemosysParamValue.id_timeslice, t[5]),
+                    _eq_or_is_null(OsemosysParamValue.id_mode_of_operation, t[6]),
+                    _eq_or_is_null(OsemosysParamValue.id_season, t[7]),
+                    _eq_or_is_null(OsemosysParamValue.id_daytype, t[8]),
+                    _eq_or_is_null(OsemosysParamValue.id_dailytimebracket, t[9]),
+                    _eq_or_is_null(OsemosysParamValue.id_storage_set, t[10]),
+                    _eq_or_is_null(OsemosysParamValue.id_udc_set, t[11]),
+                )
+            )
+        return [or_(*conds)]
+
+    @staticmethod
+    def list_osemosys_values_wide(
+        db: Session,
+        *,
+        scenario_id: int,
+        current_user: User,
+        param_name: str | None = None,
+        param_name_exact: bool = False,
+        search: str | None = None,
+        param_names: list[str] | None = None,
+        region_names: list[str] | None = None,
+        technology_names: list[str] | None = None,
+        fuel_names: list[str] | None = None,
+        emission_names: list[str] | None = None,
+        udc_names: list[str] | None = None,
+        year_rules: list[tuple[int, str, float | None]] | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> dict:
+        """Versión pivotada (formato wide) de `list_osemosys_values`.
+
+        Agrupa filas por la tupla completa de dimensiones
+        `(param_name, id_region, id_technology, id_fuel, id_emission,
+        id_timeslice, id_mode_of_operation, id_season, id_daytype,
+        id_dailytimebracket, id_storage_set, id_udc_set)` y expone las
+        celdas `{year: {id, value}}` por grupo. `year IS NULL` se mapea a la
+        clave `"scalar"`.
+
+        Filtros por columna: `*_names` aplica `IN (...)` combinando con AND
+        entre columnas y OR dentro de cada columna.
+
+        Estrategia eficiente (3 queries):
+        1. Query de grupos distintos paginados.
+        2. Count de grupos distintos.
+        3. Query de celdas sólo para los grupos paginados.
+        4. Query ligera de años del set filtrado (header consistente entre páginas).
+        """
+        ScenarioService._require_access(db, scenario_id=scenario_id, current_user=current_user)
+
+        safe_limit = max(1, min(limit, 500))
+        safe_offset = max(0, offset)
+
+        group_cols = (
+            OsemosysParamValue.param_name,
+            OsemosysParamValue.id_region,
+            OsemosysParamValue.id_technology,
+            OsemosysParamValue.id_fuel,
+            OsemosysParamValue.id_emission,
+            OsemosysParamValue.id_timeslice,
+            OsemosysParamValue.id_mode_of_operation,
+            OsemosysParamValue.id_season,
+            OsemosysParamValue.id_daytype,
+            OsemosysParamValue.id_dailytimebracket,
+            OsemosysParamValue.id_storage_set,
+            OsemosysParamValue.id_udc_set,
+        )
+
+        clauses, needs_search_joins = ScenarioService._wide_filter_clauses(
+            db=db,
+            scenario_id=scenario_id,
+            param_name=param_name,
+            param_name_exact=param_name_exact,
+            search=search,
+            param_names=param_names,
+            region_names=region_names,
+            technology_names=technology_names,
+            fuel_names=fuel_names,
+            emission_names=emission_names,
+            udc_names=udc_names,
+            year_rules=year_rules,
+        )
+        # Para step 4 (años de surviving groups) NO aplicamos year_rules:
+        # se pre-computan las cláusulas sin pasar `db` a year_rules.
+        years_clauses, _ = ScenarioService._wide_filter_clauses(
+            db=None,  # fuerza skip de year_rules
+            scenario_id=scenario_id,
+            param_name=param_name,
+            param_name_exact=param_name_exact,
+            search=search,
+            param_names=param_names,
+            region_names=region_names,
+            technology_names=technology_names,
+            fuel_names=fuel_names,
+            emission_names=emission_names,
+            udc_names=udc_names,
+            year_rules=None,
+        )
+        search_term = (search or "").strip()
+
+        def _apply_filters(q, with_joins: bool, which: str = "main"):
+            """`which='main'` usa `clauses` (con year_rules); `which='years'` usa `years_clauses` (sin)."""
+            applied = clauses if which == "main" else years_clauses
+            q = q.filter(*applied)
+            if needs_search_joins and with_joins:
+                q = (
+                    q.outerjoin(Region, OsemosysParamValue.id_region == Region.id)
+                    .outerjoin(Technology, OsemosysParamValue.id_technology == Technology.id)
+                    .outerjoin(Fuel, OsemosysParamValue.id_fuel == Fuel.id)
+                    .outerjoin(Emission, OsemosysParamValue.id_emission == Emission.id)
+                    .outerjoin(UdcSet, OsemosysParamValue.id_udc_set == UdcSet.id)
+                )
+                term = f"%{search_term}%"
+                q = q.filter(
+                    or_(
+                        OsemosysParamValue.param_name.ilike(term),
+                        Region.name.ilike(term),
+                        Technology.name.ilike(term),
+                        Fuel.name.ilike(term),
+                        Emission.name.ilike(term),
+                        UdcSet.code.ilike(term),
+                    )
+                )
+            return q
+
+        # 1. Page de grupos distintos
+        groups_query = _apply_filters(
+            db.query(*group_cols).distinct(), with_joins=needs_search_joins
+        )
+        group_rows = (
+            groups_query.order_by(
+                OsemosysParamValue.param_name.asc(),
+                OsemosysParamValue.id_region.asc().nulls_last(),
+                OsemosysParamValue.id_technology.asc().nulls_last(),
+                OsemosysParamValue.id_fuel.asc().nulls_last(),
+                OsemosysParamValue.id_emission.asc().nulls_last(),
+                OsemosysParamValue.id_udc_set.asc().nulls_last(),
+            )
+            .offset(safe_offset)
+            .limit(safe_limit)
+            .all()
+        )
+
+        # 2. Count de grupos
+        count_subq = _apply_filters(
+            db.query(*group_cols).distinct(), with_joins=needs_search_joins
+        ).subquery()
+        total = db.query(func.count()).select_from(count_subq).scalar() or 0
+
+        # 4. Años y flag escalar (sin year_rules, sólo filtros de dims).
+        years_query = _apply_filters(
+            db.query(OsemosysParamValue.year).distinct(),
+            with_joins=needs_search_joins,
+            which="years",
+        )
+        raw_years = [r[0] for r in years_query.all()]
+        has_scalar = any(y is None for y in raw_years)
+        years = sorted(y for y in raw_years if y is not None)
+
+        if not group_rows:
+            return {
+                "items": [],
+                "total": int(total),
+                "offset": safe_offset,
+                "limit": safe_limit,
+                "years": years,
+                "has_scalar": has_scalar,
+            }
+
+        # 3. Celdas para los grupos paginados. Construimos OR de ANDs sobre la tupla.
+        group_conditions = []
+        for g in group_rows:
+            conds = [
+                OsemosysParamValue.param_name == g.param_name,
+                _eq_or_is_null(OsemosysParamValue.id_region, g.id_region),
+                _eq_or_is_null(OsemosysParamValue.id_technology, g.id_technology),
+                _eq_or_is_null(OsemosysParamValue.id_fuel, g.id_fuel),
+                _eq_or_is_null(OsemosysParamValue.id_emission, g.id_emission),
+                _eq_or_is_null(OsemosysParamValue.id_timeslice, g.id_timeslice),
+                _eq_or_is_null(OsemosysParamValue.id_mode_of_operation, g.id_mode_of_operation),
+                _eq_or_is_null(OsemosysParamValue.id_season, g.id_season),
+                _eq_or_is_null(OsemosysParamValue.id_daytype, g.id_daytype),
+                _eq_or_is_null(OsemosysParamValue.id_dailytimebracket, g.id_dailytimebracket),
+                _eq_or_is_null(OsemosysParamValue.id_storage_set, g.id_storage_set),
+                _eq_or_is_null(OsemosysParamValue.id_udc_set, g.id_udc_set),
+            ]
+            group_conditions.append(and_(*conds))
+
+        cells_rows = (
+            db.query(
+                OsemosysParamValue,
+                Region.name.label("region_name"),
+                Technology.name.label("technology_name"),
+                Fuel.name.label("fuel_name"),
+                Emission.name.label("emission_name"),
+                UdcSet.code.label("udc_name"),
+            )
+            .outerjoin(Region, OsemosysParamValue.id_region == Region.id)
+            .outerjoin(Technology, OsemosysParamValue.id_technology == Technology.id)
+            .outerjoin(Fuel, OsemosysParamValue.id_fuel == Fuel.id)
+            .outerjoin(Emission, OsemosysParamValue.id_emission == Emission.id)
+            .outerjoin(UdcSet, OsemosysParamValue.id_udc_set == UdcSet.id)
+            .filter(OsemosysParamValue.id_scenario == scenario_id)
+            .filter(or_(*group_conditions))
+            .all()
+        )
+
+        # Pivot en Python respetando el orden de `group_rows`.
+        def _group_key(row) -> tuple:
+            return (
+                row.param_name,
+                row.id_region,
+                row.id_technology,
+                row.id_fuel,
+                row.id_emission,
+                row.id_timeslice,
+                row.id_mode_of_operation,
+                row.id_season,
+                row.id_daytype,
+                row.id_dailytimebracket,
+                row.id_storage_set,
+                row.id_udc_set,
+            )
+
+        groups_map: dict[tuple, dict] = {}
+        for r in cells_rows:
+            v = r.OsemosysParamValue
+            key = _group_key(v)
+            g = groups_map.get(key)
+            if g is None:
+                g = {
+                    "param_name": v.param_name,
+                    "region_name": r.region_name,
+                    "technology_name": r.technology_name,
+                    "fuel_name": r.fuel_name,
+                    "emission_name": r.emission_name,
+                    "udc_name": r.udc_name,
+                    "cells": {},
+                }
+                groups_map[key] = g
+            year_key = "scalar" if v.year is None else str(int(v.year))
+            g["cells"][year_key] = {"id": int(v.id), "value": float(v.value)}
+
+        items = []
+        for g in group_rows:
+            key = _group_key(g)
+            entry = groups_map.get(key)
+            if entry is None:
+                continue
+            items.append(
+                {
+                    "group_key": "|".join("" if k is None else str(k) for k in key),
+                    **entry,
+                }
+            )
+
+        return {
+            "items": items,
+            "total": int(total),
+            "offset": safe_offset,
+            "limit": safe_limit,
+            "years": years,
+            "has_scalar": has_scalar,
+        }
+
+    @staticmethod
+    def list_osemosys_wide_facets(
+        db: Session,
+        *,
+        scenario_id: int,
+        current_user: User,
+        param_name: str | None = None,
+        param_name_exact: bool = False,
+        search: str | None = None,
+        param_names: list[str] | None = None,
+        region_names: list[str] | None = None,
+        technology_names: list[str] | None = None,
+        fuel_names: list[str] | None = None,
+        emission_names: list[str] | None = None,
+        udc_names: list[str] | None = None,
+        year_rules: list[tuple[int, str, float | None]] | None = None,
+        limit_per_column: int = 500,
+    ) -> dict:
+        """Valores únicos por columna para el popover de filtros (exclude-self).
+
+        Al calcular la lista de una columna, se aplican TODOS los filtros
+        activos excepto el de esa misma columna — así el usuario puede agregar
+        o quitar valores de esa columna sin que desaparezcan.
+
+        Si la columna tiene filas con id NULL (dimensión no aplicable), se
+        prepone el sentinel `__NULL__` a la lista; el frontend lo renderiza
+        como "(vacío)".
+        """
+        ScenarioService._require_access(db, scenario_id=scenario_id, current_user=current_user)
+
+        safe_limit = max(10, min(limit_per_column, 5000))
+
+        def _build_filtered_query(value_col, column_key: str, needs_catalog_join: bool):
+            clauses, needs_search_joins = ScenarioService._wide_filter_clauses(
+                db=db,
+                scenario_id=scenario_id,
+                param_name=param_name,
+                param_name_exact=param_name_exact,
+                search=search,
+                param_names=param_names,
+                region_names=region_names,
+                technology_names=technology_names,
+                fuel_names=fuel_names,
+                emission_names=emission_names,
+                udc_names=udc_names,
+                year_rules=year_rules,
+                skip_column=column_key,
+            )
+            q = (
+                db.query(value_col)
+                .select_from(OsemosysParamValue)
+                .distinct()
+                .filter(*clauses)
+            )
+            if needs_search_joins or needs_catalog_join:
+                q = (
+                    q.outerjoin(Region, OsemosysParamValue.id_region == Region.id)
+                    .outerjoin(Technology, OsemosysParamValue.id_technology == Technology.id)
+                    .outerjoin(Fuel, OsemosysParamValue.id_fuel == Fuel.id)
+                    .outerjoin(Emission, OsemosysParamValue.id_emission == Emission.id)
+                    .outerjoin(UdcSet, OsemosysParamValue.id_udc_set == UdcSet.id)
+                )
+            if needs_search_joins:
+                term = f"%{(search or '').strip()}%"
+                q = q.filter(
+                    or_(
+                        OsemosysParamValue.param_name.ilike(term),
+                        Region.name.ilike(term),
+                        Technology.name.ilike(term),
+                        Fuel.name.ilike(term),
+                        Emission.name.ilike(term),
+                        UdcSet.code.ilike(term),
+                    )
+                )
+            return q
+
+        def _facet(column_key: str, value_col, id_col, needs_catalog_join: bool, can_be_null: bool):
+            q_values = _build_filtered_query(value_col, column_key, needs_catalog_join)
+            q_values = q_values.filter(value_col.isnot(None)).order_by(value_col.asc()).limit(safe_limit)
+            options = [str(r[0]) for r in q_values.all() if r[0] is not None]
+
+            has_null = False
+            if can_be_null and id_col is not None:
+                # Query 2.0: filter() debe llamarse ANTES de limit().
+                q_null = _build_filtered_query(id_col, column_key, needs_catalog_join)
+                has_null = q_null.filter(id_col.is_(None)).limit(1).first() is not None
+            if has_null:
+                options = [ScenarioService.NULL_SENTINEL, *options]
+            return options
+
+        return {
+            "param_names": _facet(
+                "param_name",
+                OsemosysParamValue.param_name,
+                OsemosysParamValue.param_name,
+                needs_catalog_join=False,
+                can_be_null=False,  # NOT NULL en DB
+            ),
+            "region_names": _facet(
+                "region", Region.name, OsemosysParamValue.id_region, needs_catalog_join=True, can_be_null=True
+            ),
+            "technology_names": _facet(
+                "technology",
+                Technology.name,
+                OsemosysParamValue.id_technology,
+                needs_catalog_join=True,
+                can_be_null=True,
+            ),
+            "fuel_names": _facet(
+                "fuel", Fuel.name, OsemosysParamValue.id_fuel, needs_catalog_join=True, can_be_null=True
+            ),
+            "emission_names": _facet(
+                "emission", Emission.name, OsemosysParamValue.id_emission, needs_catalog_join=True, can_be_null=True
+            ),
+            "udc_names": _facet(
+                "udc", UdcSet.code, OsemosysParamValue.id_udc_set, needs_catalog_join=True, can_be_null=True
+            ),
+        }
 
     @staticmethod
     def list_osemosys_param_audit(

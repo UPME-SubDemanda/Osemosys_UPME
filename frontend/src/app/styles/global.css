@@ -758,3 +758,168 @@ input[type="file"].field__input {
 .solverResultCard {
   animation: solver-card-enter 380ms ease both;
 }
+
+.wide-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.72;
+  transition: background-color 120ms ease, opacity 120ms ease, border-color 120ms ease;
+}
+
+.wide-icon-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.wide-icon-btn:focus-visible {
+  outline: 2px solid rgba(80, 140, 255, 0.55);
+  outline-offset: 1px;
+}
+
+.wide-icon-btn--danger:hover {
+  background: rgba(220, 60, 60, 0.14);
+  border-color: rgba(220, 60, 60, 0.55);
+  color: rgb(255, 140, 140);
+}
+
+.col-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 4px;
+  margin-left: 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 120ms ease, background-color 120ms ease, border-color 120ms ease;
+  line-height: 1;
+}
+
+.col-filter-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.col-filter-btn--active {
+  opacity: 1;
+  color: rgb(120, 170, 255);
+  border-color: rgba(120, 170, 255, 0.45);
+}
+
+.col-filter-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(120, 170, 255, 0.25);
+  line-height: 14px;
+  min-width: 14px;
+  text-align: center;
+}
+
+.col-filter-popover {
+  position: fixed;
+  z-index: 1000;
+  min-width: 240px;
+  max-width: 320px;
+  background: rgb(24, 26, 32);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.col-filter-popover__head {
+  display: flex;
+}
+
+.col-filter-popover__search {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  color: inherit;
+  outline: none;
+}
+
+.col-filter-popover__search:focus {
+  border-color: rgba(120, 170, 255, 0.55);
+}
+
+.col-filter-popover__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 0 2px;
+}
+
+.col-filter-popover__link {
+  background: none;
+  border: none;
+  color: rgb(150, 180, 240);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.col-filter-popover__link:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.col-filter-popover__link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.col-filter-popover__list {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+}
+
+.col-filter-popover__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.col-filter-popover__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.col-filter-popover__item input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.col-filter-popover__empty {
+  padding: 10px;
+  text-align: center;
+  opacity: 0.6;
+  font-size: 13px;
+}

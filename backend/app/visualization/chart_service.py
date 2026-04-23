@@ -331,9 +331,11 @@ def _build_factor_planta_data(
     sub_filtro: str | None,
     loc: str | None,
 ) -> ChartDataResponse:
-    """CF = Producción[PJ] / (Capacidad[GW] × 31.536 PJ) × 100 %
+    """CF = Producción[PJ] / TotalCapacityAnnual[PJ] × 100 %
 
-    31.536 = 8760 h/año × 3.6 MJ/kWh × 10⁻³ (PJ/GJ) — máxima energía producible.
+    Ambas variables están en PJ (baseline del modelo).
+    TotalCapacityAnnual[PJ] = capacidad[GW] × 31.536 = energía máxima anual posible.
+    CF = Energía real / Energía máxima posible ∈ [0 %, 100 %].
     """
     filtro_fn = cfg.get("filtro")
 
@@ -357,7 +359,8 @@ def _build_factor_planta_data(
     if df.empty:
         return ChartDataResponse(categories=[], series=[], title=title, yAxisLabel="%")
 
-    df["CF"] = (df["PRODUCTION"] / (df["VALUE"] * 31.536) * 100.0).clip(0, 100)
+    # Ambos en PJ → ratio directo, sin conversión adicional
+    df["CF"] = (df["PRODUCTION"] / df["VALUE"] * 100.0).clip(0, 100)
     df["COLOR"] = df["TECHNOLOGY"]
 
     color_fn = cfg.get("color_fn")

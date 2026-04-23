@@ -31,12 +31,37 @@ export type User = {
   is_admin: boolean;
 };
 
-/** Etiqueta global de escenario (prioridad y color). */
+/** Categoría jerárquica de etiquetas de escenario. */
+export type ScenarioTagCategory = {
+  id: number;
+  name: string;
+  hierarchy_level: number;
+  sort_order: number;
+  max_tags_per_scenario: number | null;
+  is_exclusive_combination: boolean;
+  default_color: string;
+};
+
+/** Etiqueta asignable a un escenario; pertenece a una categoría. */
 export type ScenarioTag = {
   id: number;
   name: string;
   color: string;
   sort_order: number;
+  category_id: number;
+  /** Si true, la combinación (tag + cualquier tag de otra categoría) debe ser
+   *  única entre escenarios. Independiente del flag homónimo de la categoría. */
+  is_exclusive_combination?: boolean;
+  category?: ScenarioTagCategory | null;
+};
+
+/** Conflicto detectado al intentar asignar una etiqueta a un escenario. */
+export type ScenarioTagConflict = {
+  scenario_id: number;
+  scenario_name: string;
+  conflicting_tag_id: number;
+  conflicting_tag_name: string;
+  reason: "exclusive_combination" | "max_one_per_scenario";
 };
 
 export type Scenario = {
@@ -51,7 +76,10 @@ export type Scenario = {
   simulation_type: SimulationType;
   is_template: boolean;
   created_at: string;
+  /** Etiqueta "primaria" (menor hierarchy_level). Compatibilidad con listados legacy. */
   tag?: ScenarioTag | null;
+  /** Todas las etiquetas asignadas al escenario, ordenadas por jerarquía ascendente. */
+  tags?: ScenarioTag[];
   effective_access?: {
     can_view: boolean;
     is_owner: boolean;
@@ -110,6 +138,7 @@ export type SimulationRun = {
   /** Alias opcional de la corrida (resultados y exportación). */
   display_name?: string | null;
   scenario_tag?: ScenarioTag | null;
+  scenario_tags?: ScenarioTag[];
   user_id: string;
   username?: string | null;
   solver_name: SimulationSolver;
@@ -532,6 +561,7 @@ export type ResultSummaryResponse = {
   scenario_id: number | null;
   scenario_name: string | null;
   scenario_tag?: ScenarioTag | null;
+  scenario_tags?: ScenarioTag[];
   /** Alias opcional definido por el usuario para esta corrida. */
   display_name?: string | null;
   solver_name: string;

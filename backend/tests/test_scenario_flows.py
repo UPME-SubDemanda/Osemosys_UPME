@@ -317,7 +317,6 @@ def test_import_csv_directory_creates_scenario_and_values(db_session, tmp_path: 
         scenario_name="Escenario CSV regional",
         description="Importado desde ZIP",
         edit_policy="OWNER_ONLY",
-        tag_id=None,
         simulation_type="REGIONAL",
     )
 
@@ -371,7 +370,6 @@ def test_import_csv_directory_reuses_existing_catalogs_without_duplicate_violati
         scenario_name="Escenario con catálogos existentes",
         description=None,
         edit_policy="OWNER_ONLY",
-        tag_id=None,
         simulation_type="NATIONAL",
     )
 

@@ -113,6 +113,7 @@ class ResultSummaryResponse(BaseModel):
     scenario_id: int | None = None
     scenario_name: str | None = None
     scenario_tag: ScenarioTagPublic | None = None
+    scenario_tags: list[ScenarioTagPublic] = []
     display_name: str | None = None
     solver_name: str
     solver_status: str

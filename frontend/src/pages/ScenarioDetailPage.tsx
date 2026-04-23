@@ -32,6 +32,7 @@ import { catalogsApi } from "@/features/catalogs/api/catalogsApi";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
+import { ScenarioTagsPanel } from "@/shared/components/ScenarioTagsPanel";
 import { DataTable } from "@/shared/components/DataTable";
 import { Modal } from "@/shared/components/Modal";
 import { TextField } from "@/shared/components/TextField";
@@ -43,6 +44,7 @@ import type {
   ScenarioOperationJob,
   ScenarioPermission,
   ScenarioTag,
+  ScenarioTagCategory,
   SimulationType,
 } from "@/types/domain";
 
@@ -164,18 +166,19 @@ export function ScenarioDetailPage() {
     can_manage_values: false,
   });
   const [scenarioTags, setScenarioTags] = useState<ScenarioTag[]>([]);
+  const [scenarioTagCategories, setScenarioTagCategories] = useState<
+    ScenarioTagCategory[]
+  >([]);
   const [metaForm, setMetaForm] = useState<{
     name: string;
     description: string;
     edit_policy: ScenarioEditPolicy;
     simulation_type: SimulationType;
-    tag_id: string;
   }>({
     name: "",
     description: "",
     edit_policy: "OWNER_ONLY",
     simulation_type: "NATIONAL",
-    tag_id: "",
   });
   // Para valores OSeMOSYS usamos el acceso efectivo calculado por backend.
   // Esto mantiene la semántica de OPEN: cualquier usuario autenticado puede editar valores.
@@ -185,10 +188,18 @@ export function ScenarioDetailPage() {
 
   useEffect(() => {
     if (!user) return;
-    void scenariosApi
-      .listScenarioTags()
-      .then(setScenarioTags)
-      .catch(() => setScenarioTags([]));
+    void Promise.all([
+      scenariosApi.listScenarioTags(),
+      scenariosApi.listScenarioTagCategories(),
+    ])
+      .then(([tags, cats]) => {
+        setScenarioTags(tags);
+        setScenarioTagCategories(cats);
+      })
+      .catch(() => {
+        setScenarioTags([]);
+        setScenarioTagCategories([]);
+      });
   }, [user]);
 
   const refreshScenarioHeader = useCallback(
@@ -323,7 +334,6 @@ export function ScenarioDetailPage() {
             description: sc.description ?? "",
             edit_policy: sc.edit_policy,
             simulation_type: sc.simulation_type,
-            tag_id: sc.tag ? String(sc.tag.id) : "",
           });
         setParentScenarioName(sc.base_scenario_name ?? null);
 
@@ -754,7 +764,6 @@ export function ScenarioDetailPage() {
         description: metaForm.description.trim() || null,
         edit_policy: metaForm.edit_policy,
         simulation_type: metaForm.simulation_type,
-        tag_id: metaForm.tag_id ? Number(metaForm.tag_id) : null,
       });
       setScenario(updated);
       setMetaForm({
@@ -762,7 +771,6 @@ export function ScenarioDetailPage() {
         description: updated.description ?? "",
         edit_policy: updated.edit_policy,
         simulation_type: updated.simulation_type,
-        tag_id: updated.tag ? String(updated.tag.id) : "",
       });
       setParentScenarioName(updated.base_scenario_name ?? parentScenarioName);
       setOpenMetaModal(false);
@@ -826,9 +834,11 @@ export function ScenarioDetailPage() {
         <div>
           <h1 style={{ margin: 0 }}>{scenario.name}</h1>
           <p style={{ margin: "6px 0 0", opacity: 0.75 }}>{scenario.description}</p>
-          {scenario.tag ? (
-            <div style={{ marginTop: 8 }}>
-              <ScenarioTagChip tag={scenario.tag} />
+          {(scenario.tags && scenario.tags.length > 0) || scenario.tag ? (
+            <div style={{ marginTop: 8, display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {(scenario.tags ?? (scenario.tag ? [scenario.tag] : [])).map((t) => (
+                <ScenarioTagChip key={t.id} tag={t} size="sm" showCategory />
+              ))}
             </div>
           ) : null}
           <small style={{ opacity: 0.7 }}>
@@ -844,7 +854,6 @@ export function ScenarioDetailPage() {
                 description: scenario.description ?? "",
                 edit_policy: scenario.edit_policy,
                 simulation_type: scenario.simulation_type,
-                tag_id: scenario.tag ? String(scenario.tag.id) : "",
               });
               setOpenMetaModal(true);
             }}
@@ -1261,21 +1270,26 @@ export function ScenarioDetailPage() {
             </select>
           </label>
           <small style={{ opacity: 0.75 }}>{getPolicyExplanation(metaForm.edit_policy)}</small>
-          <label className="field">
-            <span className="field__label">Etiqueta</span>
-            <select
-              className="field__input"
-              value={metaForm.tag_id}
-              onChange={(e) => setMetaForm((prev) => ({ ...prev, tag_id: e.target.value }))}
-            >
-              <option value="">Sin etiqueta</option>
-              {scenarioTags.map((t) => (
-                <option key={t.id} value={String(t.id)}>
-                  {t.name} (prioridad {t.sort_order})
-                </option>
-              ))}
-            </select>
-          </label>
+          {scenario && canEditScenarioMeta ? (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                Etiquetas
+              </div>
+              <ScenarioTagsPanel
+                scenarioId={scenario.id}
+                scenarioName={scenario.name}
+                tags={scenario.tags ?? (scenario.tag ? [scenario.tag] : [])}
+                categories={scenarioTagCategories}
+                availableTags={scenarioTags}
+                canEdit
+                onTagsChange={(next) => {
+                  setScenario((prev) =>
+                    prev ? { ...prev, tags: next, tag: next[0] ?? null } : prev,
+                  );
+                }}
+              />
+            </div>
+          ) : null}
         </div>
       </Modal>
 

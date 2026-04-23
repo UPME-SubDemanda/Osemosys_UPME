@@ -10,6 +10,7 @@ export const paths = {
   usersAdmin: "/app/users-admin",
   scenarios: "/app/scenarios",
   scenarioDetail: (id: string | number) => `/app/scenarios/${id}`,
+  scenarioTagsAdmin: "/app/scenario-tags-admin",
   changeRequests: "/app/change-requests",
   catalogs: "/app/catalogs",
   officialImport: "/app/official-import",

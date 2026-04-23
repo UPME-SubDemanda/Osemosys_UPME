@@ -11,7 +11,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
-from app.models import OsemosysOutputParamValue, Scenario, ScenarioTag, User
+from app.models import (
+    OsemosysOutputParamValue,
+    Scenario,
+    ScenarioTag,
+    ScenarioTagCategory,
+    ScenarioTagLink,
+    User,
+)
+from sqlalchemy.orm import joinedload
 from app.repositories.simulation_repository import SimulationRepository
 from app.services.docker_metrics_service import DockerMetricsService
 from app.services.pagination import build_meta, normalize_pagination
@@ -65,29 +73,65 @@ class SimulationService:
         return s[:255]
 
     @staticmethod
-    def _batch_scenario_tags_by_scenario_ids(db: Session, scenario_ids: set[int]) -> dict[int, dict | None]:
+    def _tag_to_public_dict(tag: ScenarioTag) -> dict:
+        cat = tag.category
+        return {
+            "id": int(tag.id),
+            "name": tag.name,
+            "color": tag.color,
+            "sort_order": int(tag.sort_order),
+            "category_id": int(tag.category_id),
+            "category": (
+                {
+                    "id": int(cat.id),
+                    "name": cat.name,
+                    "hierarchy_level": int(cat.hierarchy_level),
+                    "sort_order": int(cat.sort_order),
+                    "max_tags_per_scenario": cat.max_tags_per_scenario,
+                    "is_exclusive_combination": bool(cat.is_exclusive_combination),
+                    "default_color": cat.default_color,
+                }
+                if cat is not None
+                else None
+            ),
+        }
+
+    @staticmethod
+    def _batch_all_scenario_tags_by_scenario_ids(
+        db: Session, scenario_ids: set[int]
+    ) -> dict[int, list[dict]]:
+        """Devuelve todos los tags por escenario, ordenados por jerarquía ascendente."""
         if not scenario_ids:
             return {}
-        rows = db.execute(select(Scenario).where(Scenario.id.in_(scenario_ids))).scalars().all()
-        tag_ids = {s.tag_id for s in rows if s.tag_id}
-        tags_by_id: dict[int, ScenarioTag] = {}
-        if tag_ids:
-            for t in db.execute(select(ScenarioTag).where(ScenarioTag.id.in_(tag_ids))).scalars():
-                tags_by_id[int(t.id)] = t
-        out: dict[int, dict | None] = {}
-        for s in rows:
-            sid = int(s.id)
-            if s.tag_id and s.tag_id in tags_by_id:
-                tr = tags_by_id[s.tag_id]
-                out[sid] = {
-                    "id": int(tr.id),
-                    "name": tr.name,
-                    "color": tr.color,
-                    "sort_order": int(tr.sort_order),
-                }
-            else:
-                out[sid] = None
+        rows = db.execute(
+            select(ScenarioTagLink.scenario_id, ScenarioTag)
+            .join(ScenarioTag, ScenarioTag.id == ScenarioTagLink.tag_id)
+            .join(ScenarioTagCategory, ScenarioTagCategory.id == ScenarioTag.category_id)
+            .options(joinedload(ScenarioTag.category))
+            .where(ScenarioTagLink.scenario_id.in_(list(scenario_ids)))
+            .order_by(
+                ScenarioTagCategory.hierarchy_level.asc(),
+                ScenarioTagCategory.sort_order.asc(),
+                ScenarioTag.sort_order.asc(),
+                ScenarioTag.name.asc(),
+            )
+        ).all()
+        out: dict[int, list[dict]] = {int(sid): [] for sid in scenario_ids}
+        for sid, tag in rows:
+            out.setdefault(int(sid), []).append(
+                SimulationService._tag_to_public_dict(tag)
+            )
         return out
+
+    @staticmethod
+    def _batch_scenario_tags_by_scenario_ids(
+        db: Session, scenario_ids: set[int]
+    ) -> dict[int, dict | None]:
+        """Devuelve el tag "primario" (menor hierarchy_level) de cada escenario."""
+        all_tags = SimulationService._batch_all_scenario_tags_by_scenario_ids(
+            db, scenario_ids
+        )
+        return {sid: (tags[0] if tags else None) for sid, tags in all_tags.items()}
 
     @staticmethod
     def _is_infeasible_succeeded_job(job) -> bool:
@@ -192,6 +236,7 @@ class SimulationService:
         username: str | None = None,
         scenario_name: str | None = None,
         scenario_tag: dict | None = None,
+        scenario_tags: list[dict] | None = None,
         is_favorite: bool = False,
     ) -> dict:
         effective_scenario_name = scenario_name
@@ -203,6 +248,7 @@ class SimulationService:
             "scenario_id": job.scenario_id,
             "scenario_name": effective_scenario_name,
             "scenario_tag": scenario_tag,
+            "scenario_tags": scenario_tags or ([scenario_tag] if scenario_tag else []),
             "display_name": getattr(job, "display_name", None) or None,
             "user_id": str(job.user_id),
             "username": username,
@@ -349,8 +395,10 @@ class SimulationService:
         SimulationService._dispatch_queued_jobs(db, fail_fast_job_id=job.id)
         db.refresh(job)
 
-        tag_by_sid = SimulationService._batch_scenario_tags_by_scenario_ids(db, {int(scenario.id)})
-        scenario_tag = tag_by_sid.get(int(scenario.id))
+        all_tags = SimulationService._batch_all_scenario_tags_by_scenario_ids(
+            db, {int(scenario.id)}
+        )
+        scenario_tags_list = all_tags.get(int(scenario.id), [])
         return SimulationService._to_public(
             job,
             queue_position=SimulationRepository.queue_position(db, job_id=job.id)
@@ -358,7 +406,8 @@ class SimulationService:
             else None,
             username=current_user.username,
             scenario_name=scenario.name,
-            scenario_tag=scenario_tag,
+            scenario_tag=scenario_tags_list[0] if scenario_tags_list else None,
+            scenario_tags=scenario_tags_list,
         )
 
     @staticmethod
@@ -443,10 +492,12 @@ class SimulationService:
         queue_position = (
             SimulationRepository.queue_position(db, job_id=job.id) if job.status == "QUEUED" else None
         )
-        tags_by_sid = SimulationService._batch_scenario_tags_by_scenario_ids(
+        all_tags = SimulationService._batch_all_scenario_tags_by_scenario_ids(
             db, {int(job.scenario_id)} if job.scenario_id else set()
         )
-        scenario_tag = tags_by_sid.get(int(job.scenario_id)) if job.scenario_id else None
+        scenario_tags_list = (
+            all_tags.get(int(job.scenario_id), []) if job.scenario_id else []
+        )
         is_favorite = SimulationRepository.is_favorite(
             db, user_id=current_user.id, job_id=job.id
         )
@@ -455,7 +506,8 @@ class SimulationService:
             queue_position=queue_position,
             username=username,
             scenario_name=scenario_name,
-            scenario_tag=scenario_tag,
+            scenario_tag=scenario_tags_list[0] if scenario_tags_list else None,
+            scenario_tags=scenario_tags_list,
             is_favorite=is_favorite,
         )
 
@@ -559,7 +611,9 @@ class SimulationService:
             limit=page_size,
         )
         scenario_ids = {j.scenario_id for j, _, _ in items if j.scenario_id}
-        tags_by_sid = SimulationService._batch_scenario_tags_by_scenario_ids(db, {int(x) for x in scenario_ids})
+        all_tags_by_sid = SimulationService._batch_all_scenario_tags_by_scenario_ids(
+            db, {int(x) for x in scenario_ids}
+        )
         favorite_ids = SimulationRepository.list_favorite_job_ids(
             db, user_id=current_user.id
         )
@@ -571,7 +625,12 @@ class SimulationService:
                 else None,
                 username=job_username,
                 scenario_name=job_scenario_name,
-                scenario_tag=tags_by_sid.get(int(job.scenario_id)) if job.scenario_id else None,
+                scenario_tag=(all_tags_by_sid.get(int(job.scenario_id)) or [None])[0]
+                if job.scenario_id
+                else None,
+                scenario_tags=all_tags_by_sid.get(int(job.scenario_id), [])
+                if job.scenario_id
+                else [],
                 is_favorite=int(job.id) in favorite_ids,
             )
             for job, job_username, job_scenario_name in items

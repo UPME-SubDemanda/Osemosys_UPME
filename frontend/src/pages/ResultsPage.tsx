@@ -338,26 +338,50 @@ export function ResultsPage() {
           },
           {
             key: "scenario_tag",
-            header: "Etiqueta",
+            header: "Etiquetas",
             render: (r) => {
-              const tag =
-                r.scenario_tag ??
-                (r.scenario_id != null ? scenarioMap[r.scenario_id]?.tag : null);
-              return tag ? (
-                <ScenarioTagChip tag={tag} />
-              ) : (
-                <span style={{ opacity: 0.65 }}>—</span>
+              const tags =
+                (r.scenario_tags && r.scenario_tags.length > 0
+                  ? r.scenario_tags
+                  : r.scenario_tag
+                  ? [r.scenario_tag]
+                  : null) ??
+                (r.scenario_id != null
+                  ? scenarioMap[r.scenario_id]?.tags ??
+                    (scenarioMap[r.scenario_id]?.tag
+                      ? [scenarioMap[r.scenario_id]!.tag!]
+                      : [])
+                  : []);
+              if (!tags || tags.length === 0) {
+                return <span style={{ opacity: 0.65 }}>—</span>;
+              }
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  {tags.map((t) => (
+                    <ScenarioTagChip key={t.id} tag={t} size="sm" />
+                  ))}
+                </div>
               );
             },
             filter: {
               type: "multiselect",
               getValue: (r) => {
-                const tag =
-                  r.scenario_tag ??
-                  (r.scenario_id != null ? scenarioMap[r.scenario_id]?.tag : null);
-                return tag?.name ?? "—";
+                const tags =
+                  (r.scenario_tags && r.scenario_tags.length > 0
+                    ? r.scenario_tags
+                    : r.scenario_tag
+                    ? [r.scenario_tag]
+                    : null) ??
+                  (r.scenario_id != null
+                    ? scenarioMap[r.scenario_id]?.tags ??
+                      (scenarioMap[r.scenario_id]?.tag
+                        ? [scenarioMap[r.scenario_id]!.tag!]
+                        : [])
+                    : []);
+                if (!tags || tags.length === 0) return "—";
+                return tags.map((t) => t.name).join(", ");
               },
-              placeholder: "Etiqueta…",
+              placeholder: "Etiquetas…",
             },
           },
           {

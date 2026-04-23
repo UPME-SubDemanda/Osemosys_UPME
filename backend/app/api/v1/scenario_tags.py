@@ -1,8 +1,8 @@
-"""CRUD del catálogo de etiquetas de escenario (prioridad y color)."""
+"""CRUD del catálogo de etiquetas de escenario (agrupadas por categoría)."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_catalog_manager, get_current_user
@@ -17,10 +17,11 @@ router = APIRouter(prefix="/scenario-tags")
 
 @router.get("", response_model=list[ScenarioTagPublic])
 def list_scenario_tags(
+    category_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ) -> list[ScenarioTagPublic]:
-    rows = ScenarioTagService.list_all(db)
+    rows = ScenarioTagService.list_all(db, category_id=category_id)
     return [ScenarioTagPublic.model_validate(r) for r in rows]
 
 
@@ -33,11 +34,15 @@ def create_scenario_tag(
     try:
         row = ScenarioTagService.create(
             db,
+            category_id=payload.category_id,
             name=payload.name,
             color=payload.color,
             sort_order=payload.sort_order,
+            is_exclusive_combination=payload.is_exclusive_combination,
         )
         return ScenarioTagPublic.model_validate(row)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
@@ -56,9 +61,11 @@ def update_scenario_tag(
         row = ScenarioTagService.update(
             db,
             tag_id=tag_id,
+            category_id=data.get("category_id"),
             name=data.get("name"),
             color=data.get("color"),
             sort_order=data.get("sort_order"),
+            is_exclusive_combination=data.get("is_exclusive_combination"),
         )
         return ScenarioTagPublic.model_validate(row)
     except NotFoundError as e:

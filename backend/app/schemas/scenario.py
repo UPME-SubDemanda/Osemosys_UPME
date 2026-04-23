@@ -20,8 +20,72 @@ ScenarioPermissionScope = Literal["mine", "readable", "editable", "readonly"]
 _HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
+class ScenarioTagCategoryPublic(BaseModel):
+    """Categoría jerárquica de etiquetas."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    hierarchy_level: int
+    sort_order: int
+    max_tags_per_scenario: int | None
+    is_exclusive_combination: bool
+    default_color: str
+
+
+class ScenarioTagCategoryCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    hierarchy_level: int = Field(default=1, ge=1, le=10)
+    sort_order: int = 0
+    max_tags_per_scenario: int | None = Field(default=1, ge=1)
+    is_exclusive_combination: bool = False
+    default_color: str = Field(default="#64748B", min_length=7, max_length=7)
+
+    @field_validator("default_color")
+    @classmethod
+    def _color_hex(cls, v: str) -> str:
+        if not _HEX_COLOR.match(v):
+            raise ValueError("default_color debe ser hexadecimal #RRGGBB.")
+        return v
+
+
+class ScenarioTagCategoryUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    hierarchy_level: int | None = Field(default=None, ge=1, le=10)
+    sort_order: int | None = None
+    max_tags_per_scenario: int | None = Field(default=None, ge=1)
+    is_exclusive_combination: bool | None = None
+    default_color: str | None = Field(default=None, min_length=7, max_length=7)
+
+    @field_validator("default_color")
+    @classmethod
+    def _color_hex(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not _HEX_COLOR.match(v):
+            raise ValueError("default_color debe ser hexadecimal #RRGGBB.")
+        return v
+
+    @model_validator(mode="after")
+    def _any_field(self):
+        if all(
+            getattr(self, f) is None
+            for f in (
+                "name",
+                "hierarchy_level",
+                "sort_order",
+                "max_tags_per_scenario",
+                "is_exclusive_combination",
+                "default_color",
+            )
+        ):
+            raise ValueError("Debes enviar al menos un campo para actualizar.")
+        return self
+
+
 class ScenarioTagPublic(BaseModel):
-    """Etiqueta global asignable a un escenario."""
+    """Etiqueta asignable a un escenario; pertenece a una categoría."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -29,12 +93,17 @@ class ScenarioTagPublic(BaseModel):
     name: str
     color: str
     sort_order: int
+    category_id: int
+    is_exclusive_combination: bool = False
+    category: ScenarioTagCategoryPublic | None = None
 
 
 class ScenarioTagCreate(BaseModel):
+    category_id: int
     name: str = Field(min_length=1, max_length=128)
     color: str = Field(min_length=7, max_length=7)
     sort_order: int = 0
+    is_exclusive_combination: bool | None = None
 
     @field_validator("color")
     @classmethod
@@ -45,9 +114,11 @@ class ScenarioTagCreate(BaseModel):
 
 
 class ScenarioTagUpdate(BaseModel):
+    category_id: int | None = None
     name: str | None = Field(default=None, min_length=1, max_length=128)
     color: str | None = Field(default=None, min_length=7, max_length=7)
     sort_order: int | None = None
+    is_exclusive_combination: bool | None = None
 
     @field_validator("color")
     @classmethod
@@ -60,9 +131,34 @@ class ScenarioTagUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _any_field(self):
-        if self.name is None and self.color is None and self.sort_order is None:
-            raise ValueError("Debes enviar al menos name, color o sort_order.")
+        if (
+            self.name is None
+            and self.color is None
+            and self.sort_order is None
+            and self.category_id is None
+            and self.is_exclusive_combination is None
+        ):
+            raise ValueError("Debes enviar al menos un campo para actualizar.")
         return self
+
+
+class ScenarioTagAssignRequest(BaseModel):
+    """Asigna una etiqueta a un escenario. `force=True` evita el 409 por conflicto."""
+
+    tag_id: int
+    force: bool = False
+
+
+class ScenarioTagConflictDetail(BaseModel):
+    """Conflicto detectado al intentar asignar una etiqueta."""
+
+    scenario_id: int
+    scenario_name: str
+    # Tag en conflicto (el que se quitaría al forzar). Puede ser el mismo que se
+    # intenta asignar (para exclusividad combinatoria) o uno distinto (para max=1).
+    conflicting_tag_id: int
+    conflicting_tag_name: str
+    reason: str  # "exclusive_combination" | "max_one_per_scenario"
 
 
 class ScenarioCreate(BaseModel):
@@ -72,7 +168,7 @@ class ScenarioCreate(BaseModel):
     description: str | None = None
     edit_policy: EditPolicy = "OWNER_ONLY"
     is_template: bool = False
-    tag_id: int | None = None
+    tag_ids: list[int] = Field(default_factory=list)
     simulation_type: SimulationType = "NATIONAL"
 
 
@@ -85,12 +181,17 @@ class ScenarioClone(BaseModel):
 
 
 class ScenarioUpdate(BaseModel):
-    """Payload de actualización de metadatos de escenario."""
+    """Payload de actualización de metadatos de escenario.
+
+    `tag_ids` (si se envía) reemplaza el conjunto completo de etiquetas del
+    escenario. Para asignar/quitar una sola etiqueta sin riesgo de conflicto,
+    usar los endpoints `/scenarios/{id}/tags` y `/scenarios/{id}/tags/{tag_id}`.
+    """
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     edit_policy: EditPolicy | None = None
-    tag_id: int | None = None
+    tag_ids: list[int] | None = None
     simulation_type: SimulationType | None = None
 
 
@@ -120,7 +221,10 @@ class ScenarioPublic(BaseModel):
     simulation_type: SimulationType = "NATIONAL"
     is_template: bool
     created_at: datetime
+    # `tag` queda como etiqueta "primaria" (la de menor hierarchy_level, luego por sort_order)
+    # para compatibilidad con listados/resultados legacy.
     tag: ScenarioTagPublic | None = None
+    tags: list[ScenarioTagPublic] = Field(default_factory=list)
     effective_access: ScenarioAccessPublic | None = None
 
 

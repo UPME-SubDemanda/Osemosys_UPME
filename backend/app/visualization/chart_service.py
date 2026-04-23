@@ -848,16 +848,18 @@ def build_comparison_facet_data(
         if job.scenario_id is not None:
             scenario = (
                 db.query(Scenario)
-                .options(joinedload(Scenario.tag_row))
                 .filter(Scenario.id == job.scenario_id)
                 .first()
             )
         scenario_name = scenario.name if scenario else (job.input_name or f"Job {jid}")
-        tag_name = (
-            scenario.tag_row.name
-            if scenario and getattr(scenario, "tag_row", None) is not None
-            else None
-        )
+        tag_name = None
+        if scenario is not None:
+            from app.services.simulation_service import SimulationService as _SS
+            primary = _SS._batch_scenario_tags_by_scenario_ids(
+                db, {int(scenario.id)}
+            ).get(int(scenario.id))
+            if primary:
+                tag_name = primary.get("name")
         job_display = getattr(job, "display_name", None) or None
 
         chart = build_chart_data(
@@ -1259,16 +1261,19 @@ def get_result_summary(
     if job.scenario_id is not None:
         scenario = (
             db.query(Scenario)
-            .options(joinedload(Scenario.tag_row))
             .filter(Scenario.id == job.scenario_id)
             .first()
         )
     scenario_name = scenario.name if scenario else job.input_name
-    scenario_tag = (
-        ScenarioTagPublic.model_validate(scenario.tag_row)
-        if scenario and scenario.tag_row
-        else None
-    )
+    scenario_tag = None
+    scenario_tags_list: list[ScenarioTagPublic] = []
+    if scenario is not None:
+        all_tags = SimulationService._batch_all_scenario_tags_by_scenario_ids(
+            db, {int(scenario.id)}
+        ).get(int(scenario.id), [])
+        scenario_tags_list = [ScenarioTagPublic.model_validate(t) for t in all_tags]
+        if scenario_tags_list:
+            scenario_tag = scenario_tags_list[0]
 
     solver_status = (job.model_timings_json or {}).get("solver_status", "unknown")
 
@@ -1304,6 +1309,7 @@ def get_result_summary(
         scenario_id=job.scenario_id,
         scenario_name=scenario_name,
         scenario_tag=scenario_tag,
+        scenario_tags=scenario_tags_list,
         display_name=getattr(job, "display_name", None) or None,
         solver_name=job.solver_name,
         solver_status=solver_status,

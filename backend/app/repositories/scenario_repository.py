@@ -7,7 +7,13 @@ import uuid
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
-from app.models import Scenario, ScenarioPermission, ScenarioTag
+from app.models import (
+    Scenario,
+    ScenarioPermission,
+    ScenarioTag,
+    ScenarioTagCategory,
+    ScenarioTagLink,
+)
 
 
 class ScenarioRepository:
@@ -33,7 +39,6 @@ class ScenarioRepository:
         - escenarios plantilla no aparecen en el listado operativo.
         """
         base_scenario = aliased(Scenario)
-        scenario_tag_alias = aliased(ScenarioTag)
 
         readable_clause = or_(
             Scenario.owner == current_username,
@@ -78,14 +83,29 @@ class ScenarioRepository:
         )
         total = int(db.scalar(total_stmt) or 0)
 
+        # Subquery: "primary tag hierarchy" por escenario (menor hierarchy_level,
+        # luego menor sort_order de categoría). Se usa solo para ordenar; los tags
+        # completos se cargan aparte en ScenarioService.list.
+        primary_hier_subq = (
+            select(
+                ScenarioTagLink.scenario_id.label("sid"),
+                func.min(ScenarioTagCategory.hierarchy_level).label("min_hier"),
+            )
+            .select_from(ScenarioTagLink)
+            .join(ScenarioTag, ScenarioTag.id == ScenarioTagLink.tag_id)
+            .join(ScenarioTagCategory, ScenarioTagCategory.id == ScenarioTag.category_id)
+            .group_by(ScenarioTagLink.scenario_id)
+            .subquery()
+        )
+
         items_stmt = (
             select(Scenario, base_scenario.name.label("base_scenario_name"))
             .outerjoin(base_scenario, base_scenario.id == Scenario.base_scenario_id)
-            .outerjoin(scenario_tag_alias, scenario_tag_alias.id == Scenario.tag_id)
+            .outerjoin(primary_hier_subq, primary_hier_subq.c.sid == Scenario.id)
             .where(where_clause)
             .order_by(
-                Scenario.tag_id.is_(None).asc(),
-                scenario_tag_alias.sort_order.asc().nulls_last(),
+                primary_hier_subq.c.min_hier.is_(None).asc(),
+                primary_hier_subq.c.min_hier.asc().nulls_last(),
                 Scenario.created_at.desc(),
                 Scenario.id.desc(),
             )

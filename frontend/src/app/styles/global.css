@@ -608,6 +608,42 @@ select.field__input optgroup {
   color: rgba(255, 255, 255, 0.38);
 }
 
+.scenariosPage__tagAddBtn {
+  margin-top: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 120ms ease, transform 120ms ease,
+    color 120ms ease, border-color 120ms ease, background 120ms ease;
+  pointer-events: none;
+}
+
+/* Revela el "+" al hacer hover sobre la fila */
+tr:hover .scenariosPage__tagAddBtn,
+.scenariosPage__tagCellRoot:focus-within .scenariosPage__tagAddBtn {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.scenariosPage__tagAddBtn:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.1);
+}
+
 @media (max-width: 1000px) {
   .appShell {
     grid-template-columns: 1fr;

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from sqlalchemy import func, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -331,10 +331,27 @@ class ScenarioOperationService:
             processing_mode=getattr(source, "processing_mode", "STANDARD"),
             is_template=False,
             udc_config=source.udc_config,
-            tag_id=source.tag_id,
         )
         db.add(new_scenario)
         db.flush()
+        # Copia tags del escenario origen excluyendo categorías exclusivas
+        # (estado "Oficial/Entregado" no se hereda al clonar).
+        from app.models import ScenarioTagLink, ScenarioTag, ScenarioTagCategory
+        source_tag_ids = (
+            db.execute(
+                select(ScenarioTagLink.tag_id)
+                .join(ScenarioTag, ScenarioTag.id == ScenarioTagLink.tag_id)
+                .join(ScenarioTagCategory, ScenarioTagCategory.id == ScenarioTag.category_id)
+                .where(
+                    ScenarioTagLink.scenario_id == source.id,
+                    ScenarioTagCategory.is_exclusive_combination.is_(False),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for tid in source_tag_ids:
+            db.add(ScenarioTagLink(scenario_id=int(new_scenario.id), tag_id=int(tid)))
         job.target_scenario_id = int(new_scenario.id)
         ScenarioOperationService._update_progress(
             db,

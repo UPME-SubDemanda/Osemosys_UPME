@@ -172,7 +172,7 @@ def create_scenario(
             description=payload.description,
             edit_policy=payload.edit_policy,
             is_template=payload.is_template,
-            tag_id=payload.tag_id,
+            tag_ids=payload.tag_ids,
             simulation_type=payload.simulation_type,
         )
     except NotFoundError as e:
@@ -188,7 +188,7 @@ def create_scenario_from_excel(
     scenario_name: str = Form(...),
     description: str | None = Form(default=None),
     edit_policy: str = Form(default="OWNER_ONLY"),
-    tag_id: int | None = Form(default=None),
+    tag_ids: str | None = Form(default=None),
     simulation_type: str = Form(default="NATIONAL"),
     include_udc_reserve_margin: str = Form(default="false"),
     db: Session = Depends(get_db),
@@ -216,7 +216,7 @@ def create_scenario_from_excel(
             is_template=False,
             simulation_type=simulation_type,
             skip_populate_defaults=True,
-            tag_id=tag_id,
+            tag_ids=_parse_tag_ids_csv(tag_ids),
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -254,7 +254,7 @@ def create_scenario_from_csv(
     scenario_name: str = Form(...),
     description: str | None = Form(default=None),
     edit_policy: str = Form(default="OWNER_ONLY"),
-    tag_id: int | None = Form(default=None),
+    tag_ids: str | None = Form(default=None),
     simulation_type: str = Form(default="NATIONAL"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -292,7 +292,7 @@ def create_scenario_from_csv(
             scenario_name=scenario_name,
             description=description,
             edit_policy=edit_policy,
-            tag_id=tag_id,
+            tag_ids=_parse_tag_ids_csv(tag_ids),
             simulation_type=simulation_type,
         )
     except ConflictError as exc:
@@ -305,6 +305,27 @@ def _form_bool_flag(value: str | None) -> bool:
     if value is None or value == "":
         return False
     return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _parse_tag_ids_csv(value: str | None) -> list[int]:
+    """Convierte "1,2,3" o "[1,2,3]" en lista de ints; strings vacíos retornan []."""
+    if not value:
+        return []
+    cleaned = value.strip().strip("[]")
+    if not cleaned:
+        return []
+    out: list[int] = []
+    for piece in cleaned.split(","):
+        piece = piece.strip()
+        if not piece:
+            continue
+        try:
+            out.append(int(piece))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422, detail=f"tag_ids inválido: '{piece}'"
+            ) from exc
+    return out
 
 
 @router.post("/concatenate-sand")
@@ -622,7 +643,7 @@ def delete_scenario(
         "owner": scenario.owner,
         "simulation_type": scenario.simulation_type,
         "edit_policy": scenario.edit_policy,
-        "tag_id": scenario.tag_id,
+        "tag_ids": [int(t.id) for t in (scenario.tags or [])],
         "base_scenario_id": scenario.base_scenario_id,
         "created_at": scenario.created_at.isoformat() if scenario.created_at else None,
     }

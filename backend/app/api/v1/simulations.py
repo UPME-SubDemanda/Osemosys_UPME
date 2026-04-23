@@ -23,6 +23,26 @@ from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.db.session import get_db
+def _parse_tag_ids_csv_sim(value: str | None) -> list[int]:
+    if not value:
+        return []
+    cleaned = value.strip().strip("[]")
+    if not cleaned:
+        return []
+    out: list[int] = []
+    for piece in cleaned.split(","):
+        piece = piece.strip()
+        if not piece:
+            continue
+        try:
+            out.append(int(piece))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422, detail=f"tag_ids inválido: '{piece}'"
+            ) from exc
+    return out
+
+
 from app.models import (
     DeletionLog,
     OsemosysOutputParamValue,
@@ -101,7 +121,7 @@ async def submit_simulation_from_csv(
     scenario_name: str | None = Form(default=None),
     description: str | None = Form(default=None),
     edit_policy: str = Form(default="OWNER_ONLY"),
-    tag_id: int | None = Form(default=None),
+    tag_ids: str | None = Form(default=None),
     display_name: str | None = Form(
         default=None,
         description="Nombre opcional para esta corrida; si se omite, se usa el nombre del archivo ZIP.",
@@ -164,7 +184,7 @@ async def submit_simulation_from_csv(
                 scenario_name=(scenario_name or csv_zip.filename or "CSV import"),
                 description=description,
                 edit_policy=edit_policy,
-                tag_id=tag_id,
+                tag_ids=_parse_tag_ids_csv_sim(tag_ids),
                 simulation_type=simulation_type,
             )
             return SimulationService.submit(

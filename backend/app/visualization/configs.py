@@ -16,8 +16,8 @@ from app.visualization.colors import (
     _color_por_emision,
 )
 
-# Gases de efecto invernadero a filtrar
-_GEI_GASES = {"EMICO2", "EMICH4", "EMIN2O"}
+# Gases de efecto invernadero a filtrar (EMIC02 con cero, no letra O)
+_GEI_GASES = {"EMIC02", "EMICH4", "EMIN2O"}
 
 # Contaminantes criterio
 _CONTAMINANTES = {"EMIBC", "EMICO", "EMICOVDM", "EMINH3", "EMINOx", "EMIPM10", "EMIPM2_5", "EMISOx"}
@@ -602,6 +602,18 @@ CONFIGS = {
         "color_fn": _color_electricidad,
         "variable_default": "ProductionByTechnology",
     },
+    "factor_planta": {
+        "titulo_base": "Factor de Planta - Generación Eléctrica",
+        "figura": "FAC-PLT",
+        "filename": "Factor_Planta",
+        "print": "FACTOR DE PLANTA",
+        "es_factor_planta": True,
+        "filtro": _filtro_pwr,
+        "msg_sin_datos": "Sin datos de capacidad o producción eléctrica (PWR)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": _color_electricidad,
+        "variable_default": "TotalCapacityAnnual",
+    },
     "con_total": {
         "titulo": "Sector Construcción - Consumo Total - UseByTechnology",
         "figura": "Figura 11",
@@ -811,7 +823,7 @@ CONFIGS = {
         "filename": "Emisiones_GEI",
         "print": "EMISIONES GEI POR SECTOR",
         "filtro": _filtro_gei,
-        "msg_sin_datos": "Sin datos de emisiones GEI (EMICO2, EMICH4, EMIN2O)",
+        "msg_sin_datos": "Sin datos de emisiones GEI (EMIC02, EMICH4, EMIN2O)",
         "agrupar_por": "SECTOR",
         "color_fn": _color_por_sector,
         "variable_default": "AnnualTechnologyEmission",
@@ -823,6 +835,20 @@ CONFIGS = {
         "figura": "EMI-CONT",
         "filename": "Emisiones_Contaminantes",
         "print": "EMISIONES CONTAMINANTES CRITERIO",
+        "filtro": _filtro_contaminantes,
+        "msg_sin_datos": "Sin datos de contaminantes criterio",
+        "agrupar_por": "EMISION",
+        "color_fn": _color_por_emision,
+        "variable_default": "AnnualTechnologyEmission",
+    },
+    "emisiones_contaminantes_pct": {
+        "titulo_base": "Emisiones Contaminantes Criterio (%)",
+        "es_emision": True,
+        "es_emision_kt": True,
+        "es_porcentaje": True,
+        "figura": "EMI-CONT-PCT",
+        "filename": "Emisiones_Contaminantes_Pct",
+        "print": "EMISIONES CONTAMINANTES CRITERIO (%)",
         "filtro": _filtro_contaminantes,
         "msg_sin_datos": "Sin datos de contaminantes criterio",
         "agrupar_por": "EMISION",

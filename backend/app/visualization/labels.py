@@ -232,7 +232,7 @@ DISPLAY_NAMES: dict[str, str] = {
     "SAF":  "SAF",
     "HDG002": "Hidrógeno",
     # ── Tipos de emisión ──────────────────────────────────────────────────
-    "EMICO2":   "CO₂",
+    "EMIC02":   "CO₂",
     "EMICH4":   "CH₄",
     "EMIN2O":   "N₂O",
     "EMIBC":    "Black Carbon",

@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/shared/components/Button";
+import { JobSelect } from "@/shared/components/JobSelect";
 import { downloadBlob } from "@/shared/utils/downloadBlob";
 import { savedChartsApi } from "@/features/reports/api/savedChartsApi";
 import { simulationApi } from "@/features/simulation/api/simulationApi";
@@ -119,81 +120,6 @@ function OfficialChip({
   return <span className={cls} title="Reporte oficial">★ Oficial</span>;
 }
 
-/** Parte favoritos/resto y ordena cada mitad por fecha descendente. */
-function partitionJobs(jobs: SimulationRun[]): {
-  favorites: SimulationRun[];
-  others: SimulationRun[];
-} {
-  const sorted = [...jobs].sort(
-    (a, b) => new Date(b.queued_at).getTime() - new Date(a.queued_at).getTime(),
-  );
-  const favorites: SimulationRun[] = [];
-  const others: SimulationRun[] = [];
-  for (const j of sorted) {
-    (j.is_favorite ? favorites : others).push(j);
-  }
-  return { favorites, others };
-}
-
-function jobOptionLabel(r: SimulationRun): string {
-  const bits: string[] = [];
-  if (r.is_favorite) bits.push("★");
-  bits.push(
-    r.display_name?.trim() ||
-      r.scenario_name?.trim() ||
-      r.input_name?.trim() ||
-      `Job ${r.id}`,
-  );
-  const tagName = r.scenario_tag?.name?.trim();
-  if (tagName) bits.push(`[${tagName}]`);
-  bits.push(`(#${r.id})`);
-  return bits.join(" ");
-}
-
-/** Dropdown nativo con optgroup de Favoritos arriba. */
-function JobSelect({
-  value,
-  onChange,
-  jobs,
-  loading,
-  disabled,
-}: {
-  value: number | null;
-  onChange: (next: number | null) => void;
-  jobs: SimulationRun[];
-  loading: boolean;
-  disabled?: boolean;
-}) {
-  const { favorites, others } = partitionJobs(jobs);
-  return (
-    <select
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
-      disabled={disabled ?? loading}
-      className="rounded-lg border border-slate-700 bg-slate-950/50 px-3 py-2 text-sm text-slate-100"
-    >
-      <option value="">{loading ? "Cargando…" : "— Selecciona —"}</option>
-      {favorites.length > 0 ? (
-        <optgroup label="★ Favoritos">
-          {favorites.map((j) => (
-            <option key={j.id} value={j.id}>
-              {jobOptionLabel(j)}
-            </option>
-          ))}
-        </optgroup>
-      ) : null}
-      {others.length > 0 ? (
-        <optgroup label="Otros">
-          {others.map((j) => (
-            <option key={j.id} value={j.id}>
-              {jobOptionLabel(j)}
-            </option>
-          ))}
-        </optgroup>
-      ) : null}
-    </select>
-  );
-}
 function templateSummary(t: SavedChartTemplate): string {
   const bits: string[] = [];
   bits.push(`Tipo: ${t.tipo}`);

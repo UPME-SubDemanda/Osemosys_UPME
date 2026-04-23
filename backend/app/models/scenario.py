@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.scenario_tag import ScenarioTag
+
+if TYPE_CHECKING:
+    from app.models.scenario_tag import ScenarioTag
 
 
 class Scenario(Base):
@@ -30,7 +34,6 @@ class Scenario(Base):
             name="scenario_processing_mode",
         ),
         Index("ix_scenario_base_scenario_id", "base_scenario_id"),
-        Index("ix_scenario_tag_id", "tag_id"),
         {"schema": "osemosys"},
     )
 
@@ -52,26 +55,9 @@ class Scenario(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     udc_config: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
-    tag_id: Mapped[int | None] = mapped_column(
-        Integer,
-        ForeignKey("osemosys.scenario_tag.id", ondelete="SET NULL"),
-        nullable=True,
+
+    tags: Mapped[list["ScenarioTag"]] = relationship(
+        "ScenarioTag",
+        secondary="osemosys.scenario_tag_link",
+        back_populates="scenarios",
     )
-    tag_row: Mapped[ScenarioTag | None] = relationship("ScenarioTag", back_populates="scenarios")
-
-
-# ============================================================================
-# Arquitectura y Consideraciones Técnicas
-# ============================================================================
-#
-# Responsabilidad del módulo:
-# - Persistir escenarios, owner y política de edición.
-#
-# Posibles mejoras:
-# - Validar policy con enum de Python para robustez de tipado.
-#
-# Riesgos en producción:
-# - Cambio de policy sin auditoría puede alterar gobernanza de cambios.
-#
-# Escalabilidad:
-# - I/O-bound, cardinalidad media.

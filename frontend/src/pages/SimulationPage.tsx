@@ -904,8 +904,10 @@ export function SimulationPage() {
                     disabled={loadingScenarios}
                     onClick={() => setScenarioDropdownOpen((v) => !v)}
                   >
-                    <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
-                      {selected?.tag ? <ScenarioTagChip tag={selected.tag} /> : null}
+                    <span style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, flex: 1, flexWrap: "wrap" }}>
+                      {(selected?.tags ?? (selected?.tag ? [selected.tag] : [])).map((t) => (
+                        <ScenarioTagChip key={t.id} tag={t} size="sm" />
+                      ))}
                       <span
                         style={{
                           overflow: "hidden",
@@ -983,7 +985,11 @@ export function SimulationPage() {
                               e.currentTarget.style.background = "transparent";
                           }}
                         >
-                          {s.tag ? <ScenarioTagChip tag={s.tag} /> : null}
+                          <span style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                            {(s.tags ?? (s.tag ? [s.tag] : [])).map((t) => (
+                              <ScenarioTagChip key={t.id} tag={t} size="sm" />
+                            ))}
+                          </span>
                           <span
                             style={{
                               overflow: "hidden",
@@ -1657,17 +1663,37 @@ export function SimulationPage() {
             },
             {
               key: "scenario_tag",
-              header: "Etiqueta",
-              render: (r) =>
-                r.scenario_tag ? (
-                  <ScenarioTagChip tag={r.scenario_tag} />
-                ) : (
-                  <span style={{ opacity: 0.65 }}>—</span>
-                ),
+              header: "Etiquetas",
+              render: (r) => {
+                const tags =
+                  r.scenario_tags && r.scenario_tags.length > 0
+                    ? r.scenario_tags
+                    : r.scenario_tag
+                    ? [r.scenario_tag]
+                    : [];
+                if (tags.length === 0) {
+                  return <span style={{ opacity: 0.65 }}>—</span>;
+                }
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    {tags.map((t) => (
+                      <ScenarioTagChip key={t.id} tag={t} size="sm" />
+                    ))}
+                  </div>
+                );
+              },
               filter: {
                 type: "multiselect",
-                getValue: (r) => r.scenario_tag?.name ?? "—",
-                placeholder: "Etiqueta…",
+                getValue: (r) => {
+                  const tags =
+                    r.scenario_tags && r.scenario_tags.length > 0
+                      ? r.scenario_tags
+                      : r.scenario_tag
+                      ? [r.scenario_tag]
+                      : [];
+                  return tags.length ? tags.map((t) => t.name).join(", ") : "—";
+                },
+                placeholder: "Etiquetas…",
               },
             },
             {

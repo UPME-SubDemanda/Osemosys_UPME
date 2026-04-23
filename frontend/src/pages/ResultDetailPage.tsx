@@ -137,9 +137,14 @@ function ScenarioCard({ summary, isCurrent = false }: ScenarioCardProps) {
               <span className="text-sm font-medium text-slate-300">
                 {summary.scenario_name?.trim() || '—'}
               </span>
-              {summary.scenario_tag ? (
-                <ScenarioTagChip tag={summary.scenario_tag} />
-              ) : null}
+              {(summary.scenario_tags && summary.scenario_tags.length > 0
+                ? summary.scenario_tags
+                : summary.scenario_tag
+                ? [summary.scenario_tag]
+                : []
+              ).map((t) => (
+                <ScenarioTagChip key={t.id} tag={t} size="sm" />
+              ))}
               {isCurrent ? (
                 <span className="inline-flex shrink-0 items-center rounded-full border border-cyan-500/25 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-400">
                   Actual
@@ -1248,11 +1253,24 @@ export function ResultDetailPage() {
                           </Link>
                         </td>
                         <td className="p-4 align-middle">
-                          {s.scenario_tag ? (
-                            <ScenarioTagChip tag={s.scenario_tag} />
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
+                          {(() => {
+                            const tags =
+                              s.scenario_tags && s.scenario_tags.length > 0
+                                ? s.scenario_tags
+                                : s.scenario_tag
+                                ? [s.scenario_tag]
+                                : [];
+                            if (tags.length === 0) {
+                              return <span className="text-slate-600">—</span>;
+                            }
+                            return (
+                              <div className="flex flex-col gap-1">
+                                {tags.map((t) => (
+                                  <ScenarioTagChip key={t.id} tag={t} size="sm" />
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="p-4 align-middle text-slate-300">
                           {s.owner_username ?? '—'}

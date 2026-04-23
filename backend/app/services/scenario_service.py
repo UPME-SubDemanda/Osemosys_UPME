@@ -13,7 +13,7 @@ import uuid
 
 from sqlalchemy import and_, cast, func, insert, literal, or_, select, String
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.db.dialect import osemosys_table as _osemosys_table
@@ -28,11 +28,14 @@ from app.models import (
     Scenario,
     ScenarioPermission,
     ScenarioTag,
+    ScenarioTagCategory,
+    ScenarioTagLink,
     Solver,
     Technology,
     UdcSet,
     User,
 )
+from app.services.scenario_tag_assignment_service import ScenarioTagAssignmentService
 from app.repositories.scenario_repository import ScenarioRepository
 from app.services.osemosys_param_audit_service import OsemosysParamAuditService, user_actor
 from app.services.pagination import build_meta, normalize_pagination
@@ -51,23 +54,60 @@ class ScenarioService:
     """Reglas de negocio para gestión de escenarios OSEMOSYS."""
 
     @staticmethod
-    def _tag_public_dict(
+    def _tag_to_dict(tag: ScenarioTag) -> dict:
+        """Serializa un ScenarioTag con su categoría anidada."""
+        category = tag.category
+        return {
+            "id": int(tag.id),
+            "name": tag.name,
+            "color": tag.color,
+            "sort_order": int(tag.sort_order),
+            "category_id": int(tag.category_id),
+            "category": (
+                {
+                    "id": int(category.id),
+                    "name": category.name,
+                    "hierarchy_level": int(category.hierarchy_level),
+                    "sort_order": int(category.sort_order),
+                    "max_tags_per_scenario": category.max_tags_per_scenario,
+                    "is_exclusive_combination": bool(category.is_exclusive_combination),
+                    "default_color": category.default_color,
+                }
+                if category is not None
+                else None
+            ),
+        }
+
+    @staticmethod
+    def _tags_for_scenario(
         db: Session,
         scenario: Scenario,
         *,
-        tag_row: ScenarioTag | None = None,
-    ) -> dict | None:
-        row = tag_row
-        if row is None and scenario.tag_id is not None:
-            row = db.get(ScenarioTag, scenario.tag_id)
-        if row is None:
+        tags: list[ScenarioTag] | None = None,
+    ) -> list[dict]:
+        """Lista de tags del escenario ordenada por jerarquía (ascendente)."""
+        rows = tags
+        if rows is None:
+            rows = ScenarioTagAssignmentService.list_tags(db, scenario_id=int(scenario.id))
+        return [ScenarioService._tag_to_dict(r) for r in rows]
+
+    @staticmethod
+    def _primary_tag_dict(tags_dicts: list[dict]) -> dict | None:
+        """Etiqueta "primaria" para compatibilidad con listados legacy.
+
+        Se elige la de menor `hierarchy_level`; dentro del mismo nivel, la de
+        menor `sort_order`. Si no hay tags, retorna None.
+        """
+        if not tags_dicts:
             return None
-        return {
-            "id": int(row.id),
-            "name": row.name,
-            "color": row.color,
-            "sort_order": int(row.sort_order),
-        }
+        def _sort_key(t: dict) -> tuple[int, int, int]:
+            cat = t.get("category") or {}
+            return (
+                int(cat.get("hierarchy_level", 999)),
+                int(cat.get("sort_order", 0)),
+                int(t.get("sort_order", 0)),
+            )
+        return sorted(tags_dicts, key=_sort_key)[0]
 
     @staticmethod
     def _get_permission(db: Session, *, scenario_id: int, current_user: User) -> ScenarioPermission | None:
@@ -141,8 +181,9 @@ class ScenarioService:
         scenario: Scenario,
         current_user: User,
         base_scenario_name: str | None,
-        tag_row: ScenarioTag | None = None,
+        tags: list[ScenarioTag] | None = None,
     ) -> dict:
+        tag_dicts = ScenarioService._tags_for_scenario(db, scenario, tags=tags)
         return {
             "id": int(scenario.id),
             "name": scenario.name,
@@ -155,7 +196,8 @@ class ScenarioService:
             "simulation_type": getattr(scenario, "simulation_type", "NATIONAL"),
             "is_template": bool(scenario.is_template),
             "created_at": scenario.created_at,
-            "tag": ScenarioService._tag_public_dict(db, scenario, tag_row=tag_row),
+            "tag": ScenarioService._primary_tag_dict(tag_dicts),
+            "tags": tag_dicts,
             "effective_access": ScenarioService._effective_access(
                 db, scenario=scenario, current_user=current_user
             ),
@@ -353,11 +395,25 @@ class ScenarioService:
             limit=page_size,
         )
         meta = build_meta(page, page_size, total, busqueda)
-        tag_ids = {s.tag_id for s, _ in items if s.tag_id is not None}
-        tags_by_id: dict[int, ScenarioTag] = {}
-        if tag_ids:
-            for r in db.execute(select(ScenarioTag).where(ScenarioTag.id.in_(tag_ids))).scalars().all():
-                tags_by_id[int(r.id)] = r
+        # Batch lookup: tags por escenario en un solo query
+        scenario_ids = [int(s.id) for s, _ in items]
+        tags_by_scenario: dict[int, list[ScenarioTag]] = {sid: [] for sid in scenario_ids}
+        if scenario_ids:
+            link_rows = db.execute(
+                select(ScenarioTagLink.scenario_id, ScenarioTag)
+                .join(ScenarioTag, ScenarioTag.id == ScenarioTagLink.tag_id)
+                .join(ScenarioTagCategory, ScenarioTagCategory.id == ScenarioTag.category_id)
+                .options(joinedload(ScenarioTag.category))
+                .where(ScenarioTagLink.scenario_id.in_(scenario_ids))
+                .order_by(
+                    ScenarioTagCategory.hierarchy_level.asc(),
+                    ScenarioTagCategory.sort_order.asc(),
+                    ScenarioTag.sort_order.asc(),
+                    ScenarioTag.name.asc(),
+                )
+            ).all()
+            for sid, tag in link_rows:
+                tags_by_scenario.setdefault(int(sid), []).append(tag)
         return {
             "data": [
                 ScenarioService._to_public(
@@ -365,7 +421,7 @@ class ScenarioService:
                     scenario=scenario,
                     current_user=current_user,
                     base_scenario_name=base_scenario_name,
-                    tag_row=tags_by_id.get(int(scenario.tag_id)) if scenario.tag_id is not None else None,
+                    tags=tags_by_scenario.get(int(scenario.id), []),
                 )
                 for scenario, base_scenario_name in items
             ],
@@ -399,7 +455,7 @@ class ScenarioService:
         simulation_type: str = "NATIONAL",
         processing_mode: str = "STANDARD",
         skip_populate_defaults: bool = False,
-        tag_id: int | None = None,
+        tag_ids: list[int] | None = None,
     ):
         """Crea escenario y configura permisos iniciales del creador.
 
@@ -414,11 +470,17 @@ class ScenarioService:
             skip_populate_defaults: Si True, no copia defaults ni ejecuta preprocess.
                 Usado cuando el flujo import-excel poblará osemosys_param_value directamente.
         """
-        resolved_tag_id: int | None = None
-        if tag_id is not None:
-            if db.get(ScenarioTag, tag_id) is None:
-                raise NotFoundError("La etiqueta indicada no existe.")
-            resolved_tag_id = int(tag_id)
+        resolved_tag_ids: list[int] = []
+        if tag_ids:
+            unique_ids = list({int(t) for t in tag_ids})
+            existing = (
+                db.execute(select(ScenarioTag.id).where(ScenarioTag.id.in_(unique_ids)))
+                .scalars()
+                .all()
+            )
+            if len(existing) != len(unique_ids):
+                raise NotFoundError("Al menos una etiqueta indicada no existe.")
+            resolved_tag_ids = [int(x) for x in existing]
         scenario = Scenario(
             name=name,
             description=description,
@@ -427,10 +489,11 @@ class ScenarioService:
             simulation_type=simulation_type,
             processing_mode=processing_mode,
             is_template=is_template,
-            tag_id=resolved_tag_id,
         )
         db.add(scenario)
         db.flush()
+        for tid in resolved_tag_ids:
+            db.add(ScenarioTagLink(scenario_id=int(scenario.id), tag_id=tid))
 
         ScenarioRepository.add_permission(
             db,
@@ -504,10 +567,26 @@ class ScenarioService:
             processing_mode=getattr(source, "processing_mode", "STANDARD"),
             is_template=False,
             udc_config=source.udc_config,
-            tag_id=source.tag_id,
         )
         db.add(new_scenario)
         db.flush()
+        # Copia los tags del escenario origen (excluyendo los de categorías
+        # con is_exclusive_combination — no copiamos "Oficial"/"Entregado" a un clon).
+        source_tag_ids = (
+            db.execute(
+                select(ScenarioTagLink.tag_id)
+                .join(ScenarioTag, ScenarioTag.id == ScenarioTagLink.tag_id)
+                .join(ScenarioTagCategory, ScenarioTagCategory.id == ScenarioTag.category_id)
+                .where(
+                    ScenarioTagLink.scenario_id == source.id,
+                    ScenarioTagCategory.is_exclusive_combination.is_(False),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for tid in source_tag_ids:
+            db.add(ScenarioTagLink(scenario_id=int(new_scenario.id), tag_id=int(tid)))
 
         ScenarioRepository.add_permission(
             db,
@@ -834,14 +913,13 @@ class ScenarioService:
                 scenario.simulation_type = new_simulation_type
                 touched = True
 
-        if "tag_id" in payload:
-            tid = payload.get("tag_id")
-            if tid is not None:
-                if db.get(ScenarioTag, tid) is None:
-                    raise NotFoundError("La etiqueta indicada no existe.")
-                scenario.tag_id = int(tid)
-            else:
-                scenario.tag_id = None
+        if "tag_ids" in payload:
+            raw_ids = payload.get("tag_ids") or []
+            ScenarioTagAssignmentService.replace_tags(
+                db,
+                scenario_id=int(scenario.id),
+                tag_ids=[int(t) for t in raw_ids],
+            )
             touched = True
 
         if touched:

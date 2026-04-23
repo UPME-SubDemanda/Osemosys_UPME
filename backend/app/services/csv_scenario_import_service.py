@@ -312,8 +312,8 @@ class CsvScenarioImportService:
         scenario_name: str,
         description: str | None,
         edit_policy: str,
-        tag_id: int | None,
         simulation_type: str,
+        tag_ids: list[int] | None = None,
     ) -> dict:
         validation_errors = validate_csv_root(csv_root)
         if validation_errors:
@@ -329,7 +329,7 @@ class CsvScenarioImportService:
             simulation_type=simulation_type,
             processing_mode="PREPROCESSED_CSV",
             skip_populate_defaults=True,
-            tag_id=tag_id,
+            tag_ids=tag_ids or [],
         )
         scenario_id = int(created["id"])
 

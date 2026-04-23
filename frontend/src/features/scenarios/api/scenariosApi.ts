@@ -15,6 +15,8 @@ import type {
   ScenarioOperationJob,
   ScenarioOperationLog,
   ScenarioTag,
+  ScenarioTagCategory,
+  ScenarioTagConflict,
   SimulationType,
   User,
 } from "@/types/domain";
@@ -233,24 +235,143 @@ async function listScenarios(params: ScenarioListParams = {}) {
   return data;
 }
 
-async function listScenarioTags() {
-  const { data } = await httpClient.get<ScenarioTag[]>("/scenario-tags");
+async function listScenarioTags(categoryId?: number) {
+  const params = categoryId != null ? { category_id: categoryId } : undefined;
+  const { data } = await httpClient.get<ScenarioTag[]>("/scenario-tags", { params });
   return data;
+}
+
+async function listScenarioTagCategories() {
+  const { data } = await httpClient.get<ScenarioTagCategory[]>(
+    "/scenario-tag-categories",
+  );
+  return data;
+}
+
+/** Error tipado que el UI debe interceptar para mostrar el diálogo de conflicto. */
+export class TagAssignmentConflictError extends Error {
+  conflict: ScenarioTagConflict;
+  constructor(conflict: ScenarioTagConflict) {
+    super("tag_assignment_conflict");
+    this.conflict = conflict;
+  }
+}
+
+/**
+ * Extrae el objeto `conflict` de un error 409 estructurado devuelto por el backend.
+ * Soporta tanto AxiosError crudo como ApiError normalizado por el interceptor
+ * global del httpClient (que mueve el payload original a `details.response`).
+ */
+function extractTagAssignmentConflict(
+  err: unknown,
+): ScenarioTagConflict | null {
+  if (!err || typeof err !== "object") return null;
+  const e = err as {
+    status?: number;
+    response?: { status?: number; data?: { detail?: unknown } };
+    details?: { response?: { detail?: unknown } };
+  };
+  const status = e.response?.status ?? e.status;
+  if (status !== 409) return null;
+  const detail =
+    (e.response?.data?.detail as unknown) ??
+    (e.details?.response as { detail?: unknown } | undefined)?.detail;
+  if (!detail || typeof detail !== "object") return null;
+  const d = detail as { code?: string; conflict?: ScenarioTagConflict };
+  if (d.code === "tag_assignment_conflict" && d.conflict) {
+    return d.conflict;
+  }
+  return null;
 }
 
 export const scenariosApi = {
   listScenarios,
   listScenarioTags,
+  listScenarioTagCategories,
 
-  createScenarioTag: (input: { name: string; color: string; sort_order?: number }) =>
-    httpClient.post<ScenarioTag>("/scenario-tags", input).then((r) => r.data),
+  createScenarioTag: (input: {
+    category_id: number;
+    name: string;
+    color: string;
+    sort_order?: number;
+    is_exclusive_combination?: boolean;
+  }) => httpClient.post<ScenarioTag>("/scenario-tags", input).then((r) => r.data),
 
   updateScenarioTag: (
     id: number,
-    input: { name?: string; color?: string; sort_order?: number },
+    input: {
+      category_id?: number;
+      name?: string;
+      color?: string;
+      sort_order?: number;
+      is_exclusive_combination?: boolean;
+    },
   ) => httpClient.patch<ScenarioTag>(`/scenario-tags/${id}`, input).then((r) => r.data),
 
   deleteScenarioTag: (id: number) => httpClient.delete(`/scenario-tags/${id}`),
+
+  createScenarioTagCategory: (input: {
+    name: string;
+    hierarchy_level?: number;
+    sort_order?: number;
+    max_tags_per_scenario?: number | null;
+    is_exclusive_combination?: boolean;
+    default_color?: string;
+  }) =>
+    httpClient
+      .post<ScenarioTagCategory>("/scenario-tag-categories", input)
+      .then((r) => r.data),
+
+  updateScenarioTagCategory: (
+    id: number,
+    input: {
+      name?: string;
+      hierarchy_level?: number;
+      sort_order?: number;
+      max_tags_per_scenario?: number | null;
+      is_exclusive_combination?: boolean;
+      default_color?: string;
+    },
+  ) =>
+    httpClient
+      .patch<ScenarioTagCategory>(`/scenario-tag-categories/${id}`, input)
+      .then((r) => r.data),
+
+  deleteScenarioTagCategory: (id: number) =>
+    httpClient.delete(`/scenario-tag-categories/${id}`),
+
+  /**
+   * Asigna una etiqueta a un escenario.
+   * Si el backend detecta un conflicto (409 con detail.code === "tag_assignment_conflict"),
+   * lanza `TagAssignmentConflictError` con el detalle del otro escenario.
+   * Pasa `force=true` para confirmar y quitar la etiqueta del otro escenario.
+   *
+   * NOTE: httpClient tiene un interceptor que convierte errores axios en ApiError
+   * (perdiendo la estructura `response.data.detail` como objeto anidado). Lo
+   * recuperamos desde `ApiError.details.response.detail`.
+   */
+  async assignTagToScenario(
+    scenarioId: number,
+    tagId: number,
+    force = false,
+  ): Promise<ScenarioTag[]> {
+    try {
+      const { data } = await httpClient.post<ScenarioTag[]>(
+        `/scenarios/${scenarioId}/tags`,
+        { tag_id: tagId, force },
+      );
+      return data;
+    } catch (err: unknown) {
+      const conflict = extractTagAssignmentConflict(err);
+      if (conflict) throw new TagAssignmentConflictError(conflict);
+      throw err;
+    }
+  },
+
+  removeTagFromScenario: (scenarioId: number, tagId: number) =>
+    httpClient
+      .delete<ScenarioTag[]>(`/scenarios/${scenarioId}/tags/${tagId}`)
+      .then((r) => r.data),
 
   getScenarioById: (id: number) => httpClient.get<Scenario>(`/scenarios/${id}`).then((r) => r.data),
 
@@ -279,7 +400,7 @@ export const scenariosApi = {
     edit_policy: ScenarioEditPolicy;
     simulation_type: SimulationType;
     is_template?: boolean;
-    tag_id?: number | null;
+    tag_ids?: number[];
   }) => httpClient.post<Scenario>("/scenarios", input).then((r) => r.data),
 
   listPermissions: (scenarioId: number) =>
@@ -303,7 +424,7 @@ export const scenariosApi = {
       description?: string;
       edit_policy: ScenarioEditPolicy;
       simulation_type: SimulationType;
-      tag_id?: number | null;
+      tag_ids?: number[];
       include_udc_reserve_margin?: boolean;
     },
     onUploadProgress?: (percent: number) => void,
@@ -317,7 +438,8 @@ export const scenariosApi = {
     form.append("edit_policy", input.edit_policy);
     form.append("simulation_type", input.simulation_type);
     if (input.description?.trim()) form.append("description", input.description.trim());
-    if (input.tag_id != null) form.append("tag_id", String(input.tag_id));
+    if (input.tag_ids && input.tag_ids.length)
+      form.append("tag_ids", input.tag_ids.join(","));
     form.append("include_udc_reserve_margin", input.include_udc_reserve_margin ? "true" : "false");
 
     const { data } = await httpClient.post<ScenarioExcelImportResponse>(
@@ -345,7 +467,7 @@ export const scenariosApi = {
       description?: string;
       edit_policy: ScenarioEditPolicy;
       simulation_type: SimulationType;
-      tag_id?: number | null;
+      tag_ids?: number[];
     },
     onUploadProgress?: (percent: number) => void,
     signal?: AbortSignal,
@@ -356,7 +478,8 @@ export const scenariosApi = {
     form.append("edit_policy", input.edit_policy);
     form.append("simulation_type", input.simulation_type);
     if (input.description?.trim()) form.append("description", input.description.trim());
-    if (input.tag_id != null) form.append("tag_id", String(input.tag_id));
+    if (input.tag_ids && input.tag_ids.length)
+      form.append("tag_ids", input.tag_ids.join(","));
     const { data } = await httpClient.post<Scenario>("/scenarios/import-csv", form, {
       headers: { "Content-Type": "multipart/form-data" },
       timeout: 1_800_000,
@@ -531,7 +654,7 @@ export const scenariosApi = {
       description?: string | null;
       edit_policy?: ScenarioEditPolicy;
       simulation_type?: SimulationType;
-      tag_id?: number | null;
+      tag_ids?: number[];
     },
   ) => httpClient.patch<Scenario>(`/scenarios/${scenarioId}`, input).then((r) => r.data),
 

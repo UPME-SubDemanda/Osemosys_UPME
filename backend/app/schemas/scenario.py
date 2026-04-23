@@ -402,15 +402,6 @@ class ApplyExcelChangesRequest(BaseModel):
     changes: list[ExcelChangeToApply]
 
 
-class ScenarioOsemosysYearSummary(BaseModel):
-    """Resumen agregado por parámetro y año en `osemosys_param_value`."""
-
-    param_name: str
-    year: int | None
-    records: int
-    total_value: float
-
-
 class ScenarioOsemosysValueCreate(BaseModel):
     """Crea un valor específico en `osemosys_param_value` para un escenario."""
 
@@ -467,6 +458,52 @@ class OsemosysValuesPage(BaseModel):
     total: int
     offset: int
     limit: int
+
+
+class OsemosysWideCell(BaseModel):
+    """Celda pivotada: id de la fila en `osemosys_param_value` y su valor."""
+
+    id: int
+    value: float
+
+
+class OsemosysWideRow(BaseModel):
+    """Fila pivotada: combinación de dimensiones + mapa año->celda.
+
+    La clave `cells` usa `"scalar"` para filas con `year IS NULL` y la
+    representación string del año en otro caso (ej. `"2025"`).
+    """
+
+    group_key: str
+    param_name: str
+    region_name: str | None = None
+    technology_name: str | None = None
+    fuel_name: str | None = None
+    emission_name: str | None = None
+    udc_name: str | None = None
+    cells: dict[str, OsemosysWideCell]
+
+
+class OsemosysValuesWidePage(BaseModel):
+    """Respuesta paginada (sobre grupos) en formato wide."""
+
+    items: list[OsemosysWideRow]
+    total: int
+    offset: int
+    limit: int
+    years: list[int]
+    has_scalar: bool
+
+
+class OsemosysWideFacets(BaseModel):
+    """Valores únicos por columna para el popover de filtros (narrowed)."""
+
+    param_names: list[str]
+    region_names: list[str]
+    technology_names: list[str]
+    fuel_names: list[str]
+    emission_names: list[str]
+    udc_names: list[str]
 
 
 class OsemosysParamAuditEntryPublic(BaseModel):

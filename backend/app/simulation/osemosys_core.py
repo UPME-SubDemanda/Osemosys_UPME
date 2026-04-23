@@ -18,6 +18,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -46,6 +47,8 @@ def run_osemosys_from_db(
     on_stage: Callable[[str, float], None] | None = None,
     generate_lp: bool = False,
     lp_dir: str | Path | None = None,
+    on_solver_finished: Callable[[Any, Any, Any, dict], None] | None = None,
+    run_iis_analysis: bool = False,
 ) -> dict:
     """Pipeline completo: DB → CSVs temporales → DataPortal → solve → results.
 
@@ -55,6 +58,15 @@ def run_osemosys_from_db(
         Si True, genera archivo LP con symbolic_solver_labels antes de resolver.
     lp_dir : str | Path | None
         Directorio para archivos LP. Si None, usa un directorio temporal.
+    on_solver_finished :
+        Hook opcional con firma ``(instance, solver, results, solution_dict)``
+        invocado justo después del ``solve``. Pensado para análisis locales
+        (ej. IIS); el pipeline productivo no lo usa.
+    run_iis_analysis : bool
+        Si ``True`` y el modelo resulta infactible, se corre **inline** el
+        análisis enriquecido (IIS + mapeo a parámetros OSeMOSYS) aprovechando
+        que ``instance`` y ``csv_dir`` siguen vivos. El resultado se añade al
+        dict devuelto en ``infeasibility_diagnostics``. Por defecto ``False``.
     """
     timings: dict[str, float] = {}
 
@@ -136,12 +148,50 @@ def run_osemosys_from_db(
 
         t = perf_counter()
         solver_result = solve_model(
-            instance, solver_name=solver_name, lp_path=lp_path,
+            instance,
+            solver_name=solver_name,
+            lp_path=lp_path,
+            on_solver_finished=on_solver_finished,
         )
         timings["solver_seconds"] = perf_counter() - t
 
+        # Análisis enriquecido de infactibilidad INLINE solo si el usuario
+        # optó por `run_iis_analysis=True` al encolar la simulación. En ese
+        # caso corremos `enrich_solution_dict` aprovechando que instance y
+        # csv_dir aún están vivos. Por defecto el diagnóstico queda para
+        # dispararse on-demand desde la UI (no se paga tiempo extra aquí).
+        if run_iis_analysis:
+            ss = str(solver_result.get("solver_status", "")).lower()
+            if "infeasible" in ss or "infactible" in ss:
+                if on_stage:
+                    on_stage("infeasibility_analysis_start", 86.0)
+                _t_infeas = perf_counter()
+                try:
+                    # Import local para evitar coste de arranque cuando el flag está apagado.
+                    from app.simulation.core.infeasibility_analysis import (  # noqa: WPS433
+                        enrich_solution_dict,
+                    )
+                    enrich_solution_dict(
+                        solver_result, instance=instance, csv_dir=csv_dir
+                    )
+                    diag = solver_result.get("infeasibility_diagnostics")
+                    if isinstance(diag, dict):
+                        diag["diagnostic_status"] = "SUCCEEDED"
+                except Exception:  # pragma: no cover - best effort
+                    logger.exception(
+                        "Falló el análisis enriquecido de infactibilidad inline; "
+                        "se continúa sin él."
+                    )
+                    diag = solver_result.get("infeasibility_diagnostics")
+                    if isinstance(diag, dict):
+                        diag["diagnostic_status"] = "FAILED"
+                        diag["diagnostic_error"] = "error durante análisis inline"
+                timings["infeasibility_analysis_seconds"] = perf_counter() - _t_infeas
+                if on_stage:
+                    on_stage("infeasibility_analysis_complete", 87.0)
+
         if on_stage:
-            on_stage("solver", 85.0)
+            on_stage("solver", 88.0)
 
         # =============================================================
         # 5. Procesar resultados (celda 31 del notebook)
@@ -178,6 +228,8 @@ def run_osemosys_from_csv_dir(
     generate_lp: bool = False,
     lp_dir: str | Path | None = None,
     lp_basename: str = "osemosys",
+    on_solver_finished: Callable[[Any, Any, Any, dict], None] | None = None,
+    run_iis_analysis: bool = False,
 ) -> dict:
     """Pipeline desde directorio de CSVs: lee sets del directorio y ejecuta solve → results.
 
@@ -287,12 +339,43 @@ def run_osemosys_from_csv_dir(
 
     t = perf_counter()
     solver_result = solve_model(
-        instance, solver_name=solver_name, lp_path=lp_path,
+        instance,
+        solver_name=solver_name,
+        lp_path=lp_path,
+        on_solver_finished=on_solver_finished,
     )
     timings["solver_seconds"] = perf_counter() - t
 
+    # Análisis enriquecido inline solo si el usuario optó por run_iis_analysis.
+    if run_iis_analysis:
+        ss = str(solver_result.get("solver_status", "")).lower()
+        if "infeasible" in ss or "infactible" in ss:
+            if on_stage:
+                on_stage("infeasibility_analysis_start", 86.0)
+            _t_infeas = perf_counter()
+            try:
+                from app.simulation.core.infeasibility_analysis import (  # noqa: WPS433
+                    enrich_solution_dict,
+                )
+                enrich_solution_dict(solver_result, instance=instance, csv_dir=csv_dir)
+                diag = solver_result.get("infeasibility_diagnostics")
+                if isinstance(diag, dict):
+                    diag["diagnostic_status"] = "SUCCEEDED"
+            except Exception:  # pragma: no cover
+                logger.exception(
+                    "Falló el análisis enriquecido de infactibilidad inline; "
+                    "se continúa sin él."
+                )
+                diag = solver_result.get("infeasibility_diagnostics")
+                if isinstance(diag, dict):
+                    diag["diagnostic_status"] = "FAILED"
+                    diag["diagnostic_error"] = "error durante análisis inline"
+            timings["infeasibility_analysis_seconds"] = perf_counter() - _t_infeas
+            if on_stage:
+                on_stage("infeasibility_analysis_complete", 87.0)
+
     if on_stage:
-        on_stage("solver", 85.0)
+        on_stage("solver", 88.0)
 
     sets = proc_result.sets
     t = perf_counter()

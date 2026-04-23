@@ -15,7 +15,6 @@ import {
   Zap,
 } from 'lucide-react';
 import { simulationApi } from '../features/simulation/api/simulationApi';
-import { scenariosApi } from '../features/scenarios/api/scenariosApi';
 import type {
   ResultSummaryResponse,
   ChartDataResponse,
@@ -25,12 +24,9 @@ import type {
   RunResult,
   SimulationRun,
 } from '../types/domain';
-import {
-  InfeasibilityDiagnosticsPanel,
-  type ScenarioParamsForDiagnostics,
-} from '../features/simulation/components/InfeasibilityDiagnosticsPanel';
+import { paths } from '../routes/paths';
 import { RunDisplayNameEditor } from '../features/simulation/components/RunDisplayNameEditor';
-import { ChartSelector, type ChartSelection } from '../shared/charts/ChartSelector';
+import { ChartSelector, getChartLabel, type ChartSelection } from '../shared/charts/ChartSelector';
 import { getDefaultChartSelection } from '../shared/charts/defaultChartSelection';
 import { ScenarioComparer, type CompareViewMode } from '../shared/charts/ScenarioComparer';
 import { HighchartsChart } from '../shared/charts/HighchartsChart';
@@ -51,10 +47,11 @@ import {
   saveChartFacetPlacement,
 } from '../shared/charts/chartLayoutPreferences';
 import { Button } from '../shared/components/Button';
-import { Modal } from '../shared/components/Modal';
 import { ScenarioTagChip } from '../shared/components/ScenarioTagChip';
 import { downloadBlob } from '../shared/utils/downloadBlob';
 import { formatCompactNumber, formatPercent } from '../shared/utils/numberFormat';
+import { SaveChartModal } from '../features/reports/components/SaveChartModal';
+import { FavoriteStarButton } from '../features/simulation/components/FavoriteStarButton';
 
 const MAX_COMPARE_COLUMNS = 4;
 const EXECUTIONS_TABLE_PAGE_SIZE = 10;
@@ -224,8 +221,6 @@ export function ResultDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
   const [runMeta, setRunMeta] = useState<SimulationRun | null>(null);
-  const [scenarioParamsForDiagnostics, setScenarioParamsForDiagnostics] =
-    useState<ScenarioParamsForDiagnostics>({ state: 'none' });
 
   // All summaries for comparison table
   const [allSummaries, setAllSummaries] = useState<ResultSummaryResponse[]>([]);
@@ -286,8 +281,9 @@ export function ResultDetailPage() {
   // Export state: 'svg' | 'excel' mientras se descarga, null si no
   const [exportingType, setExportingType] = useState<'svg' | 'excel' | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [showInfeasibilityModal, setShowInfeasibilityModal] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const [showSaveChartModal, setShowSaveChartModal] = useState(false);
+  const [savedChartToast, setSavedChartToast] = useState<string | null>(null);
   const hasInfeasibilityDetails = Boolean(runResult?.infeasibility_diagnostics);
   const normalizedSolverStatus = (
     summary?.solver_status ?? runResult?.solver_status ?? ''
@@ -331,44 +327,14 @@ export function ResultDetailPage() {
       });
   }, [currentRunId]);
 
-  useEffect(() => {
-    const sid = runResult?.scenario_id;
-    if (sid == null || Number.isNaN(Number(sid))) {
-      setScenarioParamsForDiagnostics({ state: 'none' });
-      return;
-    }
-    let cancelled = false;
-    setScenarioParamsForDiagnostics({ state: 'loading' });
-    scenariosApi
-      .getScenarioById(sid)
-      .then((s) => {
-        if (!cancelled) {
-          setScenarioParamsForDiagnostics({
-            state: 'loaded',
-            names: s.changed_param_names ?? [],
-          });
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setScenarioParamsForDiagnostics({
-            state: 'error',
-            message: err instanceof Error ? err.message : 'Error al cargar el escenario',
-          });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [runResult?.scenario_id]);
-
   // 2. Fetch all summaries for comparison table
   useEffect(() => {
     setLoadingSummaries(true);
     simulationApi
       .listRuns({ scope: 'global', status_filter: 'SUCCEEDED', cantidad: 50 })
       .then(async (res) => {
-        const runs = res.data || [];
+        // Solo escenarios con resultados utilizables (excluye infactibles).
+        const runs = (res.data || []).filter((r) => !r.is_infeasible_result);
         const summaries = await Promise.all(
           runs.map((run) => simulationApi.getResultSummary(run.id).catch(() => null)),
         );
@@ -401,10 +367,109 @@ export function ResultDetailPage() {
     setExecutionsTablePage(1);
   }, [currentRunId]);
 
+  // ── Filtros por columna de la tabla comparativa ──
+  const [execColumnFilters, setExecColumnFilters] = useState<{
+    name: string;
+    scenario: string;
+    tag: string;
+    status: string;
+    owner: string;
+    favorite: '' | 'fav' | 'no';
+  }>({
+    name: '',
+    scenario: '',
+    tag: '',
+    status: '',
+    owner: '',
+    favorite: '',
+  });
+  const resetExecFilters = useCallback(() => {
+    setExecColumnFilters({
+      name: '',
+      scenario: '',
+      tag: '',
+      status: '',
+      owner: '',
+      favorite: '',
+    });
+  }, []);
+
+  // Oculta infactibles/no exitosas; filas seleccionadas se muestran siempre.
+  const eligibleSummaries = useMemo(
+    () =>
+      allSummaries.filter(
+        (s) =>
+          !s.is_infeasible_result &&
+          !(s.solver_status ?? '').toLowerCase().includes('infeasible') &&
+          !(s.solver_status ?? '').toLowerCase().includes('fail') &&
+          !(s.solver_status ?? '').toLowerCase().includes('cancel'),
+      ),
+    [allSummaries],
+  );
+
+  const selectedJobIdSet = useMemo(
+    () => new Set(selectedCompareColumnJobIds.map(Number)),
+    [selectedCompareColumnJobIds],
+  );
+
+  const filteredNonSelectedSummaries = useMemo(() => {
+    const nameQ = execColumnFilters.name.trim().toLowerCase();
+    const scenarioQ = execColumnFilters.scenario.trim().toLowerCase();
+    const tagQ = execColumnFilters.tag.trim().toLowerCase();
+    const statusQ = execColumnFilters.status.trim().toLowerCase();
+    const ownerQ = execColumnFilters.owner.trim().toLowerCase();
+    const favQ = execColumnFilters.favorite;
+    return eligibleSummaries.filter((s) => {
+      if (selectedJobIdSet.has(Number(s.job_id))) return false;
+      if (nameQ) {
+        const name = (s.display_name ?? s.scenario_name ?? `Job ${s.job_id}`).toLowerCase();
+        if (!name.includes(nameQ)) return false;
+      }
+      if (scenarioQ && !(s.scenario_name ?? '').toLowerCase().includes(scenarioQ)) return false;
+      if (tagQ && !(s.scenario_tag?.name ?? '').toLowerCase().includes(tagQ)) return false;
+      if (statusQ && !(s.solver_status ?? '').toLowerCase().includes(statusQ)) return false;
+      if (ownerQ && !(s.owner_username ?? '').toLowerCase().includes(ownerQ)) return false;
+      if (favQ === 'fav' && !s.is_favorite) return false;
+      if (favQ === 'no' && s.is_favorite) return false;
+      return true;
+    });
+  }, [eligibleSummaries, selectedJobIdSet, execColumnFilters]);
+
+  // Orden final: seleccionados arriba → favoritos → resto.
+  const orderedExecutionRows = useMemo(() => {
+    const selectedRows = selectedCompareColumnJobIds
+      .map((jid) => allSummaries.find((s) => Number(s.job_id) === Number(jid)))
+      .filter((x): x is ResultSummaryResponse => Boolean(x));
+    const rest = [...filteredNonSelectedSummaries].sort((a, b) => {
+      const af = a.is_favorite ? 0 : 1;
+      const bf = b.is_favorite ? 0 : 1;
+      if (af !== bf) return af - bf;
+      return 0;
+    });
+    return [...selectedRows, ...rest];
+  }, [selectedCompareColumnJobIds, allSummaries, filteredNonSelectedSummaries]);
+
+  const anyExecFilterActive = Object.values(execColumnFilters).some((v) => v !== '');
+
   useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(allSummaries.length / EXECUTIONS_TABLE_PAGE_SIZE));
+    const maxPage = Math.max(
+      1,
+      Math.ceil(orderedExecutionRows.length / EXECUTIONS_TABLE_PAGE_SIZE),
+    );
     setExecutionsTablePage((p) => Math.min(p, maxPage));
-  }, [allSummaries.length]);
+  }, [orderedExecutionRows.length]);
+
+  // Al filtrar por columnas, vuelve a la página 1.
+  useEffect(() => {
+    setExecutionsTablePage(1);
+  }, [
+    execColumnFilters.name,
+    execColumnFilters.scenario,
+    execColumnFilters.tag,
+    execColumnFilters.status,
+    execColumnFilters.owner,
+    execColumnFilters.favorite,
+  ]);
 
   const toggleCompareColumnSelection = useCallback((jobId: number) => {
     const id = Number(jobId);
@@ -643,6 +708,19 @@ export function ResultDetailPage() {
     }
   }, [currentRunId]);
 
+  const handleFavoriteToggled = useCallback((jobId: number, next: boolean) => {
+    setAllSummaries((prev) =>
+      prev.map((s) =>
+        Number(s.job_id) === Number(jobId) ? { ...s, is_favorite: next } : s,
+      ),
+    );
+    setSummary((prev) =>
+      prev && Number(prev.job_id) === Number(jobId)
+        ? { ...prev, is_favorite: next }
+        : prev,
+    );
+  }, []);
+
   const handleDisplayNameSaved = useCallback((jobId: number, displayName: string | null) => {
     const norm = displayName?.trim() || null;
     setAllSummaries((prev) =>
@@ -677,17 +755,17 @@ export function ResultDetailPage() {
 
   const executionsTotalPages = Math.max(
     1,
-    Math.ceil(allSummaries.length / EXECUTIONS_TABLE_PAGE_SIZE),
+    Math.ceil(orderedExecutionRows.length / EXECUTIONS_TABLE_PAGE_SIZE),
   );
   const executionsPageSafe = Math.min(executionsTablePage, executionsTotalPages);
   const executionsSliceStart = (executionsPageSafe - 1) * EXECUTIONS_TABLE_PAGE_SIZE;
-  const paginatedSummaries = allSummaries.slice(
+  const paginatedSummaries = orderedExecutionRows.slice(
     executionsSliceStart,
     executionsSliceStart + EXECUTIONS_TABLE_PAGE_SIZE,
   );
   const executionsRangeEnd = Math.min(
     executionsSliceStart + EXECUTIONS_TABLE_PAGE_SIZE,
-    allSummaries.length,
+    orderedExecutionRows.length,
   );
 
   /** Evita duplicar la misma tarjeta KPI arriba y en "KPIs seleccionados" cuando ya hay selección en la comparativa. */
@@ -814,37 +892,70 @@ export function ResultDetailPage() {
               </span>
             ) : (
               <span className="text-slate-500 text-xs">
-                Puedes abrir el diagnóstico detallado para revisar restricciones violadas y conflictos
-                de bounds.
+                El análisis detallado (IIS + mapeo a parámetros) se ejecuta bajo demanda;
+                usa el botón a la derecha para lanzarlo o ver su estado.
               </span>
             )}
           </div>
-          {hasInfeasibilityDetails ? (
-            <Button
-              type="button"
-              onClick={() => setShowInfeasibilityModal(true)}
-              className="bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 rounded-lg shrink-0"
-            >
-              Ver diagnóstico
-            </Button>
+          {hasInfeasibilityDetails && runResult?.job_id ? (
+            (() => {
+              const solver = (runResult.solver_name ?? '').toLowerCase();
+              const diag = runResult.infeasibility_diagnostics ?? null;
+              // Retrocompat: jobs antiguos no tienen `diagnostic_status` pero sí
+              // el reporte enriquecido; los tratamos como SUCCEEDED.
+              const hasEnriched = Boolean(
+                diag?.iis ||
+                  diag?.overview ||
+                  (diag?.top_suspects?.length ?? 0) > 0 ||
+                  (diag?.constraint_analyses?.length ?? 0) > 0,
+              );
+              const diagStatus =
+                diag?.diagnostic_status ?? (hasEnriched ? 'SUCCEEDED' : 'NONE');
+              if (solver !== 'highs') {
+                return (
+                  <span className="text-xs text-slate-400 italic shrink-0 max-w-xs">
+                    Para correr el diagnóstico de infactibilidad (IIS + mapeo a
+                    parámetros) es necesario volver a lanzar la simulación con HiGHS.
+                  </span>
+                );
+              }
+              if (diagStatus === 'SUCCEEDED') {
+                return (
+                  <Link
+                    to={paths.infeasibilityReport(runResult.job_id)}
+                    className="bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 rounded-lg shrink-0 px-4 py-2 font-semibold no-underline"
+                  >
+                    ⚠ Ver reporte de infactibilidad
+                  </Link>
+                );
+              }
+              if (diagStatus === 'QUEUED' || diagStatus === 'RUNNING') {
+                return (
+                  <Link
+                    to={paths.infeasibilityReport(runResult.job_id)}
+                    className="bg-amber-600/20 hover:bg-amber-600/30 text-amber-200 border border-amber-500/50 rounded-lg shrink-0 px-4 py-2 font-semibold no-underline"
+                  >
+                    {diagStatus === 'QUEUED'
+                      ? 'Diagnóstico en cola…'
+                      : 'Diagnosticando…'}
+                  </Link>
+                );
+              }
+              // NONE / FAILED → link a la página donde se lanza
+              return (
+                <Link
+                  to={paths.infeasibilityReport(runResult.job_id)}
+                  className="bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 rounded-lg shrink-0 px-4 py-2 font-semibold no-underline"
+                >
+                  {diagStatus === 'FAILED'
+                    ? '⚠ Reintentar diagnóstico'
+                    : '⚠ Correr diagnóstico de infactibilidad'}
+                </Link>
+              );
+            })()
           ) : null}
         </div>
       ) : null}
-
-      <Modal
-        open={showInfeasibilityModal}
-        onClose={() => setShowInfeasibilityModal(false)}
-        title="Diagnóstico de infactibilidad"
-        wide
-      >
-        {hasInfeasibilityDetails && runResult ? (
-          <InfeasibilityDiagnosticsPanel
-            result={runResult}
-            scenarioParams={scenarioParamsForDiagnostics}
-            scenarioId={runResult.scenario_id ?? null}
-          />
-        ) : null}
-      </Modal>
 
       {/* ─── COMPARATIVA ─── */}
       {!loadingSummaries && allSummaries.length > 0 && (
@@ -927,7 +1038,9 @@ export function ResultDetailPage() {
             <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-6 py-4 text-sm font-medium text-slate-400 transition-colors hover:text-slate-200 [&::-webkit-details-marker]:hidden">
               <span>Tabla de ejecuciones</span>
               <span className="shrink-0 text-xs text-slate-600">
-                Selección para comparar · {allSummaries.length} filas · {EXECUTIONS_TABLE_PAGE_SIZE} por página
+                Solo exitosas · Seleccionados + favoritos arriba ·{' '}
+                {orderedExecutionRows.length} visibles · {EXECUTIONS_TABLE_PAGE_SIZE} por página
+                {anyExecFilterActive ? ' · filtros activos' : ''}
               </span>
             </summary>
             <div className="overflow-x-auto border-t border-slate-800/80 px-0 pb-0">
@@ -937,6 +1050,9 @@ export function ResultDetailPage() {
                     <th className="w-10 p-4 text-center">
                       <span className="sr-only">Comparar</span>
                     </th>
+                    <th className="w-10 p-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      ★
+                    </th>
                     <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500 min-w-[160px]">
                       Nombre del resultado
                     </th>
@@ -945,6 +1061,9 @@ export function ResultDetailPage() {
                     </th>
                     <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
                       Etiqueta
+                    </th>
+                    <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Dueño
                     </th>
                     <th className="p-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
                       Estado
@@ -959,6 +1078,109 @@ export function ResultDetailPage() {
                       CO₂ (Mt)
                     </th>
                   </tr>
+                  <tr className="border-b border-slate-800/80 bg-slate-950/30">
+                    <th className="p-2" />
+                    <th className="p-2">
+                      <select
+                        aria-label="Filtrar favoritos"
+                        value={execColumnFilters.favorite}
+                        onChange={(e) =>
+                          setExecColumnFilters((p) => ({
+                            ...p,
+                            favorite: e.target.value as '' | 'fav' | 'no',
+                          }))
+                        }
+                        className="w-full rounded-md border border-slate-700 bg-slate-950/50 px-1.5 py-1 text-[11px] text-slate-200"
+                      >
+                        <option value="">Todos</option>
+                        <option value="fav">★ Favoritos</option>
+                        <option value="no">Sin favorito</option>
+                      </select>
+                    </th>
+                    <th className="p-2">
+                      <input
+                        type="text"
+                        value={execColumnFilters.name}
+                        onChange={(e) =>
+                          setExecColumnFilters((p) => ({
+                            ...p,
+                            name: e.target.value,
+                          }))
+                        }
+                        placeholder="Filtrar…"
+                        className="w-full rounded-md border border-slate-700 bg-slate-950/50 px-2 py-1 text-[11px] text-slate-200"
+                      />
+                    </th>
+                    <th className="p-2">
+                      <input
+                        type="text"
+                        value={execColumnFilters.scenario}
+                        onChange={(e) =>
+                          setExecColumnFilters((p) => ({
+                            ...p,
+                            scenario: e.target.value,
+                          }))
+                        }
+                        placeholder="Filtrar…"
+                        className="w-full rounded-md border border-slate-700 bg-slate-950/50 px-2 py-1 text-[11px] text-slate-200"
+                      />
+                    </th>
+                    <th className="p-2">
+                      <input
+                        type="text"
+                        value={execColumnFilters.tag}
+                        onChange={(e) =>
+                          setExecColumnFilters((p) => ({
+                            ...p,
+                            tag: e.target.value,
+                          }))
+                        }
+                        placeholder="Filtrar…"
+                        className="w-full rounded-md border border-slate-700 bg-slate-950/50 px-2 py-1 text-[11px] text-slate-200"
+                      />
+                    </th>
+                    <th className="p-2">
+                      <input
+                        type="text"
+                        value={execColumnFilters.owner}
+                        onChange={(e) =>
+                          setExecColumnFilters((p) => ({
+                            ...p,
+                            owner: e.target.value,
+                          }))
+                        }
+                        placeholder="Filtrar…"
+                        className="w-full rounded-md border border-slate-700 bg-slate-950/50 px-2 py-1 text-[11px] text-slate-200"
+                      />
+                    </th>
+                    <th className="p-2">
+                      <input
+                        type="text"
+                        value={execColumnFilters.status}
+                        onChange={(e) =>
+                          setExecColumnFilters((p) => ({
+                            ...p,
+                            status: e.target.value,
+                          }))
+                        }
+                        placeholder="Filtrar…"
+                        className="w-full rounded-md border border-slate-700 bg-slate-950/50 px-2 py-1 text-[11px] text-slate-200"
+                      />
+                    </th>
+                    <th className="p-2 text-right">
+                      {anyExecFilterActive ? (
+                        <button
+                          type="button"
+                          onClick={resetExecFilters}
+                          className="rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                        >
+                          Limpiar
+                        </button>
+                      ) : null}
+                    </th>
+                    <th className="p-2" />
+                    <th className="p-2" />
+                  </tr>
                 </thead>
                 <tbody>
                   {paginatedSummaries.map((s) => {
@@ -971,7 +1193,11 @@ export function ResultDetailPage() {
                       <tr
                         key={s.job_id}
                         className={`border-b border-slate-800/80 transition-colors ${
-                          isCurrent ? 'bg-emerald-500/[0.04]' : 'hover:bg-slate-900/50'
+                          isColSelected
+                            ? 'bg-cyan-500/[0.05]'
+                            : isCurrent
+                              ? 'bg-emerald-500/[0.04]'
+                              : 'hover:bg-slate-900/50'
                         }`}
                       >
                         <td className="p-4 text-center align-middle">
@@ -981,6 +1207,14 @@ export function ResultDetailPage() {
                             onChange={() => toggleCompareColumnSelection(Number(s.job_id))}
                             aria-label={`Incluir ${rowLabel} en vista columnas`}
                             className="h-4 w-4 cursor-pointer rounded border-slate-600 bg-slate-950 text-emerald-500 focus:ring-emerald-500/40"
+                          />
+                        </td>
+                        <td className="p-4 text-center align-middle">
+                          <FavoriteStarButton
+                            jobId={Number(s.job_id)}
+                            isFavorite={Boolean(s.is_favorite)}
+                            onToggled={(next) => handleFavoriteToggled(Number(s.job_id), next)}
+                            size={16}
                           />
                         </td>
                         <td className="p-4 align-top min-w-[160px] max-w-[280px]">
@@ -1006,6 +1240,11 @@ export function ResultDetailPage() {
                                 Actual
                               </span>
                             ) : null}
+                            {isColSelected && !isCurrent ? (
+                              <span className="shrink-0 rounded-md bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+                                Seleccionado
+                              </span>
+                            ) : null}
                           </Link>
                         </td>
                         <td className="p-4 align-middle">
@@ -1014,6 +1253,9 @@ export function ResultDetailPage() {
                           ) : (
                             <span className="text-slate-600">—</span>
                           )}
+                        </td>
+                        <td className="p-4 align-middle text-slate-300">
+                          {s.owner_username ?? '—'}
                         </td>
                         <td className="p-4">
                           <span className={st.badgeClass}>{st.label}</span>
@@ -1034,9 +1276,9 @@ export function ResultDetailPage() {
               </table>
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800/80 px-6 py-3">
                 <p className="m-0 text-xs text-slate-500">
-                  {allSummaries.length === 0
+                  {orderedExecutionRows.length === 0
                     ? 'Sin filas'
-                    : `${executionsSliceStart + 1}–${executionsRangeEnd} de ${allSummaries.length}`}
+                    : `${executionsSliceStart + 1}–${executionsRangeEnd} de ${orderedExecutionRows.length}`}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
@@ -1071,6 +1313,20 @@ export function ResultDetailPage() {
 
       {isOptimal ? (
         <>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowSaveChartModal(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20"
+              title="Guardar esta gráfica como plantilla reutilizable en reportes"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+              </svg>
+              Guardar gráfica
+            </button>
+          </div>
+
           <div className="rounded-xl border border-slate-800 bg-slate-900/30 backdrop-blur-sm p-6 relative">
             {loadingChart && (
               <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-950/70 backdrop-blur-sm">
@@ -1260,6 +1516,35 @@ export function ResultDetailPage() {
             />
           </div>
         </>
+      ) : null}
+
+      <SaveChartModal
+        open={showSaveChartModal}
+        onClose={() => setShowSaveChartModal(false)}
+        selection={chartSelection}
+        compareMode={chartCompareMode === 'facet' && chartJobIds.length > 1 ? 'facet' : 'off'}
+        numScenarios={
+          chartCompareMode === 'facet' && chartJobIds.length > 1
+            ? chartJobIds.length
+            : 1
+        }
+        barOrientation={chartBarOrientation}
+        facetPlacement={chartFacetPlacement}
+        facetLegendMode={chartFacetLegendMode}
+        chartLabel={getChartLabel(chartSelection.tipo) ?? null}
+        onSaved={(tpl) => {
+          setSavedChartToast(`"${tpl.name}" guardada. Úsala en el Generador de reportes.`);
+          window.setTimeout(() => setSavedChartToast(null), 4000);
+        }}
+      />
+
+      {savedChartToast ? (
+        <div
+          className="fixed bottom-6 right-6 z-[300] rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200 shadow-2xl backdrop-blur-md"
+          role="status"
+        >
+          {savedChartToast}
+        </div>
       ) : null}
     </div>
   );

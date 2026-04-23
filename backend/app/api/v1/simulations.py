@@ -7,21 +7,34 @@ Todos requieren usuario autenticado; delegan a SimulationService.
 
 from __future__ import annotations
 
+import io
+import json
 import shutil
 import uuid
+import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.db.session import get_db
-from app.models import User
+from app.models import (
+    DeletionLog,
+    OsemosysOutputParamValue,
+    SimulationJob,
+    SimulationJobEvent,
+    SimulationJobFavorite,
+    User,
+)
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.simulation import (
     SimulationJobDisplayNamePatch,
+    SimulationJobFavoritePatch,
     SimulationJobPublic,
     SimulationLogPublic,
     SimulationOverviewPublic,
@@ -66,6 +79,7 @@ def submit_simulation(
             current_user=current_user,
             scenario_id=payload.scenario_id,
             solver_name=payload.solver_name,
+            run_iis_analysis=payload.run_iis_analysis,
             display_name=payload.display_name,
         )
     except NotFoundError as e:
@@ -80,6 +94,7 @@ def submit_simulation(
 async def submit_simulation_from_csv(
     csv_zip: UploadFile = File(...),
     solver_name: str = Form("highs"),
+    run_iis_analysis: bool = Form(False),
     input_name: str | None = Form(default=None),
     simulation_type: str = Form(default="NATIONAL"),
     save_as_scenario: bool = Form(default=False),
@@ -166,6 +181,7 @@ async def submit_simulation_from_csv(
             solver_name=solver_name,
             input_name=(input_name or csv_zip.filename or "CSV upload"),
             input_ref=str(csv_root),
+            run_iis_analysis=run_iis_analysis,
             simulation_type=simulation_type,
             display_name=display_name,
         )
@@ -247,13 +263,37 @@ def patch_simulation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Actualiza metadatos del job (p. ej. nombre visible para resultados y exportación)."""
+    """Actualiza metadatos editables del job (nombre visible, visibilidad).
+
+    Solo el dueño puede cambiar estos campos. Campos no enviados no se tocan.
+    """
+    data = payload.model_dump(exclude_unset=True)
     try:
-        return SimulationService.patch_display_name(
+        return SimulationService.patch_metadata(
             db,
             current_user=current_user,
             job_id=job_id,
-            display_name=payload.display_name,
+            display_name=data.get("display_name", ...),
+            is_public=data.get("is_public"),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.patch("/{job_id}/favorite", response_model=SimulationJobPublic)
+def patch_simulation_favorite(
+    job_id: int,
+    payload: SimulationJobFavoritePatch,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Marca/desmarca el resultado como favorito del usuario actual."""
+    try:
+        return SimulationService.set_favorite(
+            db,
+            current_user=current_user,
+            job_id=job_id,
+            favorite=payload.is_favorite,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -281,6 +321,71 @@ def cancel_simulation(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.delete("/{job_id}", status_code=204)
+def delete_simulation(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Elimina un job de simulación junto con sus outputs, logs y favoritos.
+
+    Reglas:
+    - Solo el dueño del job puede eliminarlo.
+    - El job no puede estar QUEUED/RUNNING (hay que cancelarlo primero para
+      que el worker no escriba sobre una fila inexistente).
+    - La eliminación queda registrada en ``osemosys.deletion_log`` con
+      ``entity_type='SIMULATION_JOB'`` y snapshot de los campos clave.
+    - Las tablas hijas (output_param_value, simulation_job_event,
+      simulation_job_favorite) tienen ``ON DELETE CASCADE`` en sus FK: se
+      limpian automáticamente al borrar la fila del job.
+    """
+    job = db.get(SimulationJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Simulación no encontrada.")
+    if job.user_id != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el dueño del job puede eliminarlo.",
+        )
+    if job.status in ("QUEUED", "RUNNING"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El job está en cola o ejecución. Cancela primero antes de "
+                "eliminarlo para evitar que el worker escriba sobre una fila "
+                "inexistente."
+            ),
+        )
+
+    label = job.display_name or job.input_name or f"Job #{job.id}"
+    snapshot = {
+        "scenario_id": job.scenario_id,
+        "display_name": job.display_name,
+        "input_name": job.input_name,
+        "input_mode": job.input_mode,
+        "solver_name": job.solver_name,
+        "status": job.status,
+        "queued_at": job.queued_at.isoformat() if job.queued_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "error_message": job.error_message,
+        "is_infeasible_result": bool(getattr(job, "is_infeasible_result", False)),
+    }
+
+    db.add(
+        DeletionLog(
+            entity_type="SIMULATION_JOB",
+            entity_id=job.id,
+            entity_name=label[:400],
+            deleted_by_user_id=current_user.id,
+            deleted_by_username=current_user.username,
+            details_json=snapshot,
+        )
+    )
+    db.delete(job)
+    db.commit()
 
 
 @router.get("/{job_id}/logs", response_model=PaginatedResponse[SimulationLogPublic])
@@ -328,6 +433,119 @@ def get_simulation_result(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{job_id}/diagnose-infeasibility", response_model=SimulationJobPublic)
+def diagnose_infeasibility(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Encola el análisis de infactibilidad (IIS + mapeo a parámetros) para
+    un job infactible hecho con HiGHS. Devuelve el job actualizado con
+    ``diagnostic_status='QUEUED'``.
+
+    Respuestas:
+    - 200: solicitud aceptada; el análisis se ejecuta asincrónicamente.
+    - 404: job no encontrado o sin acceso.
+    - 409: el job no es infactible, o fue corrido con GLPK (no soporta IIS),
+           o el diagnóstico ya está en curso.
+    """
+    try:
+        return SimulationService.request_infeasibility_diagnostic(
+            db, current_user=current_user, job_id=job_id
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{job_id}/cancel-diagnostic", response_model=SimulationJobPublic)
+def cancel_infeasibility_diagnostic(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Cancela el análisis de infactibilidad que esté en cola o corriendo
+    para el job indicado. Marca la bandera en BD (para que la task
+    coopere al siguiente chequeo) y revoca la task en Celery (para
+    interrumpir si está atrapada en cálculos largos).
+
+    Respuestas:
+    - 200: cancelación aplicada; el job sigue en ``SUCCEEDED`` pero el
+           ``diagnostic_status`` pasa a ``FAILED`` con error
+           "Cancelado por el usuario".
+    - 404: job no encontrado / sin acceso.
+    - 409: no hay diagnóstico en cola ni en ejecución (nada para cancelar).
+    """
+    try:
+        return SimulationService.cancel_infeasibility_diagnostic(
+            db, current_user=current_user, job_id=job_id
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.get("/{job_id}/infeasibility-report")
+def download_infeasibility_report(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Descarga el diagnóstico enriquecido de infactibilidad como JSON.
+
+    Respuestas:
+    - 200: archivo JSON (``Content-Disposition: attachment``).
+    - 404: job no encontrado o sin diagnóstico disponible.
+    """
+    try:
+        result = SimulationService.get_result(
+            db, current_user=current_user, job_id=job_id
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+    diagnostics = result.get("infeasibility_diagnostics")
+    if not diagnostics:
+        raise HTTPException(
+            status_code=404,
+            detail="El job no tiene diagnóstico de infactibilidad disponible.",
+        )
+
+    # Armado del payload descargable: overview y top sospechosos primero, luego
+    # IIS, luego detalle. Se EXCLUYE `constraint_violations` (heurística
+    # post-solve ruidosa); sigue en BD por compatibilidad interna pero no viaja
+    # en el archivo al usuario.
+    diag = diagnostics if isinstance(diagnostics, dict) else {}
+    cleaned_diagnostics = {
+        "overview": diag.get("overview"),
+        "iis": diag.get("iis"),
+        "top_suspects": diag.get("top_suspects", []),
+        "constraint_analyses": diag.get("constraint_analyses", []),
+        "var_bound_conflicts": diag.get("var_bound_conflicts", []),
+        "unmapped_constraint_prefixes": diag.get("unmapped_constraint_prefixes", []),
+        "csv_dir": diag.get("csv_dir"),
+    }
+    payload = {
+        "job_id": result.get("job_id"),
+        "scenario_id": result.get("scenario_id"),
+        "solver_name": result.get("solver_name"),
+        "solver_status": result.get("solver_status"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "infeasibility_diagnostics": cleaned_diagnostics,
+    }
+    buf = io.BytesIO(json.dumps(payload, ensure_ascii=False, indent=2, default=str).encode("utf-8"))
+    filename = f"infeasibility_report_job_{job_id}.json"
+    return StreamingResponse(
+        buf,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ============================================================================

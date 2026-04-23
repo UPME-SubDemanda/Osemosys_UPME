@@ -193,6 +193,9 @@ export function ScenariosPage() {
 
   const [openCreate, setOpenCreate] = useState(false);
   const [openExcel, setOpenExcel] = useState(false);
+  /** Escenario candidato a eliminar (mostrado en modal de confirmación). */
+  const [deleteCandidate, setDeleteCandidate] = useState<Scenario | null>(null);
+  const [deletingScenarioId, setDeletingScenarioId] = useState<number | null>(null);
   const [openCsv, setOpenCsv] = useState(false);
   const [openConcatSand, setOpenConcatSand] = useState(false);
   const [openVerifySand, setOpenVerifySand] = useState(false);
@@ -615,6 +618,21 @@ export function ScenariosPage() {
       push(err instanceof Error ? err.message : "No se pudo quitar la etiqueta.", "error");
     } finally {
       setTagModalSaving(false);
+    }
+  }
+
+  async function confirmDeleteScenario() {
+    if (!deleteCandidate) return;
+    setDeletingScenarioId(deleteCandidate.id);
+    try {
+      await scenariosApi.deleteScenario(deleteCandidate.id);
+      push(`Escenario "${deleteCandidate.name}" eliminado.`, "success");
+      setDeleteCandidate(null);
+      await fetchScenarios();
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudo eliminar el escenario.", "error");
+    } finally {
+      setDeletingScenarioId(null);
     }
   }
 
@@ -1055,6 +1073,16 @@ export function ScenariosPage() {
                   <td style={{ padding: "10px 12px" }}>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <Button
+                        variant="primary"
+                        onClick={() =>
+                          navigate(`${paths.simulation}?scenario=${row.id}`)
+                        }
+                        title="Lanzar una simulación con este escenario preseleccionado"
+                        style={{ padding: "4px 10px", fontSize: "0.85rem" }}
+                      >
+                        Simular
+                      </Button>
+                      <Button
                         variant="ghost"
                         onClick={() => void handleDownloadExcel(row)}
                         disabled={downloadingScenarioId === row.id}
@@ -1083,6 +1111,22 @@ export function ScenariosPage() {
                           style={{ padding: "4px 10px", fontSize: "0.85rem" }}
                         >
                           Etiqueta
+                        </Button>
+                      ) : null}
+                      {row.owner === user?.username ? (
+                        <Button
+                          variant="ghost"
+                          type="button"
+                          onClick={() => setDeleteCandidate(row)}
+                          disabled={deletingScenarioId === row.id}
+                          title="Eliminar escenario (y simulaciones asociadas)"
+                          style={{
+                            padding: "4px 10px",
+                            fontSize: "0.85rem",
+                            color: "rgba(248,113,113,0.95)",
+                          }}
+                        >
+                          Eliminar
                         </Button>
                       ) : null}
                     </div>
@@ -1893,6 +1937,59 @@ export function ScenariosPage() {
             <SandExportVerificationPanel data={verifyResult} variant="standalone" />
           ) : null}
         </div>
+      </Modal>
+
+      <Modal
+        open={deleteCandidate !== null}
+        title="Eliminar escenario"
+        onClose={() => (deletingScenarioId ? undefined : setDeleteCandidate(null))}
+        footer={
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Button
+              variant="ghost"
+              onClick={() => setDeleteCandidate(null)}
+              disabled={deletingScenarioId !== null}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => void confirmDeleteScenario()}
+              disabled={deletingScenarioId !== null}
+              style={{
+                background: "rgba(239,68,68,0.85)",
+                borderColor: "rgba(239,68,68,0.9)",
+              }}
+            >
+              {deletingScenarioId !== null ? "Eliminando…" : "Eliminar definitivamente"}
+            </Button>
+          </div>
+        }
+      >
+        {deleteCandidate ? (
+          <div style={{ display: "grid", gap: 10 }}>
+            <p style={{ margin: 0 }}>
+              ¿Estás seguro de eliminar el escenario{" "}
+              <strong>{deleteCandidate.name}</strong> (#{deleteCandidate.id})?
+            </p>
+            <div
+              style={{
+                border: "1px solid rgba(245,158,11,0.4)",
+                background: "rgba(245,158,11,0.08)",
+                borderRadius: 8,
+                padding: 10,
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              <strong>Esta acción no se puede deshacer.</strong> Se eliminan
+              también <strong>todas las simulaciones asociadas</strong> a este
+              escenario con sus logs y resultados.<br />
+              Queda un registro en el Historial de eliminaciones (quién, cuándo
+              y snapshot de los campos clave).
+            </div>
+          </div>
+        ) : null}
       </Modal>
     </section>
   );

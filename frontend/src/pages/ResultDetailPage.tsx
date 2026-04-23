@@ -21,6 +21,7 @@ import type {
   CompareChartResponse,
   CompareChartFacetResponse,
   CompareMode,
+  ParetoChartResponse,
   RunResult,
   SimulationRun,
 } from '../types/domain';
@@ -33,6 +34,7 @@ import { HighchartsChart } from '../shared/charts/HighchartsChart';
 import { LineChart } from '../shared/charts/LineChart';
 import { CompareChart } from '../shared/charts/CompareChart';
 import { CompareChartFacet } from '../shared/charts/CompareChartFacet';
+import { ParetoChart } from '../shared/charts/ParetoChart';
 import type {
   ChartBarOrientation,
   ChartFacetLegendMode,
@@ -254,6 +256,8 @@ export function ResultDetailPage() {
   const [singleChartData, setSingleChartData] = useState<ChartDataResponse | null>(null);
   const [compareChartData, setCompareChartData] = useState<CompareChartResponse | null>(null);
   const [compareFacetData, setCompareFacetData] = useState<CompareChartFacetResponse | null>(null);
+  const [compareLineData, setCompareLineData] = useState<ChartDataResponse | null>(null);
+  const [paretoData, setParetoData] = useState<ParetoChartResponse | null>(null);
   const [loadingChart, setLoadingChart] = useState(false);
 
   const [chartBarOrientation, setChartBarOrientation] = useState<ChartBarOrientation>(() =>
@@ -545,6 +549,8 @@ export function ResultDetailPage() {
           setCompareFacetData(data);
           setCompareChartData(null);
           setSingleChartData(null);
+          setCompareLineData(null);
+          setParetoData(null);
         })
         .catch((err: unknown) => console.error('Error loading compare-facet data', err))
         .finally(() => setLoadingChart(false));
@@ -565,8 +571,30 @@ export function ResultDetailPage() {
           setCompareChartData(data);
           setCompareFacetData(null);
           setSingleChartData(null);
+          setCompareLineData(null);
+          setParetoData(null);
         })
         .catch((err: unknown) => console.error('Error loading compare data', err))
+        .finally(() => setLoadingChart(false));
+    } else if (isCompare && chartCompareMode === 'line-total') {
+      const params: Record<string, string> = {
+        job_ids: chartJobIds.join(','),
+        tipo: chartSelection.tipo,
+        un: chartSelection.un,
+      };
+      if (chartSelection.sub_filtro) params.sub_filtro = chartSelection.sub_filtro;
+      if (chartSelection.loc) params.loc = chartSelection.loc;
+
+      simulationApi
+        .getCompareLineData(params as Parameters<typeof simulationApi.getCompareLineData>[0])
+        .then((data: ChartDataResponse) => {
+          setCompareLineData(data);
+          setCompareChartData(null);
+          setCompareFacetData(null);
+          setSingleChartData(null);
+          setParetoData(null);
+        })
+        .catch((err: unknown) => console.error('Error loading compare-line data', err))
         .finally(() => setLoadingChart(false));
     } else {
       const params: Record<string, string> = {
@@ -578,18 +606,44 @@ export function ResultDetailPage() {
       if (chartSelection.variable) params.variable = chartSelection.variable;
       if (chartSelection.agrupar_por) params.agrupar_por = chartSelection.agrupar_por;
 
-      simulationApi
-        .getChartData(
-          currentRunId,
-          params as Parameters<typeof simulationApi.getChartData>[1],
-        )
-        .then((data: ChartDataResponse) => {
-          setSingleChartData(data);
-          setCompareChartData(null);
-          setCompareFacetData(null);
-        })
-        .catch((err: unknown) => console.error('Error loading chart data', err))
-        .finally(() => setLoadingChart(false));
+      if (chartSelection.viewMode === 'pareto') {
+        const paretoParams: Record<string, string> = {
+          tipo: chartSelection.tipo,
+          un: chartSelection.un,
+        };
+        if (chartSelection.sub_filtro) paretoParams.sub_filtro = chartSelection.sub_filtro;
+        if (chartSelection.loc) paretoParams.loc = chartSelection.loc;
+
+        simulationApi
+          .getParetoData(
+            currentRunId,
+            paretoParams as Parameters<typeof simulationApi.getParetoData>[1],
+          )
+          .then((data: ParetoChartResponse) => {
+            setParetoData(data);
+            setSingleChartData(null);
+            setCompareChartData(null);
+            setCompareFacetData(null);
+            setCompareLineData(null);
+          })
+          .catch((err: unknown) => console.error('Error loading pareto data', err))
+          .finally(() => setLoadingChart(false));
+      } else {
+        simulationApi
+          .getChartData(
+            currentRunId,
+            params as Parameters<typeof simulationApi.getChartData>[1],
+          )
+          .then((data: ChartDataResponse) => {
+            setSingleChartData(data);
+            setCompareChartData(null);
+            setCompareFacetData(null);
+            setCompareLineData(null);
+            setParetoData(null);
+          })
+          .catch((err: unknown) => console.error('Error loading chart data', err))
+          .finally(() => setLoadingChart(false));
+      }
     }
   }, [
     currentRunId,
@@ -629,9 +683,7 @@ export function ResultDetailPage() {
       }
       setCompareState((prev) => {
         const newMode: CompareMode =
-          prev.mode === 'off'
-            ? prev.mode
-            : (selection.compareViewMode ?? (prev.mode === 'by-year' ? 'by-year' : 'facet'));
+          prev.mode === 'off' ? prev.mode : (selection.compareViewMode ?? prev.mode);
         return {
           mode: newMode,
           jobIds: selection.jobIds,
@@ -1347,6 +1399,13 @@ export function ResultDetailPage() {
               />
             ) : chartCompareMode === 'by-year' && chartJobIds.length > 1 && compareChartData ? (
               <CompareChart data={compareChartData} barOrientation={chartBarOrientation} />
+            ) : chartCompareMode === 'line-total' && chartJobIds.length > 1 && compareLineData ? (
+              <LineChart data={compareLineData} />
+            ) : chartSelection.viewMode === 'pareto' && paretoData ? (
+              <ParetoChart
+                data={paretoData}
+                serverExport={{ jobId: currentRunId, selection: chartSelection }}
+              />
             ) : singleChartData ? (
               chartSelection.viewMode === 'line'
                 ? (
@@ -1509,7 +1568,13 @@ export function ResultDetailPage() {
               currentRunId={currentRunId}
               selectedJobIds={facetFromCompareTable ? columnCompareJobIds : compareState.jobIds}
               selectedYears={compareState.yearsToPlot}
-              compareViewMode={compareState.mode === 'by-year' ? 'by-year' : 'facet'}
+              compareViewMode={
+                compareState.mode === 'by-year'
+                  ? 'by-year'
+                  : compareState.mode === 'line-total'
+                  ? 'line-total'
+                  : 'facet'
+              }
               enabled={facetFromCompareTable || compareState.mode !== 'off'}
               onToggle={handleToggleCompare}
               onChange={handleCompareChange}

@@ -362,7 +362,7 @@ export type CompareChartResponse = {
   yAxisLabel: string;
 };
 
-export type CompareMode = "off" | "facet" | "by-year";
+export type CompareMode = "off" | "facet" | "by-year" | "line-total";
 
 /** Modo del nombre de archivo al exportar comparación por facetas (PNG/SVG). */
 export type CompareFacetExportFilenameMode = "result" | "tags";
@@ -382,6 +382,14 @@ export type CompareChartFacetResponse = {
   yAxisLabel: string;
 };
 
+export type ParetoChartResponse = {
+  categories: string[];
+  values: number[];
+  cumulative_percent: number[];
+  title: string;
+  yAxisLabel: string;
+};
+
 export type ChartCatalogItem = {
   id: string;
   label: string;
@@ -390,6 +398,7 @@ export type ChartCatalogItem = {
   has_loc: boolean;
   sub_filtros: string[] | null;
   es_capacidad: boolean;
+  soporta_pareto: boolean;
 };
 
 /** Plantilla de gráfica guardada por un usuario para generar reportes. */
@@ -403,7 +412,7 @@ export type SavedChartTemplate = {
   loc: string | null;
   variable: string | null;
   agrupar_por: string | null;
-  view_mode: "column" | "line" | null;
+  view_mode: "column" | "line" | "pareto" | null;
   compare_mode: "off" | "facet";
   bar_orientation: "vertical" | "horizontal" | null;
   facet_placement: "inline" | "stacked" | null;

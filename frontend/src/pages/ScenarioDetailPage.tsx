@@ -9,7 +9,7 @@
  *
  * Endpoints usados:
  * - scenariosApi.getScenarioById, getEffectivePermission
- * - scenariosApi.listOsemosysSummary, listOsemosysValues (con filtros param_name, year)
+ * - scenariosApi.listOsemosysValuesWide, listOsemosysWideFacets
  * - scenariosApi.createOsemosysValue, updateOsemosysValue, deactivateOsemosysValue
  * - scenariosApi.createChangeRequest, listPendingChangeRequests, reviewChangeRequest
  * - scenariosApi.listPermissions, upsertPermission
@@ -22,10 +22,14 @@ import { useCurrentUser } from "@/app/providers/useCurrentUser";
 import { useToast } from "@/app/providers/useToast";
 import {
   scenariosApi,
+  serializeYearRules,
   type ExcelUpdatePreviewRow,
   type OsemosysValueRow,
-  type OsemosysYearSummary,
+  type OsemosysWideFacets,
+  type OsemosysWideFilters,
+  type OsemosysWideRow,
   type ScenarioAccess,
+  type YearRule,
 } from "@/features/scenarios/api/scenariosApi";
 import { officialImportApi } from "@/features/officialImport/api/officialImportApi";
 import { catalogsApi } from "@/features/catalogs/api/catalogsApi";
@@ -33,6 +37,8 @@ import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
 import { ScenarioTagsPanel } from "@/shared/components/ScenarioTagsPanel";
+import { ColumnFilterPopover } from "@/shared/components/ColumnFilterPopover";
+import { YearRuleFilterPopover } from "@/shared/components/YearRuleFilterPopover";
 import { DataTable } from "@/shared/components/DataTable";
 import { Modal } from "@/shared/components/Modal";
 import { TextField } from "@/shared/components/TextField";
@@ -88,15 +94,26 @@ export function ScenarioDetailPage() {
   const [tab, setTab] = useState<Tab>("values");
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [access, setAccess] = useState<ScenarioAccess | null>(null);
-  const [osemosysRows, setOsemosysRows] = useState<OsemosysValueRow[]>([]);
+  const [osemosysWideRows, setOsemosysWideRows] = useState<OsemosysWideRow[]>([]);
+  const [osemosysWideYears, setOsemosysWideYears] = useState<number[]>([]);
+  const [osemosysHasScalar, setOsemosysHasScalar] = useState(false);
   const [osemosysTotal, setOsemosysTotal] = useState(0);
+  const [columnFilters, setColumnFilters] = useState<OsemosysWideFilters>({});
+  const [yearRules, setYearRules] = useState<Record<string, YearRule>>({});
+  const [facets, setFacets] = useState<OsemosysWideFacets | null>(null);
+  const [facetsLoading, setFacetsLoading] = useState(false);
   const [osemosysPage, setOsemosysPage] = useState(1);
   const [osemosysPageSize, setOsemosysPageSize] = useState<number>(50);
-  const [osemosysSearch, setOsemosysSearch] = useState("");
+  // Búsqueda global eliminada del UI; el string vacío hace no-op en el backend.
+  const osemosysSearch = "";
   const [osemosysLoading, setOsemosysLoading] = useState(false);
-  const [osemosysSummary, setOsemosysSummary] = useState<OsemosysYearSummary[]>([]);
-  const [filterParamName, setFilterParamName] = useState("");
-  const [filterYear, setFilterYear] = useState("");
+  // `filterParamName` se mantiene (ILIKE server-side) aunque ya no hay input
+  // dedicado — se cubre con el popover de columna y la búsqueda global.
+  const [filterParamName] = useState("");
+  // filterYear legado — conservado como "" para no tocar signatures del fetch.
+  const filterYear = "";
+  // Años visibles (client-side): vacío = mostrar todos.
+  const [filterYears, setFilterYears] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<ScenarioPermission[]>([]);
   const [pending, setPending] = useState<ChangeRequest[]>([]);
   const [parentScenarioName, setParentScenarioName] = useState<string | null>(null);
@@ -107,6 +124,15 @@ export function ScenarioDetailPage() {
   const [editingOsemosys, setEditingOsemosys] = useState<OsemosysValueRow | null>(null);
   const [proposeFor, setProposeFor] = useState<OsemosysValueRow | null>(null);
   const [proposalNewValue, setProposalNewValue] = useState("");
+
+  const [editingCell, setEditingCell] = useState<{
+    rowKey: string;
+    yearKey: string;
+    valueId: number;
+    original: number;
+  } | null>(null);
+  const [cellDraft, setCellDraft] = useState("");
+  const [cellSaving, setCellSaving] = useState(false);
 
   const [openExcelUpdateModal, setOpenExcelUpdateModal] = useState(false);
   const [excelUpdateFile, setExcelUpdateFile] = useState<File | null>(null);
@@ -266,7 +292,12 @@ export function ScenarioDetailPage() {
     [],
   );
 
-  /** Carga una página de valores OSeMOSYS desde el servidor */
+  /** Carga una página de valores OSeMOSYS (formato wide) desde el servidor.
+   *
+   * El parámetro `yearValue` no se envía al backend: en formato wide, filtrar
+   * por año equivale a ocultar columnas de años, lo cual se hace en render.
+   * Los filtros por columna (`colFilters`) aplican `IN` server-side.
+   */
   const fetchOsemosysPage = useCallback(
     async (
       scId: number,
@@ -274,19 +305,22 @@ export function ScenarioDetailPage() {
       pageSize: number,
       searchTerm: string,
       paramName: string,
-      yearValue: string,
+      _yearValue: string,
+      colFilters: OsemosysWideFilters = {},
     ) => {
       setOsemosysLoading(true);
       try {
         const offset = (page - 1) * pageSize;
-        const res = await scenariosApi.listOsemosysValues(scId, {
+        const res = await scenariosApi.listOsemosysValuesWide(scId, {
           offset,
           limit: pageSize,
           ...(searchTerm.trim() ? { search: searchTerm.trim() } : {}),
           ...(paramName.trim() ? { param_name: paramName.trim() } : {}),
-          ...(yearValue.trim() ? { year: Number(yearValue) } : {}),
+          ...colFilters,
         });
-        setOsemosysRows(res.items);
+        setOsemosysWideRows(res.items);
+        setOsemosysWideYears(res.years);
+        setOsemosysHasScalar(res.has_scalar);
         setOsemosysTotal(res.total);
 
         await refreshCatalogSuggestions({
@@ -306,15 +340,101 @@ export function ScenarioDetailPage() {
     [push, refreshCatalogSuggestions],
   );
 
+  /** Recalcula los facets narrowed (exclude-self) a partir de los filtros activos. */
+  const fetchFacets = useCallback(
+    async (scId: number, searchTerm: string, paramName: string, colFilters: OsemosysWideFilters) => {
+      setFacetsLoading(true);
+      try {
+        const res = await scenariosApi.listOsemosysWideFacets(scId, {
+          ...(searchTerm.trim() ? { search: searchTerm.trim() } : {}),
+          ...(paramName.trim() ? { param_name: paramName.trim() } : {}),
+          ...colFilters,
+        });
+        setFacets(res);
+      } catch (err) {
+        push(err instanceof Error ? err.message : "Error cargando filtros.", "error");
+      } finally {
+        setFacetsLoading(false);
+      }
+    },
+    [push],
+  );
+
   /** Recarga la página actual de valores OSeMOSYS */
   const refreshOsemosysData = useCallback(
     async (scId: number, paramName = filterParamName, yearValue = filterYear) => {
+      const yr = serializeYearRules(yearRules);
+      const merged: OsemosysWideFilters = yr ? { ...columnFilters, year_rules: yr } : columnFilters;
       await Promise.all([
-        scenariosApi.listOsemosysSummary(scId).then(setOsemosysSummary),
-        fetchOsemosysPage(scId, osemosysPage, osemosysPageSize, osemosysSearch, paramName, yearValue),
+        fetchOsemosysPage(scId, osemosysPage, osemosysPageSize, osemosysSearch, paramName, yearValue, merged),
+        fetchFacets(scId, osemosysSearch, paramName, merged),
       ]);
     },
-    [fetchOsemosysPage, filterParamName, filterYear, osemosysPage, osemosysPageSize, osemosysSearch],
+    [columnFilters, fetchFacets, fetchOsemosysPage, filterParamName, filterYear, osemosysPage, osemosysPageSize, osemosysSearch, yearRules],
+  );
+
+  /** Combina filtros de columna categórica con las reglas de año en un único objeto de filtros. */
+  const buildFilters = useCallback(
+    (cols: OsemosysWideFilters, rules: Record<string, YearRule>): OsemosysWideFilters => {
+      const yr = serializeYearRules(rules);
+      return yr ? { ...cols, year_rules: yr } : cols;
+    },
+    [],
+  );
+
+  /** Aplica un cambio a un filtro de columna y relanza datos + facets narrowed. */
+  const applyColumnFilter = useCallback(
+    (column: keyof OsemosysWideFilters, values: string[]) => {
+      setColumnFilters((prev) => {
+        const next: OsemosysWideFilters = { ...prev };
+        if (values.length === 0) delete next[column];
+        else (next as Record<string, unknown>)[column] = values;
+        if (scenario) {
+          const merged = buildFilters(next, yearRules);
+          setOsemosysPage(1);
+          void fetchOsemosysPage(scenario.id, 1, osemosysPageSize, osemosysSearch, filterParamName, filterYear, merged);
+          void fetchFacets(scenario.id, osemosysSearch, filterParamName, merged);
+        }
+        return next;
+      });
+    },
+    [buildFilters, fetchFacets, fetchOsemosysPage, filterParamName, filterYear, osemosysPageSize, osemosysSearch, scenario, yearRules],
+  );
+
+  /** Aplica/limpia una regla sobre un año concreto. `null` elimina la regla. */
+  const applyYearRule = useCallback(
+    (year: number, rule: YearRule | null) => {
+      setYearRules((prev) => {
+        const next = { ...prev };
+        if (rule === null) delete next[String(year)];
+        else next[String(year)] = rule;
+        if (scenario) {
+          const merged = buildFilters(columnFilters, next);
+          setOsemosysPage(1);
+          void fetchOsemosysPage(scenario.id, 1, osemosysPageSize, osemosysSearch, filterParamName, filterYear, merged);
+          void fetchFacets(scenario.id, osemosysSearch, filterParamName, merged);
+        }
+        return next;
+      });
+    },
+    [buildFilters, columnFilters, fetchFacets, fetchOsemosysPage, filterParamName, filterYear, osemosysPageSize, osemosysSearch, scenario],
+  );
+
+  const clearAllColumnFilters = useCallback(() => {
+    setColumnFilters({});
+    setYearRules({});
+    if (scenario) {
+      setOsemosysPage(1);
+      void fetchOsemosysPage(scenario.id, 1, osemosysPageSize, osemosysSearch, filterParamName, filterYear, {});
+      void fetchFacets(scenario.id, osemosysSearch, filterParamName, {});
+    }
+  }, [fetchFacets, fetchOsemosysPage, filterParamName, filterYear, osemosysPageSize, osemosysSearch, scenario]);
+
+  const hasActiveColumnFilters = useMemo(
+    () =>
+      Object.values(columnFilters).some((v) => Array.isArray(v) && v.length > 0) ||
+      Object.keys(yearRules).length > 0,
+    [columnFilters, yearRules],
   );
 
   // Carga escenario, permisos, valores OSeMOSYS y solicitudes pendientes al montar
@@ -350,8 +470,8 @@ export function ScenarioDetailPage() {
         }
 
         await Promise.all([
-          scenariosApi.listOsemosysSummary(sc.id).then(setOsemosysSummary),
-          fetchOsemosysPage(sc.id, 1, osemosysPageSize, "", "", ""),
+          fetchOsemosysPage(sc.id, 1, osemosysPageSize, "", "", "", {}),
+          fetchFacets(sc.id, "", "", {}),
         ]);
 
         if (myAccess.isOwner || myAccess.can_edit_direct) {
@@ -378,7 +498,8 @@ export function ScenarioDetailPage() {
   // Recarga al cambiar página
   useEffect(() => {
     if (!scenario) return;
-    void fetchOsemosysPage(scenario.id, osemosysPage, osemosysPageSize, osemosysSearch, filterParamName, filterYear);
+    const merged = buildFilters(columnFilters, yearRules);
+    void fetchOsemosysPage(scenario.id, osemosysPage, osemosysPageSize, osemosysSearch, filterParamName, filterYear, merged);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [osemosysPage, osemosysPageSize]);
   function openCreateOsemosys() {
@@ -392,21 +513,6 @@ export function ScenarioDetailPage() {
       udc_name: "",
       year: "",
       value: "",
-    });
-    setOpenOsemosysModal(true);
-  }
-
-  function openEditOsemosys(row: OsemosysValueRow) {
-    setEditingOsemosys(row);
-    setOsemosysForm({
-      param_name: row.param_name,
-      region_name: row.region_name ?? "",
-      technology_name: row.technology_name ?? "",
-      fuel_name: row.fuel_name ?? "",
-      emission_name: row.emission_name ?? "",
-      udc_name: row.udc_name ?? "",
-      year: row.year !== null ? String(row.year) : "",
-      value: String(row.value),
     });
     setOpenOsemosysModal(true);
   }
@@ -450,17 +556,117 @@ export function ScenarioDetailPage() {
     }
   }
 
-  async function deactivateOsemosysValue(row: OsemosysValueRow) {
+  /** Sintetiza un `OsemosysValueRow` desde un grupo wide + clave de celda.
+   *
+   * Necesario porque las propuestas/modal legacy esperan ese shape.
+   */
+  function widePairToRow(group: OsemosysWideRow, yearKey: string): OsemosysValueRow | null {
+    const cell = group.cells[yearKey];
+    if (!cell) return null;
+    return {
+      id: cell.id,
+      id_scenario: scenarioId,
+      param_name: group.param_name,
+      region_name: group.region_name,
+      technology_name: group.technology_name,
+      fuel_name: group.fuel_name,
+      emission_name: group.emission_name,
+      udc_name: group.udc_name,
+      year: yearKey === "scalar" ? null : Number(yearKey),
+      value: cell.value,
+    };
+  }
+
+  /** Trunca a máx. 4 decimales para visualización; el valor original se mantiene al editar. */
+  function formatCellValue(v: number): string {
+    if (!Number.isFinite(v)) return String(v);
+    if (Number.isInteger(v)) return String(v);
+    return Number.parseFloat(v.toFixed(4)).toString();
+  }
+
+  function startEditCell(rowKey: string, yearKey: string, cell: { id: number; value: number }) {
+    setEditingCell({ rowKey, yearKey, valueId: cell.id, original: cell.value });
+    setCellDraft(String(cell.value));
+  }
+
+  function cancelEditCell() {
+    setEditingCell(null);
+    setCellDraft("");
+  }
+
+  /** Persiste la edición inline de una celda. Sin cambio si el valor no varía. */
+  async function commitEditCell() {
+    if (!editingCell || !scenario) return;
+    const trimmed = cellDraft.trim();
+    const nextValue = Number(trimmed);
+    if (!trimmed || !Number.isFinite(nextValue)) {
+      push("El valor debe ser numérico.", "error");
+      return;
+    }
+    if (nextValue === editingCell.original) {
+      cancelEditCell();
+      return;
+    }
+    const group = osemosysWideRows.find((g) => g.group_key === editingCell.rowKey);
+    if (!group) {
+      cancelEditCell();
+      return;
+    }
+    const yearKey = editingCell.yearKey;
+    setCellSaving(true);
+    try {
+      const payload = {
+        param_name: group.param_name,
+        ...(group.region_name ? { region_name: group.region_name } : {}),
+        ...(group.technology_name ? { technology_name: group.technology_name } : {}),
+        ...(group.fuel_name ? { fuel_name: group.fuel_name } : {}),
+        ...(group.emission_name ? { emission_name: group.emission_name } : {}),
+        ...(group.udc_name ? { udc_name: group.udc_name } : {}),
+        ...(yearKey !== "scalar" ? { year: Number(yearKey) } : {}),
+        value: nextValue,
+      };
+      await scenariosApi.updateOsemosysValue(scenario.id, editingCell.valueId, payload);
+      // Actualiza sólo la celda afectada para evitar recargar la página entera.
+      setOsemosysWideRows((prev) =>
+        prev.map((r) =>
+          r.group_key === editingCell.rowKey
+            ? { ...r, cells: { ...r.cells, [yearKey]: { id: editingCell.valueId, value: nextValue } } }
+            : r,
+        ),
+      );
+      await refreshScenarioHeader(scenario.id);
+      push("Valor actualizado.", "success");
+      setEditingCell(null);
+      setCellDraft("");
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudo guardar el valor.", "error");
+    } finally {
+      setCellSaving(false);
+    }
+  }
+
+  /** Borra TODAS las celdas (años y escalar) de una combinación en `osemosys_param_value`.
+   *
+   * Equivale a desactivar la fila entera del formato wide. Pide confirmación
+   * explícita indicando el número de celdas que se eliminarán.
+   */
+  async function deactivateWideRow(group: OsemosysWideRow) {
     if (!scenario || !canManageValues) return;
-    const confirmed = window.confirm(`Desactivar valor OSeMOSYS '${row.param_name}' (${row.year ?? "sin año"})?`);
+    const cellIds = Object.values(group.cells).map((c) => c.id);
+    if (cellIds.length === 0) return;
+    const descr = `${group.param_name} · ${group.technology_name ?? "—"} · ${group.fuel_name ?? "—"}`;
+    const confirmed = window.confirm(
+      `Eliminar ${cellIds.length} celda(s) de esta combinación?\n\n${descr}\n\n` +
+        "Esto borra físicamente las filas en la base de datos (queda registro en auditoría).",
+    );
     if (!confirmed) return;
     try {
-      await scenariosApi.deactivateOsemosysValue(scenario.id, row.id);
-      await refreshOsemosysData(scenario.id);
+      await Promise.all(cellIds.map((id) => scenariosApi.deactivateOsemosysValue(scenario.id, id)));
+      setOsemosysWideRows((prev) => prev.filter((r) => r.group_key !== group.group_key));
       await refreshScenarioHeader(scenario.id);
-      push("Valor OSeMOSYS desactivado.", "success");
+      push("Combinación eliminada.", "success");
     } catch (err) {
-      push(err instanceof Error ? err.message : "No se pudo desactivar el valor OSeMOSYS.", "error");
+      push(err instanceof Error ? err.message : "No se pudo eliminar la combinación.", "error");
     }
   }
 
@@ -951,117 +1157,290 @@ export function ScenarioDetailPage() {
             )}
           </article>
 
-          {/* Búsqueda global */}
-          <div style={{ maxWidth: 500 }}>
-            <TextField
-              label="Buscar (todas las columnas)"
-              value={osemosysSearch}
-              placeholder="Parámetro, tecnología, región, año, valor..."
-              onChange={(e) => {
-                const val = e.target.value;
-                setOsemosysSearch(val);
-                if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-                searchTimerRef.current = setTimeout(() => {
-                  if (!scenario) return;
-                  setOsemosysPage(1);
-                  void fetchOsemosysPage(scenario.id, 1, osemosysPageSize, val, filterParamName, filterYear);
-                }, 400);
-              }}
-            />
-          </div>
-
-          {/* Filtros específicos */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr auto",
-              gap: 12,
-              alignItems: "end",
-              maxWidth: 600,
-            }}
-          >
-            <TextField
-              label="Filtrar por parámetro"
-              value={filterParamName}
-              onChange={(e) => setFilterParamName(e.target.value)}
-            />
-            <TextField
-              label="Filtrar por año"
-              type="number"
-              value={filterYear}
-              onChange={(e) => setFilterYear(e.target.value)}
-            />
-            <Button
-              variant="ghost"
-              onClick={() => {
-                if (!scenario) return;
-                setOsemosysPage(1);
-                void fetchOsemosysPage(scenario.id, 1, osemosysPageSize, osemosysSearch, filterParamName, filterYear);
-              }}
-            >
-              Aplicar filtros
-            </Button>
+          {/* Años visibles + limpiar filtros */}
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+              <span style={{ opacity: 0.8 }}>Años visibles:</span>
+              <ColumnFilterPopover
+                columnLabel="Años visibles"
+                options={osemosysWideYears.map((y) => String(y))}
+                selected={filterYears}
+                onChange={setFilterYears}
+              />
+              <small style={{ opacity: 0.65 }}>
+                {filterYears.length === 0 ? "todos" : `${filterYears.length} seleccionados`}
+              </small>
+            </div>
+            {hasActiveColumnFilters || filterYears.length > 0 ? (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setFilterYears([]);
+                  clearAllColumnFilters();
+                }}
+              >
+                Limpiar filtros
+              </Button>
+            ) : null}
           </div>
 
           {osemosysLoading ? (
             <div style={{ padding: 20, textAlign: "center", opacity: 0.7 }}>Cargando...</div>
           ) : (
             <>
-              <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12 }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead style={{ background: "rgba(255,255,255,0.03)" }}>
-                    <tr>
-                      {["Parámetro", "Región", "Tecnología", "Combustible", "Emisión", "UDC", "Año", "Valor", "Acciones"].map(
-                        (h) => (
-                          <th key={h} style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
-                            {h}
+              {(() => {
+                const selectedYearsSet = new Set(filterYears);
+                const yearsShown = filterYears.length > 0
+                  ? osemosysWideYears.filter((y) => selectedYearsSet.has(String(y)))
+                  : osemosysWideYears;
+                // Escalar se oculta si hay selección explícita de años (no lo incluye).
+                const scalarShown = osemosysHasScalar && filterYears.length === 0;
+                type CatColKey = "param_names" | "region_names" | "technology_names" | "fuel_names" | "emission_names" | "udc_names";
+                const dimHeaders: { label: string; filterKey: CatColKey; facetKey: keyof OsemosysWideFacets }[] = [
+                  { label: "Parámetro", filterKey: "param_names", facetKey: "param_names" },
+                  { label: "Región", filterKey: "region_names", facetKey: "region_names" },
+                  { label: "Tecnología", filterKey: "technology_names", facetKey: "technology_names" },
+                  { label: "Combustible", filterKey: "fuel_names", facetKey: "fuel_names" },
+                  { label: "Emisión", filterKey: "emission_names", facetKey: "emission_names" },
+                  { label: "UDC", filterKey: "udc_names", facetKey: "udc_names" },
+                ];
+                const totalCols =
+                  dimHeaders.length + (scalarShown ? 1 : 0) + yearsShown.length + 1;
+                return (
+                  <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead style={{ background: "rgba(255,255,255,0.03)" }}>
+                        <tr>
+                          {dimHeaders.map((h) => (
+                            <th
+                              key={h.label}
+                              style={{
+                                textAlign: "left",
+                                fontSize: 13,
+                                padding: "8px 10px",
+                                color: "var(--muted)",
+                                position: "sticky",
+                                top: 0,
+                                background: "rgba(20,20,24,0.95)",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              <span style={{ display: "inline-flex", alignItems: "center" }}>
+                                {h.label}
+                                <ColumnFilterPopover
+                                  columnLabel={h.label}
+                                  options={facets?.[h.facetKey] ?? []}
+                                  selected={columnFilters[h.filterKey] ?? []}
+                                  loading={facetsLoading}
+                                  onChange={(next) => applyColumnFilter(h.filterKey, next)}
+                                />
+                              </span>
+                            </th>
+                          ))}
+                          {scalarShown ? (
+                            <th
+                              style={{
+                                textAlign: "right",
+                                fontSize: 13,
+                                padding: "10px 12px",
+                                color: "var(--muted)",
+                                background: "rgba(20,20,24,0.95)",
+                              }}
+                            >
+                              Valor (no temporal)
+                            </th>
+                          ) : null}
+                          {yearsShown.map((y) => (
+                            <th
+                              key={y}
+                              style={{
+                                textAlign: "right",
+                                fontSize: 13,
+                                padding: "8px 10px",
+                                color: "var(--muted)",
+                                background: "rgba(20,20,24,0.95)",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                                {y}
+                                <YearRuleFilterPopover
+                                  year={y}
+                                  rule={yearRules[String(y)] ?? null}
+                                  onChange={(r) => applyYearRule(y, r)}
+                                />
+                              </span>
+                            </th>
+                          ))}
+                          <th
+                            style={{
+                              textAlign: "left",
+                              fontSize: 13,
+                              padding: "10px 12px",
+                              color: "var(--muted)",
+                              background: "rgba(20,20,24,0.95)",
+                            }}
+                          >
+                            Acciones
                           </th>
-                        ),
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {osemosysRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} style={{ padding: 14, opacity: 0.75 }}>
-                          Sin registros.
-                        </td>
-                      </tr>
-                    ) : (
-                      osemosysRows.map((r) => (
-                        <tr key={r.id} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                          <td style={{ padding: "10px 12px" }}>{r.param_name}</td>
-                          <td style={{ padding: "10px 12px" }}>{r.region_name ?? "—"}</td>
-                          <td style={{ padding: "10px 12px" }}>{r.technology_name ?? "—"}</td>
-                          <td style={{ padding: "10px 12px" }}>{r.fuel_name ?? "—"}</td>
-                          <td style={{ padding: "10px 12px" }}>{r.emission_name ?? "—"}</td>
-                          <td style={{ padding: "10px 12px" }}>{r.udc_name ?? "—"}</td>
-                          <td style={{ padding: "10px 12px" }}>{r.year ?? "—"}</td>
-                          <td style={{ padding: "10px 12px" }}>{r.value}</td>
-                          <td style={{ padding: "10px 12px" }}>
-                            {canManageValues ? (
-                              <div style={{ display: "flex", gap: 6 }}>
-                                <Button variant="ghost" onClick={() => openEditOsemosys(r)}>
-                                  Editar
-                                </Button>
-                                <Button variant="ghost" onClick={() => void deactivateOsemosysValue(r)}>
-                                  Desactivar
-                                </Button>
-                              </div>
-                            ) : access?.can_propose ? (
-                              <Button variant="ghost" onClick={() => setProposeFor(r)}>
-                                Proponer cambio
-                              </Button>
-                            ) : (
-                              <span style={{ opacity: 0.65 }}>Solo lectura</span>
-                            )}
-                          </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                      </thead>
+                      <tbody>
+                        {osemosysWideRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={totalCols} style={{ padding: 14, opacity: 0.75 }}>
+                              Sin registros.
+                            </td>
+                          </tr>
+                        ) : (
+                          osemosysWideRows.map((g) => {
+                            const cellKeys: string[] = [];
+                            if (scalarShown) cellKeys.push("scalar");
+                            for (const y of yearsShown) cellKeys.push(String(y));
+                            return (
+                              <tr key={g.group_key} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                                <td style={{ padding: "4px 10px", fontSize: 13 }}>{g.param_name}</td>
+                                <td style={{ padding: "4px 10px", fontSize: 13 }}>{g.region_name ?? "—"}</td>
+                                <td style={{ padding: "4px 10px", fontSize: 13 }}>{g.technology_name ?? "—"}</td>
+                                <td style={{ padding: "4px 10px", fontSize: 13 }}>{g.fuel_name ?? "—"}</td>
+                                <td style={{ padding: "4px 10px", fontSize: 13 }}>{g.emission_name ?? "—"}</td>
+                                <td style={{ padding: "4px 10px", fontSize: 13 }}>{g.udc_name ?? "—"}</td>
+                                {cellKeys.map((yearKey) => {
+                                  const cell = g.cells[yearKey];
+                                  const isEditing =
+                                    editingCell?.rowKey === g.group_key && editingCell.yearKey === yearKey;
+                                  const canEdit = canManageValues && !!cell;
+                                  const canPropose = !canManageValues && !!access?.can_propose && !!cell;
+                                  const onClick = () => {
+                                    if (!cell) return;
+                                    if (canManageValues) {
+                                      startEditCell(g.group_key, yearKey, cell);
+                                    } else if (canPropose) {
+                                      const row = widePairToRow(g, yearKey);
+                                      if (row) setProposeFor(row);
+                                    }
+                                  };
+                                  return (
+                                    <td
+                                      key={yearKey}
+                                      style={{
+                                        padding: "2px 8px",
+                                        textAlign: "right",
+                                        fontSize: 13,
+                                        fontVariantNumeric: "tabular-nums",
+                                        cursor: canEdit || canPropose ? "pointer" : "default",
+                                        background: isEditing ? "rgba(80,140,255,0.08)" : undefined,
+                                      }}
+                                      onClick={isEditing ? undefined : onClick}
+                                      title={
+                                        cell
+                                          ? `Valor: ${cell.value}${
+                                              canEdit
+                                                ? " · Click para editar"
+                                                : canPropose
+                                                  ? " · Click para proponer cambio"
+                                                  : ""
+                                            }`
+                                          : "Sin valor — usar «Agregar valor» para crear"
+                                      }
+                                    >
+                                      {!cell ? (
+                                        <span style={{ opacity: 0.35 }}>—</span>
+                                      ) : isEditing ? (
+                                        <input
+                                          autoFocus
+                                          type="number"
+                                          step="any"
+                                          value={cellDraft}
+                                          disabled={cellSaving}
+                                          onChange={(e) => setCellDraft(e.target.value)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                              e.preventDefault();
+                                              void commitEditCell();
+                                            } else if (e.key === "Escape") {
+                                              e.preventDefault();
+                                              cancelEditCell();
+                                            }
+                                          }}
+                                          onBlur={() => {
+                                            if (!cellSaving) void commitEditCell();
+                                          }}
+                                          style={{
+                                            width: "100%",
+                                            minWidth: 80,
+                                            padding: "2px 6px",
+                                            textAlign: "right",
+                                            fontVariantNumeric: "tabular-nums",
+                                            background: "transparent",
+                                            border: "1px solid rgba(80,140,255,0.45)",
+                                            borderRadius: 4,
+                                            color: "inherit",
+                                          }}
+                                        />
+                                      ) : (
+                                        formatCellValue(cell.value)
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                                <td style={{ padding: "4px 8px" }}>
+                                  {canManageValues ? (
+                                    <div style={{ display: "flex", gap: 4 }}>
+                                      <button
+                                        type="button"
+                                        className="wide-icon-btn"
+                                        aria-label="Agregar año"
+                                        title="Agregar año a esta combinación"
+                                        onClick={() => {
+                                          // Abrir el modal legacy para crear una nueva celda (año) en este grupo.
+                                          setEditingOsemosys(null);
+                                          setOsemosysForm({
+                                            param_name: g.param_name,
+                                            region_name: g.region_name ?? "",
+                                            technology_name: g.technology_name ?? "",
+                                            fuel_name: g.fuel_name ?? "",
+                                            emission_name: g.emission_name ?? "",
+                                            udc_name: g.udc_name ?? "",
+                                            year: "",
+                                            value: "",
+                                          });
+                                          setOpenOsemosysModal(true);
+                                        }}
+                                      >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                          <line x1="12" y1="5" x2="12" y2="19" />
+                                          <line x1="5" y1="12" x2="19" y2="12" />
+                                        </svg>
+                                      </button>
+                                      {Object.keys(g.cells).length > 0 ? (
+                                        <button
+                                          type="button"
+                                          className="wide-icon-btn wide-icon-btn--danger"
+                                          aria-label="Eliminar combinación"
+                                          title="Eliminar TODAS las celdas de esta combinación (hard delete)"
+                                          onClick={() => void deactivateWideRow(g)}
+                                        >
+                                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                            <line x1="6" y1="6" x2="18" y2="18" />
+                                            <line x1="18" y1="6" x2="6" y2="18" />
+                                          </svg>
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  ) : (
+                                    <span style={{ opacity: 0.65, fontSize: 12 }}>—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
 
               {/* Paginación server-side */}
               {(() => {
@@ -1073,7 +1452,7 @@ export function ScenarioDetailPage() {
                         Página {osemosysPage} de {totalPages}
                       </small>
                       <small style={{ opacity: 0.75 }}>
-                        · {osemosysTotal.toLocaleString()} registros en total
+                        · {osemosysTotal.toLocaleString()} combinaciones en total
                       </small>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -1116,18 +1495,6 @@ export function ScenarioDetailPage() {
               })()}
             </>
           )}
-          <h4 style={{ margin: "6px 0 0 0" }}>Resumen agregado usado por simulación</h4>
-          <DataTable
-            rows={osemosysSummary}
-            rowKey={(r) => `${r.param_name}-${r.year ?? "na"}`}
-            columns={[
-              { key: "param", header: "Parámetro", render: (r) => r.param_name },
-              { key: "year", header: "Año", render: (r) => r.year ?? "—" },
-              { key: "records", header: "Registros", render: (r) => r.records },
-              { key: "total", header: "Valor total", render: (r) => r.total_value.toFixed(4) },
-            ]}
-            searchableText={(r) => `${r.param_name} ${r.year ?? ""}`}
-          />
         </div>
       ) : null}
 

@@ -35,6 +35,8 @@ from app.schemas.scenario import (
     ApplyExcelChangesRequest,
     OsemosysParamAuditPage,
     OsemosysValuesPage,
+    OsemosysValuesWidePage,
+    OsemosysWideFacets,
     SandIntegrationResponse,
     ScenarioClone,
     ScenarioCreate,
@@ -44,7 +46,6 @@ from app.schemas.scenario import (
     ScenarioOsemosysValueCreate,
     ScenarioOsemosysValuePublic,
     ScenarioOsemosysValueUpdate,
-    ScenarioOsemosysYearSummary,
     ScenarioPermissionCreate,
     ScenarioPermissionPublic,
     ScenarioPublic,
@@ -978,23 +979,6 @@ def list_permissions(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
 
 
-@router.get("/{scenario_id}/osemosys-summary", response_model=list[ScenarioOsemosysYearSummary])
-def list_osemosys_summary(
-    scenario_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> list[dict]:
-    """Lista resumen por parámetro/año de valores OSeMOSYS de un escenario."""
-    try:
-        return ScenarioService.list_osemosys_summary(
-            db, scenario_id=scenario_id, current_user=current_user
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ForbiddenError as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
-
-
 @router.get("/{scenario_id}/osemosys-param-audit", response_model=OsemosysParamAuditPage)
 def list_osemosys_param_audit(
     scenario_id: int,
@@ -1044,6 +1028,110 @@ def list_osemosys_values(
             search=search,
             offset=offset,
             limit=limit,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+
+def _parse_csv_list(raw: str | None) -> list[str] | None:
+    """Convierte `"a,b,c"` en `["a","b","c"]`. Devuelve None si no hay valores."""
+    if raw is None:
+        return None
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    return parts or None
+
+
+@router.get("/{scenario_id}/osemosys-values/wide", response_model=OsemosysValuesWidePage)
+def list_osemosys_values_wide(
+    scenario_id: int,
+    param_name: str | None = None,
+    param_name_exact: bool = False,
+    search: str | None = None,
+    param_names: str | None = None,
+    region_names: str | None = None,
+    technology_names: str | None = None,
+    fuel_names: str | None = None,
+    emission_names: str | None = None,
+    udc_names: str | None = None,
+    year_rules: str | None = None,
+    offset: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Paginación server-side en formato wide (años como columnas).
+
+    - `*_names`: listas CSV para filtrado IN por columna. El valor especial
+      `__NULL__` incluye filas con esa dimensión en NULL.
+    - `year_rules`: reglas sobre años en formato
+      `year:op[:value]` separadas por coma. Ejemplos:
+      `2025:gt:0.5,2030:nonzero,2040:lt:10`. Ops soportadas: gt, lt, gte,
+      lte, eq, ne, nonzero, zero.
+    """
+    from app.services.scenario_service import _parse_year_rules
+
+    try:
+        return ScenarioService.list_osemosys_values_wide(
+            db,
+            scenario_id=scenario_id,
+            current_user=current_user,
+            param_name=param_name,
+            param_name_exact=param_name_exact,
+            search=search,
+            param_names=_parse_csv_list(param_names),
+            region_names=_parse_csv_list(region_names),
+            technology_names=_parse_csv_list(technology_names),
+            fuel_names=_parse_csv_list(fuel_names),
+            emission_names=_parse_csv_list(emission_names),
+            udc_names=_parse_csv_list(udc_names),
+            year_rules=_parse_year_rules(year_rules),
+            offset=offset,
+            limit=limit,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+
+@router.get("/{scenario_id}/osemosys-values/wide/facets", response_model=OsemosysWideFacets)
+def list_osemosys_wide_facets(
+    scenario_id: int,
+    param_name: str | None = None,
+    param_name_exact: bool = False,
+    search: str | None = None,
+    param_names: str | None = None,
+    region_names: str | None = None,
+    technology_names: str | None = None,
+    fuel_names: str | None = None,
+    emission_names: str | None = None,
+    udc_names: str | None = None,
+    year_rules: str | None = None,
+    limit_per_column: int = 500,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Valores únicos por columna para el popover de filtros (narrowed)."""
+    from app.services.scenario_service import _parse_year_rules
+
+    try:
+        return ScenarioService.list_osemosys_wide_facets(
+            db,
+            scenario_id=scenario_id,
+            current_user=current_user,
+            param_name=param_name,
+            param_name_exact=param_name_exact,
+            search=search,
+            param_names=_parse_csv_list(param_names),
+            region_names=_parse_csv_list(region_names),
+            technology_names=_parse_csv_list(technology_names),
+            fuel_names=_parse_csv_list(fuel_names),
+            emission_names=_parse_csv_list(emission_names),
+            udc_names=_parse_csv_list(udc_names),
+            year_rules=_parse_year_rules(year_rules),
+            limit_per_column=limit_per_column,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

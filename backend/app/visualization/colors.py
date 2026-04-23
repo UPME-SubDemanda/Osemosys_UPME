@@ -245,7 +245,7 @@ def _color_por_sector(df, columna: str = "COLOR"):
 # ══════════════════════════════════════════════════════════════════════════
 
 COLORES_EMISIONES = {
-    "EMICO2":    "#e67e22",  # CO₂ - naranja
+    "EMIC02":    "#e67e22",  # CO₂ - naranja
     "EMICH4":    "#e74c3c",  # CH₄ - rojo
     "EMIN2O":    "#8e44ad",  # N₂O - morado
     "EMIBC":     "#2c3e50",  # Black Carbon - gris muy oscuro

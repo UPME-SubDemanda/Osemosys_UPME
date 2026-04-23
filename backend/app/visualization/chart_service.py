@@ -296,7 +296,7 @@ def _convertir_unidades_emision(df: pd.DataFrame, un: str) -> pd.DataFrame:
 def _emision_unit_label(un: str, es_emision_kt: bool) -> str:
     """Devuelve la etiqueta de unidad correcta para gráficas de emisión."""
     if es_emision_kt:
-        return "kt"
+        return "ktCO2eq"
     return "ktCO₂eq" if un == "ktCO2eq" else "MtCO₂eq"
 
 
@@ -321,6 +321,69 @@ def _color_map_comparison(
     df_tmp = pd.DataFrame({"COLOR": list(categorias_unicas)})
     colores_lista, orden_lista = generar_colores_tecnologias(df_tmp, "COLOR")
     return dict(zip(orden_lista, colores_lista))
+
+
+def _build_factor_planta_data(
+    db: Session,
+    job_id: int,
+    cfg: dict,
+    title: str,
+    sub_filtro: str | None,
+    loc: str | None,
+) -> ChartDataResponse:
+    """CF = Producción[PJ] / (Capacidad[GW] × 31.536 PJ) × 100 %
+
+    31.536 = 8760 h/año × 3.6 MJ/kWh × 10⁻³ (PJ/GJ) — máxima energía producible.
+    """
+    filtro_fn = cfg.get("filtro")
+
+    df_cap = _load_variable_data(db, job_id, "TotalCapacityAnnual")
+    df_prd = _load_variable_data(db, job_id, "ProductionByTechnology")
+
+    if filtro_fn is not None:
+        df_cap = filtro_fn(df_cap, sub_filtro=sub_filtro, loc=loc)
+        df_prd = filtro_fn(df_prd, sub_filtro=sub_filtro, loc=loc)
+
+    if df_cap.empty or df_prd.empty:
+        return ChartDataResponse(categories=[], series=[], title=title, yAxisLabel="%")
+
+    cap_agg = df_cap.groupby(["TECHNOLOGY", "YEAR"], as_index=False)["VALUE"].sum()
+    prd_agg = df_prd.groupby(["TECHNOLOGY", "YEAR"], as_index=False)["VALUE"].sum()
+    prd_agg = prd_agg.rename(columns={"VALUE": "PRODUCTION"})
+
+    df = cap_agg.merge(prd_agg, on=["TECHNOLOGY", "YEAR"], how="inner")
+    df = df[df["VALUE"] > 1e-6].copy()
+
+    if df.empty:
+        return ChartDataResponse(categories=[], series=[], title=title, yAxisLabel="%")
+
+    df["CF"] = (df["PRODUCTION"] / (df["VALUE"] * 31.536) * 100.0).clip(0, 100)
+    df["COLOR"] = df["TECHNOLOGY"]
+
+    color_fn = cfg.get("color_fn")
+    if color_fn is not None:
+        colores_ordenados, orden_color = color_fn(df, "COLOR")
+    else:
+        orden_color = sorted(df["COLOR"].unique())
+        colores_ordenados = ["#999999"] * len(orden_color)
+
+    color_dict = dict(zip(orden_color, colores_ordenados))
+    años = sorted(df["YEAR"].unique())
+    categories = [str(a) for a in años]
+
+    series: list[ChartSeries] = []
+    for tech in orden_color:
+        df_tech = df[df["COLOR"] == tech]
+        valor_por_año = {int(row["YEAR"]): row["CF"] for _, row in df_tech.iterrows()}
+        data = [round(valor_por_año.get(a, 0.0), 4) for a in años]
+        series.append(ChartSeries(
+            name=get_label(str(tech)),
+            data=data,
+            color=color_dict.get(tech, "#999999"),
+            stack="default",
+        ))
+
+    return ChartDataResponse(categories=categories, series=series, title=title, yAxisLabel="%")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -360,6 +423,7 @@ def build_chart_data(
     cfg = CONFIGS[tipo]
     es_capacidad = cfg.get("es_capacidad", False)
     es_porcentaje = cfg.get("es_porcentaje", False)
+    es_factor_planta = cfg.get("es_factor_planta", False)
 
     # Variable a consultar
     variable_name = variable if (variable and es_capacidad) else cfg["variable_default"]
@@ -368,7 +432,7 @@ def build_chart_data(
     if es_capacidad:
         titulo_var = TITULOS_VARIABLES_CAPACIDAD.get(variable_name, variable_name)
         title = f"{cfg['titulo_base']} — {titulo_var}"
-    elif es_porcentaje:
+    elif es_porcentaje or es_factor_planta:
         title = cfg.get("titulo_base", cfg.get("titulo", tipo))
     else:
         title = cfg.get("titulo", tipo)
@@ -382,10 +446,16 @@ def build_chart_data(
     es_emision = cfg.get("es_emision", False)
     es_emision_kt = cfg.get("es_emision_kt", False)
 
-    if not es_emision:
-        title += f" ({un})"
-    else:
+    if es_porcentaje or es_factor_planta:
+        title += " (%)"
+    elif es_emision:
         title += f" ({_emision_unit_label(un, es_emision_kt)})"
+    else:
+        title += f" ({un})"
+
+    # ── Factor de Planta: pipeline propio ────────────────────────────────
+    if es_factor_planta:
+        return _build_factor_planta_data(db, job_id, cfg, title, sub_filtro, loc)
 
     # ── Cargar datos ─────────────────────────────────────────────────────
     df = _load_variable_data(db, job_id, variable_name)
@@ -1307,10 +1377,12 @@ def _config_has_loc(cfg: dict) -> bool:
 
 
 def _config_soporta_pareto(cfg: dict) -> bool:
-    """Pareto disponible para configs con agrupación TECNOLOGIA, no capacidad, no solo emisiones totales."""
+    """Pareto disponible para configs con agrupación TECNOLOGIA, no capacidad, no ratios."""
     return (
         cfg.get("agrupar_por") == "TECNOLOGIA"
         and not cfg.get("es_capacidad", False)
+        and not cfg.get("es_factor_planta", False)
+        and not cfg.get("es_porcentaje", False)
         and cfg.get("variable_default") not in ("AnnualEmissions",)
     )
 

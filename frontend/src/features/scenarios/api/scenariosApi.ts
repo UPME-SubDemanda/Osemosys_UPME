@@ -30,13 +30,6 @@ export type ScenarioAccess = {
   can_manage_values: boolean;
 };
 
-export type OsemosysYearSummary = {
-  param_name: string;
-  year: number | null;
-  records: number;
-  total_value: number;
-};
-
 export type OsemosysValueRow = {
   id: number;
   id_scenario: number;
@@ -56,6 +49,70 @@ export type OsemosysValuesPage = {
   offset: number;
   limit: number;
 };
+
+export type OsemosysWideCell = {
+  id: number;
+  value: number;
+};
+
+export type OsemosysWideRow = {
+  group_key: string;
+  param_name: string;
+  region_name: string | null;
+  technology_name: string | null;
+  fuel_name: string | null;
+  emission_name: string | null;
+  udc_name: string | null;
+  cells: Record<string, OsemosysWideCell>;
+};
+
+export type OsemosysValuesWidePage = {
+  items: OsemosysWideRow[];
+  total: number;
+  offset: number;
+  limit: number;
+  years: number[];
+  has_scalar: boolean;
+};
+
+export type OsemosysWideFacets = {
+  param_names: string[];
+  region_names: string[];
+  technology_names: string[];
+  fuel_names: string[];
+  emission_names: string[];
+  udc_names: string[];
+};
+
+export type OsemosysWideFilters = {
+  param_names?: string[];
+  region_names?: string[];
+  technology_names?: string[];
+  fuel_names?: string[];
+  emission_names?: string[];
+  udc_names?: string[];
+  /** Reglas sobre años, serializadas como `year:op[:value]` separados por coma. */
+  year_rules?: string;
+};
+
+/** Sentinel que el backend usa para representar "(vacío)" en las listas. */
+export const WIDE_NULL_SENTINEL = "__NULL__";
+
+export type YearRuleOp = "gt" | "lt" | "gte" | "lte" | "eq" | "ne" | "nonzero" | "zero";
+export type YearRule = { op: YearRuleOp; value: number | null };
+
+export function serializeYearRules(rules: Record<string, YearRule>): string | undefined {
+  const parts: string[] = [];
+  for (const [year, rule] of Object.entries(rules)) {
+    if (!rule || !rule.op) continue;
+    if (rule.op === "nonzero" || rule.op === "zero") {
+      parts.push(`${year}:${rule.op}`);
+    } else if (rule.value !== null && Number.isFinite(rule.value)) {
+      parts.push(`${year}:${rule.op}:${rule.value}`);
+    }
+  }
+  return parts.length ? parts.join(",") : undefined;
+}
 
 export type OsemosysParamAuditEntry = {
   id: number;
@@ -660,8 +717,6 @@ export const scenariosApi = {
 
   listDefaults: () =>
     httpClient.get<ParameterValue[]>('/parameter-values').then((r) => r.data),
-  listOsemosysSummary: (scenarioId: number) =>
-    httpClient.get<OsemosysYearSummary[]>(`/scenarios/${scenarioId}/osemosys-summary`).then((r) => r.data),
   listOsemosysValues: (
     scenarioId: number,
     params: {
@@ -676,6 +731,59 @@ export const scenariosApi = {
     httpClient
       .get<OsemosysValuesPage>(`/scenarios/${scenarioId}/osemosys-values`, { params })
       .then((r) => r.data),
+  listOsemosysValuesWide: (
+    scenarioId: number,
+    params: {
+      param_name?: string;
+      param_name_exact?: boolean;
+      search?: string;
+      offset?: number;
+      limit?: number;
+    } & OsemosysWideFilters = {},
+  ) => {
+    // Serializa listas como CSV; axios de otro modo emite `?k[]=a&k[]=b`.
+    const { param_names, region_names, technology_names, fuel_names, emission_names, udc_names, ...rest } = params;
+    const csv = (v?: string[]) => (v && v.length ? v.join(",") : undefined);
+    return httpClient
+      .get<OsemosysValuesWidePage>(`/scenarios/${scenarioId}/osemosys-values/wide`, {
+        params: {
+          ...rest,
+          ...(csv(param_names) ? { param_names: csv(param_names) } : {}),
+          ...(csv(region_names) ? { region_names: csv(region_names) } : {}),
+          ...(csv(technology_names) ? { technology_names: csv(technology_names) } : {}),
+          ...(csv(fuel_names) ? { fuel_names: csv(fuel_names) } : {}),
+          ...(csv(emission_names) ? { emission_names: csv(emission_names) } : {}),
+          ...(csv(udc_names) ? { udc_names: csv(udc_names) } : {}),
+        },
+      })
+      .then((r) => r.data);
+  },
+  listOsemosysWideFacets: (
+    scenarioId: number,
+    params: {
+      param_name?: string;
+      param_name_exact?: boolean;
+      search?: string;
+      limit_per_column?: number;
+    } & OsemosysWideFilters = {},
+  ) => {
+    const { param_names, region_names, technology_names, fuel_names, emission_names, udc_names, year_rules, ...rest } = params;
+    const csv = (v?: string[]) => (v && v.length ? v.join(",") : undefined);
+    return httpClient
+      .get<OsemosysWideFacets>(`/scenarios/${scenarioId}/osemosys-values/wide/facets`, {
+        params: {
+          ...rest,
+          ...(csv(param_names) ? { param_names: csv(param_names) } : {}),
+          ...(csv(region_names) ? { region_names: csv(region_names) } : {}),
+          ...(csv(technology_names) ? { technology_names: csv(technology_names) } : {}),
+          ...(csv(fuel_names) ? { fuel_names: csv(fuel_names) } : {}),
+          ...(csv(emission_names) ? { emission_names: csv(emission_names) } : {}),
+          ...(csv(udc_names) ? { udc_names: csv(udc_names) } : {}),
+          ...(year_rules ? { year_rules } : {}),
+        },
+      })
+      .then((r) => r.data);
+  },
   listOsemosysParamAudit: (
     scenarioId: number,
     paramName: string,

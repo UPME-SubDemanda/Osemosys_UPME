@@ -2087,13 +2087,13 @@ export function SimulationPage() {
                   );
                 }
 
-                // Eliminar job (solo dueño, solo si no está activo). Eliminación
-                // permanente — queda registro en el Historial de eliminaciones.
-                if (
-                  !ACTIVE_STATUSES.has(r.status) &&
-                  ownedSet.has(r.id)
-                ) {
+                // Eliminar job (dueño o admin, solo si no está activo).
+                // Eliminación permanente — queda registro en el Historial.
+                const canDeleteJob =
+                  ownedSet.has(r.id) || Boolean(user?.is_admin);
+                if (!ACTIVE_STATUSES.has(r.status) && canDeleteJob) {
                   const deleteBusy = deletingJobId === r.id;
+                  const isOwner = ownedSet.has(r.id);
                   buttons.push(
                     <button
                       key="delete-job"
@@ -2104,7 +2104,9 @@ export function SimulationPage() {
                       title={
                         deleteBusy
                           ? "Eliminando simulación…"
-                          : "Eliminar simulación permanentemente"
+                          : isOwner
+                            ? "Eliminar simulación permanentemente"
+                            : "Eliminar como administrador (no eres dueño)"
                       }
                       aria-label="Eliminar simulación"
                     >

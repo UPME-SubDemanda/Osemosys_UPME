@@ -149,7 +149,9 @@ const MENU: Module[] = [
     emoji: '🏠',
     label: 'Demanda Final — Sectores',
     subsectors: [
-      { id: 'consum_combustible', label: '🔥 Todos los Sectores', charts: [{id: 'dem_consumo_combustible', label: 'Consumo Por Sector', hasSub: true, subFiltroLabel: 'Combustible', subFiltros: ['NGS','DSL','ELC','GSL','COA','LPG','WOO','BGS','BAG','HDG','FOL','BDL','JET','WAS','OIL','AFR','SAF'], allowedGroupings: ['SECTOR'], defaultGrouping: 'SECTOR'}]},
+      { id: 'consum_combustible', label: '🔥 Todos los Sectores', charts: [
+          {id: 'dem_consumo_combustible', label: 'Consumo Por Sector', hasSub: true, subFiltroLabel: 'Combustible', subFiltros: ['NGS','DSL','ELC','GSL','COA','LPG','WOO','BGS','BAG','HDG','FOL','BDL','JET','WAS','OIL','AFR','SAF'], allowedGroupings: ['SECTOR', 'FUEL'], defaultGrouping: 'SECTOR'},
+        ]},
       {
         id: 'residencial', label: '🏘️ Residencial',
         charts: [
@@ -207,6 +209,8 @@ const MENU: Module[] = [
       { id: 'ref_total',      label: 'Refinerías - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
       { id: 'ref_consumo',    label: 'Refinerías — Consumo Total por Tecnología', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
       { id: 'ref_import',     label: 'Refinerías - Importaciones - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
+      { id: 'ref_cartagena',   label: 'Refinería de Cartagena - UseByTechnology', allowedGroupings: ['FUEL'] },
+      { id: 'ref_barrancabermeja', label: 'Refinería de Barrancabermeja - UseByTechnology', allowedGroupings: ['FUEL'] },
       { id: 'ups_refinacion', label: 'Upstream Refinación - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
       { id: 'saf_produccion', label: 'SAF - Producción - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
     ],
@@ -246,6 +250,14 @@ const MENU: Module[] = [
     charts: [
       { id: 'emisiones_total',     label: 'Emisiones - Total Anual - AnnualEmissions' },
       { id: 'emisiones_sectorial', label: 'Emisiones - Por Sector - AnnualTechnologyEmission' },
+    ],
+  },
+  {
+    id: 'otros',
+    emoji: '♻️',
+    label: 'Otros',
+    charts: [
+      { id: 'oferta_bioenergia', label: 'Oferta Bioenergía - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
     ],
   },
 ];

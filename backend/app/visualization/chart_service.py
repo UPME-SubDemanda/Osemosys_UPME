@@ -363,7 +363,23 @@ def build_chart_data(
             df["COLOR"] = df["TECHNOLOGY"].apply(asignar_grupo)
     elif agrupar_col == "FUEL":
         if "FUEL" in df.columns:
-            df["COLOR"] = df["FUEL"].apply(asignar_grupo)
+            # Cuando FUEL es genérico (ej: OIL), usar TECHNOLOGY para diferenciar
+            def _fuel_fallback(row):
+                fuel = row.get("FUEL", "")
+                tech = str(row.get("TECHNOLOGY", ""))
+                # Petróleos/crudos específicos según tecnología
+                if fuel == "OIL":
+                    if "MINOIL_3PES" in tech:
+                        return "MINOIL_3PES"
+                    if "MINOIL_2MID" in tech:
+                        return "MINOIL_2MID"
+                    if "MINOIL_1LIV" in tech:
+                        return "MINOIL_1LIV"
+                    if "MINOIL" in tech:
+                        return "MINOIL"
+                return fuel if fuel else "OTRO"
+
+            df["COLOR"] = df.apply(_fuel_fallback, axis=1)
         else:
             df["COLOR"] = df["TECHNOLOGY"].apply(asignar_grupo)
     elif agrupar_col == "SECTOR":
@@ -847,7 +863,22 @@ def _procesar_bloque_single(
             df["CATEGORIA"] = df["TECHNOLOGY"].apply(asignar_grupo)
     elif agrupar_col == "FUEL":
         if "FUEL" in df.columns:
-            df["CATEGORIA"] = df["FUEL"].apply(asignar_grupo)
+            # Cuando FUEL es genérico (ej: OIL), usar TECHNOLOGY para diferenciar
+            def _fuel_fallback(row):
+                fuel = row.get("FUEL", "")
+                tech = str(row.get("TECHNOLOGY", ""))
+                if fuel == "OIL":
+                    if "MINOIL_3PES" in tech:
+                        return "MINOIL_3PES"
+                    if "MINOIL_2MID" in tech:
+                        return "MINOIL_2MID"
+                    if "MINOIL_1LIV" in tech:
+                        return "MINOIL_1LIV"
+                    if "MINOIL" in tech:
+                        return "MINOIL"
+                return fuel if fuel else "OTRO"
+
+            df["CATEGORIA"] = df.apply(_fuel_fallback, axis=1)
         else:
             df["CATEGORIA"] = df["TECHNOLOGY"].apply(asignar_grupo)
     elif agrupar_col == "SECTOR":

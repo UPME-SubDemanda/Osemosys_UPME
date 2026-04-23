@@ -607,10 +607,11 @@ def delete_scenario(
     scenario = db.get(Scenario, scenario_id)
     if not scenario:
         raise HTTPException(status_code=404, detail="Escenario no encontrado.")
-    if scenario.owner != current_user.username:
+    is_admin = bool(getattr(current_user, "is_admin", False))
+    if scenario.owner != current_user.username and not is_admin:
         raise HTTPException(
             status_code=403,
-            detail="Solo el propietario puede eliminar el escenario.",
+            detail="No tienes permisos para eliminar este escenario.",
         )
 
     # Snapshot del escenario antes de eliminar — lo usamos para `details_json`
@@ -656,6 +657,11 @@ def delete_scenario(
         db.query(SimulationJobFavorite).filter(SimulationJobFavorite.job_id == job.id).delete()
         db.query(SimulationJobEvent).filter(SimulationJobEvent.job_id == job.id).delete()
         db.delete(job)
+
+    # Forzamos el flush de las eliminaciones de simulaciones para que el DELETE
+    # del escenario no se intente antes (la FK simulation_job.scenario_id usa
+    # RESTRICT, así que borrar el escenario con hijos vivos → FK violation).
+    db.flush()
 
     db.query(OsemosysParamValue).filter(OsemosysParamValue.id_scenario == scenario_id).delete()
     db.query(ScenarioPermission).filter(ScenarioPermission.id_scenario == scenario_id).delete()

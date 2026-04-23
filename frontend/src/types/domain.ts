@@ -27,6 +27,8 @@ export type User = {
   can_manage_catalogs: boolean;
   can_import_official_data: boolean;
   can_manage_users: boolean;
+  /** Administrador del sistema — puede borrar escenarios/simulaciones ajenas. */
+  is_admin: boolean;
 };
 
 /** Etiqueta global de escenario (prioridad y color). */

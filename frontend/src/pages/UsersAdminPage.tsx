@@ -25,7 +25,8 @@ type PermKey =
   | "is_active"
   | "can_manage_catalogs"
   | "can_import_official_data"
-  | "can_manage_users";
+  | "can_manage_users"
+  | "is_admin";
 
 type PermState = Record<PermKey, boolean>;
 
@@ -41,6 +42,13 @@ const PERMS: {
     badge: "Activo",
     description:
       "El usuario puede iniciar sesión. Si lo desactivas no podrá entrar a la app.",
+  },
+  {
+    key: "is_admin",
+    label: "Administrador",
+    badge: "Admin",
+    description:
+      "Administrador del sistema: puede eliminar escenarios y simulaciones de otros usuarios. Úsalo con cuidado — las eliminaciones son permanentes (quedan registradas en Historial).",
   },
   {
     key: "can_manage_users",
@@ -71,6 +79,7 @@ function permStateFrom(u: User): PermState {
     can_manage_catalogs: u.can_manage_catalogs,
     can_import_official_data: u.can_import_official_data,
     can_manage_users: u.can_manage_users,
+    is_admin: u.is_admin ?? false,
   };
 }
 
@@ -103,6 +112,7 @@ export function UsersAdminPage() {
     can_manage_catalogs: false,
     can_import_official_data: false,
     can_manage_users: false,
+    is_admin: false,
   });
 
   const refresh = useCallback(async () => {
@@ -134,6 +144,7 @@ export function UsersAdminPage() {
         can_manage_catalogs: form.can_manage_catalogs,
         can_import_official_data: form.can_import_official_data,
         can_manage_users: form.can_manage_users,
+        is_admin: form.is_admin,
       });
       setOpenCreate(false);
       setForm({
@@ -144,6 +155,7 @@ export function UsersAdminPage() {
         can_manage_catalogs: false,
         can_import_official_data: false,
         can_manage_users: false,
+        is_admin: false,
       });
       await refresh();
       push("Usuario creado.", "success");

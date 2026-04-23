@@ -45,6 +45,7 @@ class UserService:
         can_manage_catalogs: bool,
         can_import_official_data: bool,
         can_manage_users: bool,
+        is_admin: bool = False,
     ) -> User:
         """Crea usuario con permisos iniciales."""
         user = User(
@@ -55,6 +56,7 @@ class UserService:
             can_manage_catalogs=can_manage_catalogs,
             can_import_official_data=can_import_official_data,
             can_manage_users=can_manage_users,
+            is_admin=is_admin,
         )
         db.add(user)
         try:
@@ -98,6 +100,7 @@ class UserService:
         can_manage_catalogs: bool,
         can_import_official_data: bool,
         can_manage_users: bool,
+        is_admin: bool = False,
     ) -> User:
         """Actualiza permisos funcionales en una sola operación."""
         user = UserRepository.get_by_id(db, user_id)
@@ -107,6 +110,7 @@ class UserService:
         user.can_manage_catalogs = can_manage_catalogs
         user.can_import_official_data = can_import_official_data
         user.can_manage_users = can_manage_users
+        user.is_admin = is_admin
         db.commit()
         db.refresh(user)
         return user

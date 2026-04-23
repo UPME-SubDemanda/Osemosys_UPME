@@ -1113,13 +1113,17 @@ export function ScenariosPage() {
                           Etiqueta
                         </Button>
                       ) : null}
-                      {row.owner === user?.username ? (
+                      {row.owner === user?.username || user?.is_admin ? (
                         <Button
                           variant="ghost"
                           type="button"
                           onClick={() => setDeleteCandidate(row)}
                           disabled={deletingScenarioId === row.id}
-                          title="Eliminar escenario (y simulaciones asociadas)"
+                          title={
+                            row.owner === user?.username
+                              ? "Eliminar escenario (y simulaciones asociadas)"
+                              : "Eliminar como administrador (no eres dueño)"
+                          }
                           style={{
                             padding: "4px 10px",
                             fontSize: "0.85rem",

@@ -34,6 +34,7 @@ class User(Base):
     can_manage_catalogs: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     can_import_official_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     can_manage_users: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[object] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

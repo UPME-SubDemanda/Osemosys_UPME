@@ -25,14 +25,15 @@ MAPA_SECTOR = {
 
 # Colores fijos para cada sector (usados cuando agrupacion='SECTOR')
 COLORES_SECTOR = {
-    'Residencial':  '#1f77b4',
-    'Industrial':   '#ff7f0e',
-    'Transporte':   '#2ca02c',
-    'Terciario':    '#9467bd',
-    'Construcción': '#d62728',
-    'Agroforestal': '#8c564b',
-    'Minería':      '#e377c2',
-    'Coquerías':    '#17becf',
+    'Residencial':              '#1f77b4',
+    'Industrial':               '#ff7f0e',
+    'Transporte':               '#2ca02c',
+    'Terciario':                '#9467bd',
+    'Construcción':             '#d62728',
+    'Agroforestal':             '#8c564b',
+    'Minería':                  '#e377c2',
+    'Coquerías':                '#17becf',
+    'Generación Electricidad':  '#f5c518',  # amarillo para sector eléctrico
 }
 
 

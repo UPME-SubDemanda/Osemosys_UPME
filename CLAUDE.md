@@ -133,11 +133,11 @@ osemosys_output_param_value (PostgreSQL)
 
 | File | Role |
 |------|------|
-| `chart_service.py` | Core: `build_chart_data`, `build_comparison_data`, `build_comparison_facet_data`, `get_result_summary`, export helpers |
-| `configs.py` | Single-scenario chart registry (`CONFIGS` dict, 70+ entries): `variable_default`, `filtro`, `agrupar_por`, `color_fn`, title, flags |
-| `configs_comparacion.py` | Multi-scenario comparison registry (`CONFIGS_COMPARACION`): `prefijo`, `agrupacion_*`, `año_historico_unico` |
-| `colors.py` | Color logic: `COLORES_GRUPOS`, `FAMILIAS_TEC`, `generar_colores_tecnologias`, `_color_electricidad` |
-| `labels.py` | `get_label()` — technology/fuel display names |
+| `chart_service.py` | Core: `build_chart_data`, `build_comparison_data`, `build_comparison_facet_data`, `get_result_summary`; export helpers: `render_chart_visualization_bytes`, `render_comparison_facet_figure_bytes`, `chart_data_to_csv_bytes`, `export_raw_data_excel`, `export_all_charts_zip` |
+| `configs.py` | Single-scenario chart registry (`CONFIGS` dict, ~38 entries): `variable_default`, `filtro`, `agrupar_por`, `color_fn`, title, flags. Also exports `TITULOS_VARIABLES_CAPACIDAD` and `NOMBRES_COMBUSTIBLES` dicts |
+| `configs_comparacion.py` | Multi-scenario comparison registry (`CONFIGS_COMPARACION`, 6 entries): `prefijo`, `agrupacion_*`, `año_historico_unico`. Also exports `MAPA_SECTOR` (prefix → sector name) and `COLORES_SECTOR` (sector color palette) |
+| `colors.py` | Color logic: `COLORES_GRUPOS`, `FAMILIAS_TEC`, `generar_colores_tecnologias`, `_color_electricidad`, `_color_por_grupo_fijo`, `_color_por_sector` |
+| `labels.py` | `get_label(code)` — single technology/fuel display name; `get_labels_batch(codes)` — batch variant. 740+ entries in `DISPLAY_NAMES`; `_dynamic_label()` generates labels from code segments as fallback |
 
 ### API endpoints (`backend/app/api/v1/visualizations.py`)
 
@@ -151,6 +151,7 @@ osemosys_output_param_value (PostgreSQL)
 | `GET /visualizations/{job_id}/export-chart?tipo=&formato=` | Individual chart export (PNG/SVG/CSV) server-side |
 | `GET /visualizations/{job_id}/export-all` | ZIP of SVG/PNG (Matplotlib headless) |
 | `GET /visualizations/{job_id}/export-raw` | Excel dump of raw output rows |
+| `GET /visualizations/export-compare-facet?job_ids=&tipo=&formato=` | Export facet comparison as single image (PNG/SVG) |
 
 All endpoints require authentication; chart-data endpoints require `SUCCEEDED` job status. Comparison is capped at **10 jobs**.
 
@@ -176,6 +177,9 @@ Unit conversion (`_convertir_unidades`): PJ is the baseline. GW, MW, TWh, Gpc ap
 | `chartExportingShared.ts` | Shared export utilities (PNG/SVG/CSV) for all chart types |
 | `serverChartExport.ts` | Server-side export: calls backend `/export-chart` endpoint |
 | `mergeFacetChartsSvg.ts` | Merges individual facet SVGs into a single combined SVG |
+| `chartLayoutPreferences.ts` | Persists chart layout/view preferences across sessions |
+| `defaultChartSelection.ts` | Default chart type selection logic on page load |
+| `techFamilies.ts` | Technology family definitions and prefix-to-family mappings |
 
 The page component `ResultDetailPage.tsx` orchestrates API calls and routes to the correct chart component based on comparison mode and selected view mode (bar vs. line).
 
@@ -266,6 +270,6 @@ MUIO (LU1–LU4) are defined in the model but currently **not loaded** from CSVs
 - **Two storage shapes**: Primary variables use typed columns; intermediate variables use `index_json` with heuristic parsing.
 - **Comparison cap**: Max 10 jobs per comparison to control memory/query cost.
 - **Historical year override**: `año_historico_unico=True` in comparison configs makes the first plotted year come from only the first job — for aligned baseline + projection reporting.
-- **Visualization labels**: technology and fuel display names are managed in `labels.py` via `get_label()`. There is no external dictionary file — mappings live directly in that module.
+- **Visualization labels**: technology and fuel display names are managed in `labels.py` via `get_label()` (single) and `get_labels_batch()` (batch). 740+ static entries in `DISPLAY_NAMES`; `_dynamic_label()` generates from code segments as fallback. No external dictionary file — all mappings live in that module.
 - **Individual chart export**: Charts can be exported individually (PNG/SVG/CSV) via a server-side endpoint (`/export-chart`). Frontend uses `serverChartExport.ts` to call this endpoint. Facet export merges SVGs client-side via `mergeFacetChartsSvg.ts`.
 - **MODE_OF_OPERATION normalization**: `mode_of_operation_normalize.py` sanitizes mode values before writing CSVs, preventing Pyomo index mismatches from inconsistent input formatting.

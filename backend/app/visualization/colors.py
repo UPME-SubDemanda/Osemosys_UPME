@@ -222,19 +222,46 @@ def generar_colores_tecnologias(df, columna: str = "COLOR"):
     return [color_dict[c] for c in orden_final], orden_final
 
 
-def _color_por_sector(df, columna: str = "COLOR"):
-    """Paleta fija según COLORES_SECTOR — para gráficas agrupadas por sector."""
-    # Import lazy para evitar dependencia circular (configs.py importa de colors.py)
-    from app.visualization.configs_comparacion import COLORES_SECTOR
-
+def _ordered_color_list(
+    color_dict: dict[str, str], df, columna: str
+) -> tuple[list[str], list[str]]:
+    """Orden preservado de un dict de colores, con fallback #999999 para desconocidos."""
     grupos = df[columna].dropna().unique()
-    # Mantener el orden definido en COLORES_SECTOR
-    orden = [s for s in COLORES_SECTOR if s in grupos]
+    orden = [k for k in color_dict if k in grupos]
     for g in grupos:
         if g not in orden:
             orden.append(g)
-    colores = [COLORES_SECTOR.get(g, "#999999") for g in orden]
-    return colores, orden
+    return [color_dict.get(g, "#999999") for g in orden], orden
+
+
+def _color_por_sector(df, columna: str = "COLOR"):
+    """Paleta fija según COLORES_SECTOR — para gráficas agrupadas por sector."""
+    from app.visualization.configs_comparacion import COLORES_SECTOR  # lazy: evita circular
+    return _ordered_color_list(COLORES_SECTOR, df, columna)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 4. COLORES PARA TIPOS DE EMISIÓN (contaminantes y GEI)
+# ══════════════════════════════════════════════════════════════════════════
+
+COLORES_EMISIONES = {
+    "EMICO2":    "#e67e22",  # CO₂ - naranja
+    "EMICH4":    "#e74c3c",  # CH₄ - rojo
+    "EMIN2O":    "#8e44ad",  # N₂O - morado
+    "EMIBC":     "#2c3e50",  # Black Carbon - gris muy oscuro
+    "EMICO":     "#e91e8c",  # CO - magenta/fucsia
+    "EMICOVDM":  "#7f7f7f",  # COV - gris
+    "EMINH3":    "#aec7e8",  # NH₃ - azul claro
+    "EMINOx":    "#7b3f00",  # NOₓ - marrón
+    "EMIPM10":   "#ff69b4",  # PM10 - rosa
+    "EMIPM2_5":  "#d62728",  # PM2.5 - rojo medio
+    "EMISOx":    "#9467bd",  # SOₓ - violeta
+}
+
+
+def _color_por_emision(df, columna: str = "COLOR"):
+    """Paleta fija por tipo de emisión (GEI y contaminantes criterio)."""
+    return _ordered_color_list(COLORES_EMISIONES, df, columna)
 
 
 def _color_por_grupo_fijo(df, columna: str = "COLOR"):

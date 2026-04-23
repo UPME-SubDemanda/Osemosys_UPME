@@ -43,10 +43,28 @@ const CAPACITY_VARIABLES: { value: string; label: string }[] = [
 
 const UNITS = ['PJ', 'GW', 'MW', 'TWh', 'Gpc'] as const;
 
-const EMISSION_CHART_IDS = new Set(['emisiones_total', 'emisiones_sectorial']);
+/** Gráficas de emisión GEI con unidad intercambiable (MtCO₂eq ↔ ktCO₂eq). */
+const GEI_CHART_IDS = new Set([
+  'emisiones_total',
+  'emisiones_sectorial',
+  'emisiones_gei',
+]);
+
+/** Gráficas de contaminantes criterio (unidad fija: kt). */
+const CONTAMINANTES_CHART_IDS = new Set(['emisiones_contaminantes']);
+
+const EMISSION_CHART_IDS = new Set([...GEI_CHART_IDS, ...CONTAMINANTES_CHART_IDS]);
+
+const EMISSION_UNITS: { value: string; label: string }[] = [
+  { value: 'MtCO2eq', label: 'MtCO₂eq' },
+  { value: 'ktCO2eq', label: 'ktCO₂eq' },
+];
+
+const EMISSION_UNIT_VALUES = new Set(EMISSION_UNITS.map((eu) => eu.value));
 
 /** Código → nombre legible de combustible (para dropdowns de sub-filtro). */
 const FUEL_LABELS: Record<string, string> = {
+  CARRETERA: 'Carretera (BUS/MOT/TCK/STT/LDV/FWD/TAX/MIC)',
   NGS: 'Gas Natural',
   DSL: 'Diésel',
   ELC: 'Electricidad',
@@ -97,9 +115,11 @@ const AGRUPACION_OPTIONS: { value: string; label: string; description: string }[
 // IDs de charts que NO deben mostrar el selector de agrupación
 // (su agrupación está fija en el backend o no tiene sentido cambiarlo)
 const CHARTS_SIN_AGRUPACION = new Set([
-  'prd_electricidad',   // es_porcentaje → fijo en backend
-  'emisiones_total',    // agrupa por YEAR → fijo
-  'emisiones_sectorial',// agrupa por sector/emisión → fijo
+  'prd_electricidad',        // es_porcentaje → fijo en backend
+  'emisiones_total',         // agrupa por YEAR → fijo
+  'emisiones_sectorial',     // agrupa por SECTOR → fijo
+  'emisiones_gei',           // agrupa por SECTOR (incluye PWR) → fijo
+  'emisiones_contaminantes', // agrupa por EMISION → fijo
 ]);
 
 // ─── Estructura del menú ─────────────────────────────────────────────────────
@@ -171,8 +191,8 @@ const MENU: Module[] = [
       {
         id: 'transporte', label: '🚗 Transporte',
         charts: [
-          { id: 'tra_total', label: 'Sector Transporte - Consumo Total - UseByTechnology', hasSub: true, subFiltroLabel: 'Modo', subFiltros: ['AVI','BOT','SHP','LDV','FWD','BUS','TCK_C2P','TCK_CSG','MOT','MIC','TAX','STT','MET'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true },
-          { id: 'tra_uso',   label: 'Sector Transporte - ProductionByTechnology',           hasSub: true, subFiltroLabel: 'Modo', subFiltros: ['AVI','BOT','SHP','LDV','FWD','BUS','TCK_C2P','TCK_CSG','MOT','MIC','TAX','STT','MET'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true },
+          { id: 'tra_total', label: 'Sector Transporte - Consumo Total - UseByTechnology', hasSub: true, subFiltroLabel: 'Modo', subFiltros: ['CARRETERA','AVI','BOT','SHP','LDV','FWD','BUS','TCK_C2P','TCK_CSG','MOT','MIC','TAX','STT','MET'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true },
+          { id: 'tra_uso',   label: 'Sector Transporte - ProductionByTechnology',           hasSub: true, subFiltroLabel: 'Modo', subFiltros: ['CARRETERA','AVI','BOT','SHP','LDV','FWD','BUS','TCK_C2P','TCK_CSG','MOT','MIC','TAX','STT','MET'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true },
         ],
       },
       {
@@ -250,8 +270,10 @@ const MENU: Module[] = [
     emoji: '🌿',
     label: 'Emisiones',
     charts: [
-      { id: 'emisiones_total',     label: 'Emisiones - Total Anual - AnnualEmissions' },
-      { id: 'emisiones_sectorial', label: 'Emisiones - Por Sector - AnnualTechnologyEmission' },
+      { id: 'emisiones_total',        label: 'Emisiones - Total Anual - AnnualEmissions' },
+      { id: 'emisiones_sectorial',    label: 'Emisiones - Por Sector - AnnualTechnologyEmission' },
+      { id: 'emisiones_gei',          label: 'Emisiones GEI por Sector (CO₂, CH₄, N₂O)' },
+      { id: 'emisiones_contaminantes', label: 'Emisiones Contaminantes Criterio (BC, CO, COV, NH₃, NOₓ, PM10, PM2.5, SOₓ)' },
     ],
   },
   {
@@ -393,7 +415,6 @@ export function ChartSelector({ value, onChange }: Props) {
     if (showsAgrupacion(item)) {
       const prev = prevAgrupacion ?? 'TECNOLOGIA';
       if (item.allowedGroupings) {
-        // Si la agrupación anterior es válida, mantenerla; sino, usar la default
         newGrouping = item.allowedGroupings.includes(prev)
           ? prev
           : (item.defaultGrouping ?? item.allowedGroupings[0] ?? 'TECNOLOGIA');
@@ -402,9 +423,19 @@ export function ChartSelector({ value, onChange }: Props) {
       }
     }
 
+    let newUn = rest.un;
+    if (GEI_CHART_IDS.has(item.id) && !EMISSION_UNIT_VALUES.has(rest.un)) {
+      newUn = 'MtCO2eq';
+    } else if (CONTAMINANTES_CHART_IDS.has(item.id)) {
+      newUn = 'kt';
+    } else if (!EMISSION_CHART_IDS.has(item.id) && (EMISSION_UNIT_VALUES.has(rest.un) || rest.un === 'kt')) {
+      newUn = 'PJ';
+    }
+
     onChange({
       ...rest,
       tipo:       item.id,
+      un:         newUn,
       variable:   item.isCapacity ? 'TotalCapacityAnnual' : '',
       sub_filtro: '',
       loc:        '',
@@ -448,7 +479,14 @@ export function ChartSelector({ value, onChange }: Props) {
     AGRUPACION_OPTIONS.find((a) => a.value === activeAgrupacion)?.label ?? activeAgrupacion;
 
 
-    const isEmissionChart = EMISSION_CHART_IDS.has(value.tipo);
+  const isEmissionChart = EMISSION_CHART_IDS.has(value.tipo);
+  const isGeiChart = GEI_CHART_IDS.has(value.tipo);
+  const isContaminantesChart = CONTAMINANTES_CHART_IDS.has(value.tipo);
+  const displayUnit = isContaminantesChart
+    ? 'kt'
+    : isGeiChart
+    ? (EMISSION_UNITS.find((eu) => eu.value === value.un)?.label ?? 'MtCO₂eq')
+    : value.un;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -598,7 +636,7 @@ export function ChartSelector({ value, onChange }: Props) {
       <div style={bottomRowStyle}>
       <div style={{ display: 'grid', gap: 6 }}>
         <p style={labelStyle}>Unidades</p>
-        {isEmissionChart ? (
+        {isContaminantesChart ? (
           <div style={{
             padding: '4px 12px',
             borderRadius: 6,
@@ -610,7 +648,20 @@ export function ChartSelector({ value, onChange }: Props) {
             fontFamily: 'monospace',
             display: 'inline-block',
           }}>
-            MtCO₂eq  {/* o TonCO₂eq según tu modelo */}
+            kt
+          </div>
+        ) : isGeiChart ? (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {EMISSION_UNITS.map((eu) => (
+              <button
+                key={eu.value}
+                type="button"
+                onClick={() => onChange({ ...value, un: eu.value })}
+                style={{ ...unitBtnStyle, ...(value.un === eu.value ? unitBtnActiveStyle : unitBtnInactiveStyle) }}
+              >
+                {eu.label}
+              </button>
+            ))}
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -698,7 +749,7 @@ export function ChartSelector({ value, onChange }: Props) {
             {activeVariable !== '' ? ` — ${activeCapacityLabel}` : ''}
             {value.sub_filtro != null && value.sub_filtro !== '' ? ` [${FUEL_LABELS[value.sub_filtro] ?? value.sub_filtro}]` : ''}
             {value.loc != null && value.loc !== '' ? ` (${value.loc})` : ''}
-            {' '}· {value.un}
+            {' '}· {displayUnit}
             {canChangeAgrupacion ? ` · ${agrupacionLabel}` : ''}
           </span>
         </div>

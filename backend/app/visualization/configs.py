@@ -13,7 +13,18 @@ from app.visualization.colors import (
     _color_por_grupo_fijo,
     _color_electricidad,
     _color_por_sector,
+    _color_por_emision,
 )
+
+# Gases de efecto invernadero a filtrar
+_GEI_GASES = {"EMICO2", "EMICH4", "EMIN2O"}
+
+# Contaminantes criterio
+_CONTAMINANTES = {"EMIBC", "EMICO", "EMICOVDM", "EMINH3", "EMINOx", "EMIPM10", "EMIPM2_5", "EMISOx"}
+
+# Modos de transporte por carretera (sub-filtro "CARRETERA")
+ROAD_TRANSPORT_CODES = {"BUS", "MOT", "TCK", "STT", "LDV", "FWD", "TAX", "MIC"}
+_ROAD_TRANSPORT_PATTERN = "|".join(ROAD_TRANSPORT_CODES)
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -144,7 +155,13 @@ def _filtro_industrial(df, sub_filtro=None, **kw):
 
 
 def _filtro_transporte(df, sub_filtro=None, **kw):
-    return _filtro_prefijo_con_sub(df, "DEMTRA", sub_filtro)
+    mask = df["TECHNOLOGY"].str.startswith("DEMTRA")
+    if sub_filtro == "CARRETERA":
+        road_mask = df["TECHNOLOGY"].str.contains(_ROAD_TRANSPORT_PATTERN, regex=True)
+        mask &= road_mask
+    elif sub_filtro:
+        mask &= df["TECHNOLOGY"].str.contains(sub_filtro)
+    return df[mask]
 
 
 def _filtro_terciario(df, sub_filtro=None, **kw):
@@ -260,6 +277,20 @@ def _filtro_saf_produccion(df, **kw):
         df["TECHNOLOGY"].str.startswith("UPSSAF")
         | df["TECHNOLOGY"].str.startswith("UPSBJS")
     ]
+
+
+def _filtro_por_fuel_set(df, fuel_set: set, **kw):
+    if "FUEL" not in df.columns:
+        return df.iloc[0:0]
+    return df[df["FUEL"].isin(fuel_set)]
+
+
+def _filtro_gei(df, **kw):
+    return _filtro_por_fuel_set(df, _GEI_GASES)
+
+
+def _filtro_contaminantes(df, **kw):
+    return _filtro_por_fuel_set(df, _CONTAMINANTES)
 
 
 def _filtro_extraccion_min(df, **kw):
@@ -754,7 +785,7 @@ CONFIGS = {
         "figura": "EMI-TOT",
         "filename": "Emisiones_Total",
         "print": "EMISIONES TOTALES",
-        "filtro": None,  # Sin filtro por tecnología
+        "filtro": None,
         "msg_sin_datos": "Sin datos de emisiones",
         "agrupar_por": "YEAR",
         "color_fn": None,
@@ -767,10 +798,35 @@ CONFIGS = {
         "figura": "EMI-SEC",
         "filename": "Emisiones_Sectorial",
         "print": "EMISIONES SECTORIALES",
-        "filtro": None,  # Se agrupa por sector, no se filtra
+        "filtro": None,
         "msg_sin_datos": "Sin datos de emisiones por tecnología",
         "agrupar_por": "SECTOR",
         "color_fn": _color_por_sector,
+        "variable_default": "AnnualTechnologyEmission",
+    },
+    "emisiones_gei": {
+        "titulo": "Emisiones GEI por Sector - AnnualTechnologyEmission",
+        "es_emision": True,
+        "figura": "EMI-GEI",
+        "filename": "Emisiones_GEI",
+        "print": "EMISIONES GEI POR SECTOR",
+        "filtro": _filtro_gei,
+        "msg_sin_datos": "Sin datos de emisiones GEI (EMICO2, EMICH4, EMIN2O)",
+        "agrupar_por": "SECTOR",
+        "color_fn": _color_por_sector,
+        "variable_default": "AnnualTechnologyEmission",
+    },
+    "emisiones_contaminantes": {
+        "titulo": "Emisiones Contaminantes Criterio - AnnualTechnologyEmission",
+        "es_emision": True,
+        "es_emision_kt": True,
+        "figura": "EMI-CONT",
+        "filename": "Emisiones_Contaminantes",
+        "print": "EMISIONES CONTAMINANTES CRITERIO",
+        "filtro": _filtro_contaminantes,
+        "msg_sin_datos": "Sin datos de contaminantes criterio",
+        "agrupar_por": "EMISION",
+        "color_fn": _color_por_emision,
         "variable_default": "AnnualTechnologyEmission",
     },
     # ═══════════════════════════════════════════════════════════════════════════

@@ -67,6 +67,7 @@ def create_user(
             can_manage_catalogs=payload.can_manage_catalogs,
             can_import_official_data=payload.can_import_official_data,
             can_manage_users=payload.can_manage_users,
+            is_admin=payload.is_admin,
         )
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
@@ -137,6 +138,7 @@ def set_permissions(
             can_manage_catalogs=payload.can_manage_catalogs,
             can_import_official_data=payload.can_import_official_data,
             can_manage_users=payload.can_manage_users,
+            is_admin=payload.is_admin,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

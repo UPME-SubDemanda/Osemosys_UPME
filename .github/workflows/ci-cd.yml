@@ -59,6 +59,9 @@ jobs:
 
       - name: Run Backend Tests
         run: |
+          # Siempre apagar y quitar contenedores del proyecto al terminar (éxito o fallo),
+          # para no dejar db/redis en ejecución ni huérfanos en runners reutilizados.
+          trap 'docker compose down --remove-orphans || true' EXIT
           docker compose up -d db redis
           db_ready=0
           for _ in $(seq 1 40); do

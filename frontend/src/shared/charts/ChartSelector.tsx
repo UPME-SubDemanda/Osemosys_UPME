@@ -51,10 +51,7 @@ const GEI_CHART_IDS = new Set([
 ]);
 
 /** Gráficas de contaminantes criterio (unidad fija: kt). */
-const CONTAMINANTES_CHART_IDS = new Set(['emisiones_contaminantes', 'emisiones_contaminantes_pct']);
-
-/** Gráficas con unidad fija % (factor de planta y porcentajes). */
-const PORCENTAJE_CHART_IDS = new Set(['prd_electricidad', 'emisiones_contaminantes_pct', 'factor_planta']);
+const CONTAMINANTES_CHART_IDS = new Set(['emisiones_contaminantes']);
 
 const EMISSION_CHART_IDS = new Set([...GEI_CHART_IDS, ...CONTAMINANTES_CHART_IDS]);
 
@@ -118,13 +115,11 @@ const AGRUPACION_OPTIONS: { value: string; label: string; description: string }[
 // IDs de charts que NO deben mostrar el selector de agrupación
 // (su agrupación está fija en el backend o no tiene sentido cambiarlo)
 const CHARTS_SIN_AGRUPACION = new Set([
-  'prd_electricidad',            // es_porcentaje → fijo en backend
-  'factor_planta',               // es_factor_planta → fijo en backend
-  'emisiones_total',             // agrupa por YEAR → fijo
-  'emisiones_sectorial',         // agrupa por SECTOR → fijo
-  'emisiones_gei',               // agrupa por SECTOR (incluye PWR) → fijo
-  'emisiones_contaminantes',     // agrupa por EMISION → fijo
-  'emisiones_contaminantes_pct', // agrupa por EMISION → fijo
+  'prd_electricidad',        // es_porcentaje → fijo en backend
+  'emisiones_total',         // agrupa por YEAR → fijo
+  'emisiones_sectorial',     // agrupa por SECTOR → fijo
+  'emisiones_gei',           // agrupa por SECTOR (incluye PWR) → fijo
+  'emisiones_contaminantes', // agrupa por EMISION → fijo
 ]);
 
 // ─── Estructura del menú ─────────────────────────────────────────────────────
@@ -169,7 +164,6 @@ const MENU: Module[] = [
       { id: 'elec_produccion',  label: 'Producción de Electricidad - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true },
       { id: 'prd_electricidad', label: 'Producción de Electricidad - ProductionByTechnology (%)' },
       { id: 'cap_electricidad', label: 'Matriz Eléctrica (Capacidad) - TotalCapacityAnnual', isCapacity: true },
-      { id: 'factor_planta',    label: 'Factor de Planta (%)' },
     ],
   },
   {
@@ -278,9 +272,8 @@ const MENU: Module[] = [
     charts: [
       { id: 'emisiones_total',        label: 'Emisiones - Total Anual - AnnualEmissions' },
       { id: 'emisiones_sectorial',    label: 'Emisiones - Por Sector - AnnualTechnologyEmission' },
-      { id: 'emisiones_gei',              label: 'Emisiones GEI por Sector (CO₂, CH₄, N₂O)' },
-      { id: 'emisiones_contaminantes',    label: 'Emisiones Contaminantes Criterio (BC, CO, COV, NH₃, NOₓ, PM10, PM2.5, SOₓ)' },
-      { id: 'emisiones_contaminantes_pct', label: 'Emisiones Contaminantes Criterio (%)' },
+      { id: 'emisiones_gei',          label: 'Emisiones GEI por Sector (CO₂, CH₄, N₂O)' },
+      { id: 'emisiones_contaminantes', label: 'Emisiones Contaminantes Criterio (BC, CO, COV, NH₃, NOₓ, PM10, PM2.5, SOₓ)' },
     ],
   },
   {
@@ -434,14 +427,8 @@ export function ChartSelector({ value, onChange }: Props) {
     if (GEI_CHART_IDS.has(item.id) && !EMISSION_UNIT_VALUES.has(rest.un)) {
       newUn = 'MtCO2eq';
     } else if (CONTAMINANTES_CHART_IDS.has(item.id)) {
-      newUn = 'kt';
-    } else if (PORCENTAJE_CHART_IDS.has(item.id)) {
-      newUn = '%';
-    } else if (
-      !EMISSION_CHART_IDS.has(item.id) &&
-      !PORCENTAJE_CHART_IDS.has(item.id) &&
-      (EMISSION_UNIT_VALUES.has(rest.un) || rest.un === 'kt' || rest.un === '%')
-    ) {
+      newUn = 'ktCO2eq';
+    } else if (!EMISSION_CHART_IDS.has(item.id) && (EMISSION_UNIT_VALUES.has(rest.un) || rest.un === 'ktCO2eq')) {
       newUn = 'PJ';
     }
 
@@ -495,11 +482,8 @@ export function ChartSelector({ value, onChange }: Props) {
   const isEmissionChart = EMISSION_CHART_IDS.has(value.tipo);
   const isGeiChart = GEI_CHART_IDS.has(value.tipo);
   const isContaminantesChart = CONTAMINANTES_CHART_IDS.has(value.tipo);
-  const isPorcentajeChart = PORCENTAJE_CHART_IDS.has(value.tipo);
   const displayUnit = isContaminantesChart
-    ? 'kt'
-    : isPorcentajeChart
-    ? '%'
+    ? 'ktCO2eq'
     : isGeiChart
     ? (EMISSION_UNITS.find((eu) => eu.value === value.un)?.label ?? 'MtCO₂eq')
     : value.un;
@@ -652,7 +636,7 @@ export function ChartSelector({ value, onChange }: Props) {
       <div style={bottomRowStyle}>
       <div style={{ display: 'grid', gap: 6 }}>
         <p style={labelStyle}>Unidades</p>
-        {(isContaminantesChart || isPorcentajeChart) ? (
+        {isContaminantesChart ? (
           <div style={{
             padding: '4px 12px',
             borderRadius: 6,
@@ -664,7 +648,7 @@ export function ChartSelector({ value, onChange }: Props) {
             fontFamily: 'monospace',
             display: 'inline-block',
           }}>
-            {isContaminantesChart ? 'kt' : '%'}
+            kt
           </div>
         ) : isGeiChart ? (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

@@ -18,6 +18,9 @@ class DummyDbSession:
 
     def execute(self, _stmt):
         class _Result:
+            def all(self):
+                return []
+
             def scalars(self):
                 class _Scalars:
                     def all(self_inner):

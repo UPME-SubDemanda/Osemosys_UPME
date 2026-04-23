@@ -29,16 +29,19 @@ from app.schemas.visualization import (
     CompareChartFacetResponse,
     CompareChartResponse,
     FacetData,
+    ParetoChartResponse,
     ResultSummaryResponse,
     SubplotData,
 )
 from app.visualization.colors import (
     COLORES_GRUPOS,
+    COLORES_EMISIONES,
     asignar_grupo,
     generar_colores_tecnologias,
     _color_electricidad,
     _color_por_grupo_fijo,
     _color_por_sector,
+    _color_por_emision,
 )
 from app.visualization.labels import get_label
 from app.visualization.configs import CONFIGS, TITULOS_VARIABLES_CAPACIDAD, NOMBRES_COMBUSTIBLES
@@ -167,6 +170,27 @@ def _safe_int(val: Any) -> int | None:
 # 2. HELPERS DE TRANSFORMACIÓN (ports de graficas_comparacion.py)
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _fuel_to_group(row) -> str:
+    """Normaliza una fila (FUEL + TECHNOLOGY) al código base de grupo.
+
+    Códigos FUEL con sufijos numéricos (ELC002, NGS002…) se mapean a su
+    clave base (ELC, NGS…) usando asignar_grupo, para que coincidan con
+    COLORES_GRUPOS y DISPLAY_NAMES.  OIL se desambigua por tecnología.
+    """
+    fuel = row.get("FUEL", "")
+    tech = str(row.get("TECHNOLOGY", ""))
+    if fuel == "OIL":
+        if "MINOIL_3PES" in tech:
+            return "MINOIL_3PES"
+        if "MINOIL_2MID" in tech:
+            return "MINOIL_2MID"
+        if "MINOIL_1LIV" in tech:
+            return "MINOIL_1LIV"
+        if "MINOIL" in tech:
+            return "MINOIL"
+    return asignar_grupo(fuel) if fuel else "OTRO"
+
+
 def _filtrar_df(
     df: pd.DataFrame,
     prefijo: str | tuple[str, ...],
@@ -198,6 +222,14 @@ def _filtrar_df(
     return df
 
 
+def _sector_labels(tech_series: pd.Series) -> pd.Series:
+    """Asignación vectorizada de sector, incluyendo PWR → Generación Electricidad."""
+    labels = tech_series.str[:6].map(MAPA_SECTOR)
+    pwr_mask = labels.isna() & tech_series.str.startswith("PWR")
+    labels = labels.where(~pwr_mask, "Generación Electricidad")
+    return labels.fillna("Otros")
+
+
 def _asignar_categoria(
     df: pd.DataFrame,
     agrupacion: str,
@@ -223,7 +255,11 @@ def _asignar_categoria(
         df = df.drop(columns="_TECH_FUEL")
 
     elif agrupacion == "SECTOR":
-        df["CATEGORIA"] = df["TECHNOLOGY"].str[:6].map(MAPA_SECTOR)
+        df["CATEGORIA"] = _sector_labels(df["TECHNOLOGY"])
+
+    elif agrupacion == "EMISION":
+        # Para AnnualTechnologyEmission, FUEL contiene el tipo de emisión
+        df["CATEGORIA"] = df["FUEL"] if "FUEL" in df.columns else "?"
 
     return df
 
@@ -246,6 +282,24 @@ def _convertir_unidades(df: pd.DataFrame, un: str) -> pd.DataFrame:
     return df
 
 
+def _convertir_unidades_emision(df: pd.DataFrame, un: str) -> pd.DataFrame:
+    """Convierte emisiones GEI entre MtCO₂eq y ktCO₂eq.
+
+    Base de datos: MtCO₂eq. Multiplicar × 1000 para obtener ktCO₂eq.
+    """
+    df = df.copy()
+    if un == "ktCO2eq":
+        df["VALUE"] *= 1000.0
+    return df
+
+
+def _emision_unit_label(un: str, es_emision_kt: bool) -> str:
+    """Devuelve la etiqueta de unidad correcta para gráficas de emisión."""
+    if es_emision_kt:
+        return "ktCO₂eq"
+    return "ktCO₂eq" if un == "ktCO2eq" else "MtCO₂eq"
+
+
 def _color_map_comparison(
     agrupacion: str,
     categorias_unicas: list[str],
@@ -260,10 +314,79 @@ def _color_map_comparison(
     if agrupacion == "SECTOR":
         return {c: COLORES_SECTOR.get(c, "#999999") for c in categorias_unicas}
 
+    if agrupacion == "EMISION":
+        return {c: COLORES_EMISIONES.get(c, "#999999") for c in categorias_unicas}
+
     # TECNOLOGIA: reutiliza generar_colores_tecnologias de colors.py
     df_tmp = pd.DataFrame({"COLOR": list(categorias_unicas)})
     colores_lista, orden_lista = generar_colores_tecnologias(df_tmp, "COLOR")
     return dict(zip(orden_lista, colores_lista))
+
+
+def _build_factor_planta_data(
+    db: Session,
+    job_id: int,
+    cfg: dict,
+    title: str,
+    sub_filtro: str | None,
+    loc: str | None,
+) -> ChartDataResponse:
+    """CF = Producción[PJ] / TotalCapacityAnnual[PJ] × 100 %
+
+    Ambas variables están en PJ (baseline del modelo).
+    TotalCapacityAnnual[PJ] = capacidad[GW] × 31.536 = energía máxima anual posible.
+    CF = Energía real / Energía máxima posible ∈ [0 %, 100 %].
+    """
+    filtro_fn = cfg.get("filtro")
+
+    df_cap = _load_variable_data(db, job_id, "TotalCapacityAnnual")
+    df_prd = _load_variable_data(db, job_id, "ProductionByTechnology")
+
+    if filtro_fn is not None:
+        df_cap = filtro_fn(df_cap, sub_filtro=sub_filtro, loc=loc)
+        df_prd = filtro_fn(df_prd, sub_filtro=sub_filtro, loc=loc)
+
+    if df_cap.empty or df_prd.empty:
+        return ChartDataResponse(categories=[], series=[], title=title, yAxisLabel="%")
+
+    cap_agg = df_cap.groupby(["TECHNOLOGY", "YEAR"], as_index=False)["VALUE"].sum()
+    prd_agg = df_prd.groupby(["TECHNOLOGY", "YEAR"], as_index=False)["VALUE"].sum()
+    prd_agg = prd_agg.rename(columns={"VALUE": "PRODUCTION"})
+
+    df = cap_agg.merge(prd_agg, on=["TECHNOLOGY", "YEAR"], how="inner")
+    df = df[df["VALUE"] > 1e-6].copy()
+
+    if df.empty:
+        return ChartDataResponse(categories=[], series=[], title=title, yAxisLabel="%")
+
+    # Ambos en PJ → ratio directo, sin conversión adicional
+    df["CF"] = (df["PRODUCTION"] / df["VALUE"] * 100.0).clip(0, 100)
+    df["COLOR"] = df["TECHNOLOGY"]
+
+    color_fn = cfg.get("color_fn")
+    if color_fn is not None:
+        colores_ordenados, orden_color = color_fn(df, "COLOR")
+    else:
+        orden_color = sorted(df["COLOR"].unique())
+        colores_ordenados = ["#999999"] * len(orden_color)
+
+    color_dict = dict(zip(orden_color, colores_ordenados))
+    años = sorted(df["YEAR"].unique())
+    categories = [str(a) for a in años]
+
+    series: list[ChartSeries] = []
+    for tech in orden_color:
+        df_tech = df[df["COLOR"] == tech]
+        valor_por_año = {int(row["YEAR"]): row["CF"] for _, row in df_tech.iterrows()}
+        data = [round(valor_por_año.get(a, 0.0), 4) for a in años]
+        series.append(ChartSeries(
+            name=get_label(str(tech)),
+            data=data,
+            color=color_dict.get(tech, "#999999"),
+            stack="default",
+        ))
+
+    return ChartDataResponse(categories=categories, series=series, title=title, yAxisLabel="%")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -303,6 +426,7 @@ def build_chart_data(
     cfg = CONFIGS[tipo]
     es_capacidad = cfg.get("es_capacidad", False)
     es_porcentaje = cfg.get("es_porcentaje", False)
+    es_factor_planta = cfg.get("es_factor_planta", False)
 
     # Variable a consultar
     variable_name = variable if (variable and es_capacidad) else cfg["variable_default"]
@@ -311,7 +435,7 @@ def build_chart_data(
     if es_capacidad:
         titulo_var = TITULOS_VARIABLES_CAPACIDAD.get(variable_name, variable_name)
         title = f"{cfg['titulo_base']} — {titulo_var}"
-    elif es_porcentaje:
+    elif es_porcentaje or es_factor_planta:
         title = cfg.get("titulo_base", cfg.get("titulo", tipo))
     else:
         title = cfg.get("titulo", tipo)
@@ -322,14 +446,19 @@ def build_chart_data(
     if loc:
         title += f" ({loc})"
 
-    # title += f" ({un})"
-    # Por:
     es_emision = cfg.get("es_emision", False)
+    es_emision_kt = cfg.get("es_emision_kt", False)
 
-    if not es_emision:
-        title += f" ({un})"
+    if es_porcentaje or es_factor_planta:
+        title += " (%)"
+    elif es_emision:
+        title += f" ({_emision_unit_label(un, es_emision_kt)})"
     else:
-        title += f" (MtCO₂eq)"
+        title += f" ({un})"
+
+    # ── Factor de Planta: pipeline propio ────────────────────────────────
+    if es_factor_planta:
+        return _build_factor_planta_data(db, job_id, cfg, title, sub_filtro, loc)
 
     # ── Cargar datos ─────────────────────────────────────────────────────
     df = _load_variable_data(db, job_id, variable_name)
@@ -363,11 +492,13 @@ def build_chart_data(
             df["COLOR"] = df["TECHNOLOGY"].apply(asignar_grupo)
     elif agrupar_col == "FUEL":
         if "FUEL" in df.columns:
-            df["COLOR"] = df["FUEL"].apply(asignar_grupo)
+            df["COLOR"] = df.apply(_fuel_to_group, axis=1)
         else:
             df["COLOR"] = df["TECHNOLOGY"].apply(asignar_grupo)
     elif agrupar_col == "SECTOR":
-        df["COLOR"] = df["TECHNOLOGY"].str[:6].map(MAPA_SECTOR)
+        df["COLOR"] = _sector_labels(df["TECHNOLOGY"])
+    elif agrupar_col == "EMISION":
+        df["COLOR"] = df["FUEL"] if "FUEL" in df.columns else "?"
     elif agrupar_col == "YEAR":
         # emisiones_total: solo agrupa por año
         df["COLOR"] = "Total"
@@ -386,7 +517,11 @@ def build_chart_data(
         )
 
     # ── Conversión de unidades ───────────────────────────────────────────
-    if not es_emision:
+    if es_emision:
+        if not es_emision_kt:
+            df_agg = _convertir_unidades_emision(df_agg, un)
+        # es_emision_kt: base = kt, sin conversión
+    else:
         df_agg = _convertir_unidades(df_agg, un)
 
     # ── Porcentaje (prd_electricidad) ────────────────────────────────────
@@ -401,8 +536,9 @@ def build_chart_data(
             color_fn = _color_por_grupo_fijo
         elif agrupar_col == "SECTOR":
             color_fn = _color_por_sector
+        elif agrupar_col == "EMISION":
+            color_fn = _color_por_emision
         else:
-            # TECNOLOGIA u otro: usar electricidad si el config lo usa, sino generar_colores
             color_fn = cfg.get("color_fn") if cfg.get("color_fn") == _color_electricidad else generar_colores_tecnologias
     else:
         color_fn = cfg.get("color_fn")
@@ -432,19 +568,11 @@ def build_chart_data(
             )
         )
 
-    # return ChartDataResponse(
-    #     categories=categories,
-    #     series=series,
-    #     title=title,
-    #     yAxisLabel="%" if es_porcentaje else un,
-    # )
-    EMISSION_UNIT_LABEL = "MtCO₂eq"  # ajusta según tu modelo
-
     return ChartDataResponse(
         categories=categories,
         series=series,
         title=title,
-        yAxisLabel="%" if es_porcentaje else (EMISSION_UNIT_LABEL if es_emision else un),
+        yAxisLabel="%" if es_porcentaje else (_emision_unit_label(un, es_emision_kt) if es_emision else un),
     )
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -847,29 +975,261 @@ def _procesar_bloque_single(
             df["CATEGORIA"] = df["TECHNOLOGY"].apply(asignar_grupo)
     elif agrupar_col == "FUEL":
         if "FUEL" in df.columns:
-            df["CATEGORIA"] = df["FUEL"].apply(asignar_grupo)
+            df["CATEGORIA"] = df.apply(_fuel_to_group, axis=1)
         else:
             df["CATEGORIA"] = df["TECHNOLOGY"].apply(asignar_grupo)
     elif agrupar_col == "SECTOR":
-        df["CATEGORIA"] = df["TECHNOLOGY"].str[:6].map(MAPA_SECTOR)
+        df["CATEGORIA"] = _sector_labels(df["TECHNOLOGY"])
+    elif agrupar_col == "EMISION":
+        df["CATEGORIA"] = df["FUEL"] if "FUEL" in df.columns else "?"
     elif agrupar_col == "YEAR":
         df["CATEGORIA"] = "Total"
     else:
         df["CATEGORIA"] = df["TECHNOLOGY"]
-        
+
     df = df.groupby(["CATEGORIA", "YEAR"], as_index=False)["VALUE"].sum()
     df = df[df.groupby("CATEGORIA")["VALUE"].transform("sum") > 1e-5]
-    
+
     if df.empty:
         return None
-        
-    # df = _convertir_unidades(df, un)
+
     es_emision = cfg.get("es_emision", False)
-    if not es_emision:
+    es_emision_kt = cfg.get("es_emision_kt", False)
+    if es_emision:
+        if not es_emision_kt:
+            df = _convertir_unidades_emision(df, un)
+    else:
         df = _convertir_unidades(df, un)
 
     return df
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4c. build_comparison_line_data — LÍNEAS MULTI-ESCENARIO CONSOLIDADAS
+# ═══════════════════════════════════════════════════════════════════════════
+
+_SCENARIO_LINE_COLORS = [
+    "#3b82f6", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6",
+    "#06b6d4", "#f97316", "#84cc16", "#ec4899", "#6366f1",
+]
+
+
+def build_comparison_line_data(
+    db: Session,
+    job_ids: list[int],
+    tipo: str,
+    un: str = "PJ",
+    sub_filtro: str | None = None,
+    loc: str | None = None,
+) -> ChartDataResponse:
+    """Construye líneas totales multi-escenario sobre el mismo eje.
+
+    Todos los escenarios se trazan en la misma figura (sin subplots).
+    X = años, Y = total agregado (suma de todas las tecnologías), una línea por escenario.
+
+    Parámetros
+    ----------
+    db : Session
+    job_ids : list[int]
+        IDs de simulation_job a comparar (max 10).
+    tipo : str
+        Clave en CONFIGS_COMPARACION o CONFIGS.
+    un : str
+        Unidades de salida (PJ, GW, etc.).
+    sub_filtro, loc : str | None
+        Filtros opcionales de tecnología/localización.
+    """
+    MAPEO_COMPARACION = {
+        "tra_total": "tra_comparacion",
+        "ind_total": "ind_comparacion",
+        "res_total": "res_comparacion",
+        "ter_total": "ter_comparacion",
+    }
+    if tipo in MAPEO_COMPARACION:
+        tipo = MAPEO_COMPARACION[tipo]
+
+    if tipo in CONFIGS_COMPARACION:
+        cfg = CONFIGS_COMPARACION[tipo]
+        variable_name: str = cfg["variable_default"]
+        prefijo = cfg["prefijo"]
+        es_emision = False
+        es_emision_kt = False
+        title_base = cfg["titulo_base"]
+
+        def _apply_filter(df: pd.DataFrame) -> pd.DataFrame:
+            return _filtrar_df(df, prefijo, sub_filtro, loc)
+
+    elif tipo in CONFIGS:
+        cfg = CONFIGS[tipo]
+        variable_name = cfg["variable_default"]
+        es_emision = cfg.get("es_emision", False)
+        es_emision_kt = cfg.get("es_emision_kt", False)
+        title_base = cfg.get("titulo", cfg.get("titulo_base", tipo))
+        filtro_fn = cfg.get("filtro")
+
+        def _apply_filter(df: pd.DataFrame) -> pd.DataFrame:
+            if filtro_fn is not None:
+                return filtro_fn(df, sub_filtro=sub_filtro, loc=loc)
+            return df
+    else:
+        raise ValueError(f"tipo='{tipo}' no existe en CONFIGS ni en CONFIGS_COMPARACION.")
+
+    title = title_base
+    if sub_filtro:
+        title += f" — {NOMBRES_COMBUSTIBLES.get(sub_filtro, sub_filtro)}"
+    if loc:
+        title += f" ({loc})"
+    title += f" — Total ({un})"
+
+    # Cargar nombres de escenarios
+    scenario_names: dict[int, str] = {}
+    for jid in job_ids:
+        job = db.query(SimulationJob).filter(SimulationJob.id == jid).first()
+        if job:
+            from app.models import Scenario
+            scenario = (
+                db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
+                if job.scenario_id else None
+            )
+            base = scenario.name if scenario else (job.input_name or f"Job {jid}")
+            disp = (getattr(job, "display_name", None) or "").strip()
+            scenario_names[jid] = disp if disp else base
+        else:
+            scenario_names[jid] = f"Job {jid}"
+
+    # Agregar total por año para cada job
+    all_years: set[int] = set()
+    totals_per_job: dict[int, dict[int, float]] = {}
+
+    for jid in job_ids:
+        df = _load_variable_data(db, jid, variable_name)
+        if df.empty:
+            totals_per_job[jid] = {}
+            continue
+        df = _apply_filter(df)
+        if df.empty:
+            totals_per_job[jid] = {}
+            continue
+        if not es_emision:
+            df = _convertir_unidades(df, un)
+        year_totals = df.groupby("YEAR")["VALUE"].sum()
+        totals_per_job[jid] = {int(y): round(float(v), 6) for y, v in year_totals.items()}
+        all_years.update(totals_per_job[jid].keys())
+
+    if not all_years:
+        return ChartDataResponse(categories=[], series=[], title=title,
+                                 yAxisLabel=_emision_unit_label(un, es_emision_kt) if es_emision else un)
+
+    years_sorted = sorted(all_years)
+    categories = [str(y) for y in years_sorted]
+
+    series: list[ChartSeries] = []
+    for idx, jid in enumerate(job_ids):
+        year_data = totals_per_job.get(jid, {})
+        if not year_data:
+            continue
+        data = [year_data.get(y, 0.0) for y in years_sorted]
+        series.append(ChartSeries(
+            name=scenario_names.get(jid, f"Job {jid}"),
+            data=data,
+            color=_SCENARIO_LINE_COLORS[idx % len(_SCENARIO_LINE_COLORS)],
+        ))
+
+    es_emision_kt_line = CONFIGS.get(tipo, {}).get("es_emision_kt", False) if tipo in CONFIGS else False
+    y_label = _emision_unit_label(un, es_emision_kt_line) if es_emision else un
+    return ChartDataResponse(categories=categories, series=series, title=title, yAxisLabel=y_label)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4d. build_pareto_data — PARETO POR TECNOLOGÍA
+# ═══════════════════════════════════════════════════════════════════════════
+
+def build_pareto_data(
+    db: Session,
+    job_id: int,
+    tipo: str,
+    un: str = "PJ",
+    sub_filtro: str | None = None,
+    loc: str | None = None,
+) -> ParetoChartResponse:
+    """Construye los datos para un gráfico de Pareto por tecnología.
+
+    Agrega valores de todas las tecnologías sumando sobre todos los años,
+    ordena de mayor a menor y calcula el porcentaje acumulado.
+
+    Parámetros
+    ----------
+    db : Session
+    job_id : int
+    tipo : str
+        Clave en CONFIGS con agrupar_por='TECNOLOGIA' y no es_capacidad.
+    un : str
+        Unidades de salida.
+    sub_filtro, loc : str | None
+        Filtros opcionales.
+    """
+    if tipo not in CONFIGS:
+        raise ValueError(f"tipo='{tipo}' no encontrado en CONFIGS.")
+
+    cfg = CONFIGS[tipo]
+    es_capacidad = cfg.get("es_capacidad", False)
+    es_emision = cfg.get("es_emision", False)
+    es_emision_kt = cfg.get("es_emision_kt", False)
+    variable_name: str = cfg["variable_default"]
+    filtro_fn = cfg.get("filtro")
+    title_base = cfg.get("titulo", cfg.get("titulo_base", tipo))
+
+    _emi_label = _emision_unit_label(un, es_emision_kt)
+    title = f"{title_base} — Pareto por Tecnología ({_emi_label if es_emision else un})"
+    if sub_filtro:
+        title += f" [{NOMBRES_COMBUSTIBLES.get(sub_filtro, sub_filtro)}]"
+
+    df = _load_variable_data(db, job_id, variable_name)
+    if df.empty:
+        return ParetoChartResponse(
+            categories=[], values=[], cumulative_percent=[],
+            title=title, yAxisLabel=_emi_label if es_emision else un,
+        )
+
+    if filtro_fn is not None:
+        df = filtro_fn(df, sub_filtro=sub_filtro, loc=loc)
+    if df.empty:
+        return ParetoChartResponse(
+            categories=[], values=[], cumulative_percent=[],
+            title=title, yAxisLabel=_emi_label if es_emision else un,
+        )
+
+    if not es_emision and not es_capacidad:
+        df = _convertir_unidades(df, un)
+
+    # Agregar por tecnología (suma sobre todos los años)
+    tech_totals = df.groupby("TECHNOLOGY")["VALUE"].sum().reset_index()
+    tech_totals = tech_totals[tech_totals["VALUE"] > 1e-5]
+    tech_totals = tech_totals.sort_values("VALUE", ascending=False).reset_index(drop=True)
+
+    if tech_totals.empty:
+        return ParetoChartResponse(
+            categories=[], values=[], cumulative_percent=[],
+            title=title, yAxisLabel="MtCO₂eq" if es_emision else un,
+        )
+
+    total = tech_totals["VALUE"].sum()
+    tech_totals["CUMSUM"] = tech_totals["VALUE"].cumsum()
+    tech_totals["CUM_PCT"] = (tech_totals["CUMSUM"] / total * 100).round(2)
+
+    categories = [get_label(str(t)) for t in tech_totals["TECHNOLOGY"]]
+    values = [round(float(v), 6) for v in tech_totals["VALUE"]]
+    cumulative_percent = [float(p) for p in tech_totals["CUM_PCT"]]
+
+    y_label = _emi_label if es_emision else un
+    return ParetoChartResponse(
+        categories=categories,
+        values=values,
+        cumulative_percent=cumulative_percent,
+        title=title,
+        yAxisLabel=y_label,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -979,6 +1339,7 @@ def get_chart_catalog() -> list[ChartCatalogItem]:
                 has_loc=_config_has_loc(cfg),
                 sub_filtros=_config_sub_filtros(cfg),
                 es_capacidad=cfg.get("es_capacidad", False),
+                soporta_pareto=_config_soporta_pareto(cfg),
             )
         )
 
@@ -1016,6 +1377,17 @@ def _config_has_loc(cfg: dict) -> bool:
         return False
     filtro_name = getattr(filtro, "__name__", "")
     return filtro_name == "_filtro_residencial"
+
+
+def _config_soporta_pareto(cfg: dict) -> bool:
+    """Pareto disponible para configs con agrupación TECNOLOGIA, no capacidad, no ratios."""
+    return (
+        cfg.get("agrupar_por") == "TECNOLOGIA"
+        and not cfg.get("es_capacidad", False)
+        and not cfg.get("es_factor_planta", False)
+        and not cfg.get("es_porcentaje", False)
+        and cfg.get("variable_default") not in ("AnnualEmissions",)
+    )
 
 
 def _config_sub_filtros(cfg: dict) -> list[str] | None:

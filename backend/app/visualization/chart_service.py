@@ -296,7 +296,7 @@ def _convertir_unidades_emision(df: pd.DataFrame, un: str) -> pd.DataFrame:
 def _emision_unit_label(un: str, es_emision_kt: bool) -> str:
     """Devuelve la etiqueta de unidad correcta para gráficas de emisión."""
     if es_emision_kt:
-        return "ktCO2eq"
+        return "ktCO₂eq"
     return "ktCO₂eq" if un == "ktCO2eq" else "MtCO₂eq"
 
 

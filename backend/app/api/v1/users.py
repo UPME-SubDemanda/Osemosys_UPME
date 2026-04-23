@@ -18,6 +18,7 @@ from app.schemas.user import (
     UserCreate,
     UserCatalogPermissionUpdate,
     UserOfficialDataImportPermissionUpdate,
+    UserPasswordResetPayload,
     UserPermissionsUpdate,
     UserPublic,
 )
@@ -139,6 +140,24 @@ def set_permissions(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.post("/{user_id}/reset-password", response_model=UserPublic)
+def reset_user_password(
+    user_id: uuid.UUID,
+    payload: UserPasswordResetPayload,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_user_manager),
+) -> User:
+    """Restablece la contraseña de un usuario (uso administrativo)."""
+    try:
+        return UserService.reset_password(
+            db=db, user_id=user_id, new_password=payload.new_password
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 # ============================================================================

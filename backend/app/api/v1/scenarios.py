@@ -20,7 +20,16 @@ from io import BytesIO
 from app.api.deps import get_current_user
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.db.session import get_db
-from app.models import OsemosysParamValue, Scenario, ScenarioPermission, User
+from app.models import (
+    DeletionLog,
+    OsemosysParamValue,
+    Scenario,
+    ScenarioPermission,
+    SimulationJob,
+    SimulationJobEvent,
+    SimulationJobFavorite,
+    User,
+)
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.scenario import (
     ApplyExcelChangesRequest,
@@ -588,15 +597,82 @@ def delete_scenario(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> None:
-    """Elimina un escenario y todos sus datos asociados. Solo el propietario puede eliminarlo."""
+    """Elimina un escenario y sus datos asociados (cascade a simulaciones hijas).
+
+    Cada eliminación queda registrada en ``osemosys.deletion_log`` con el
+    usuario, la fecha y un snapshot con los campos clave. Las simulaciones
+    asociadas al escenario se eliminan en cascada y cada una escribe su propio
+    registro de auditoría (entity_type='SIMULATION_JOB').
+    """
     scenario = db.get(Scenario, scenario_id)
     if not scenario:
         raise HTTPException(status_code=404, detail="Escenario no encontrado.")
     if scenario.owner != current_user.username:
-        raise HTTPException(status_code=403, detail="Solo el propietario puede eliminar el escenario.")
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el propietario puede eliminar el escenario.",
+        )
+
+    # Snapshot del escenario antes de eliminar — lo usamos para `details_json`
+    # del DeletionLog y para dejar un label humano en `entity_name`.
+    scenario_snapshot = {
+        "name": scenario.name,
+        "description": scenario.description,
+        "owner": scenario.owner,
+        "simulation_type": scenario.simulation_type,
+        "edit_policy": scenario.edit_policy,
+        "tag_id": scenario.tag_id,
+        "base_scenario_id": scenario.base_scenario_id,
+        "created_at": scenario.created_at.isoformat() if scenario.created_at else None,
+    }
+
+    # Cascade de simulaciones hijas — la FK usa RESTRICT, así que las borramos
+    # explícitamente (con su propio registro de auditoría) antes del escenario.
+    child_jobs: list[SimulationJob] = (
+        db.query(SimulationJob).filter(SimulationJob.scenario_id == scenario_id).all()
+    )
+    for job in child_jobs:
+        job_snapshot = {
+            "scenario_id": job.scenario_id,
+            "scenario_name": scenario.name,
+            "display_name": job.display_name,
+            "input_name": job.input_name,
+            "solver_name": job.solver_name,
+            "status": job.status,
+            "queued_at": job.queued_at.isoformat() if job.queued_at else None,
+            "deleted_via": "scenario_cascade",
+            "parent_scenario_id": scenario_id,
+        }
+        db.add(
+            DeletionLog(
+                entity_type="SIMULATION_JOB",
+                entity_id=job.id,
+                entity_name=(job.display_name or scenario.name or f"Job #{job.id}")[:400],
+                deleted_by_user_id=current_user.id,
+                deleted_by_username=current_user.username,
+                details_json=job_snapshot,
+            )
+        )
+        db.query(SimulationJobFavorite).filter(SimulationJobFavorite.job_id == job.id).delete()
+        db.query(SimulationJobEvent).filter(SimulationJobEvent.job_id == job.id).delete()
+        db.delete(job)
 
     db.query(OsemosysParamValue).filter(OsemosysParamValue.id_scenario == scenario_id).delete()
     db.query(ScenarioPermission).filter(ScenarioPermission.id_scenario == scenario_id).delete()
+
+    db.add(
+        DeletionLog(
+            entity_type="SCENARIO",
+            entity_id=scenario_id,
+            entity_name=scenario.name[:400] if scenario.name else f"Escenario #{scenario_id}",
+            deleted_by_user_id=current_user.id,
+            deleted_by_username=current_user.username,
+            details_json={
+                **scenario_snapshot,
+                "cascaded_simulation_job_ids": [j.id for j in child_jobs],
+            },
+        )
+    )
     db.delete(scenario)
     db.commit()
 

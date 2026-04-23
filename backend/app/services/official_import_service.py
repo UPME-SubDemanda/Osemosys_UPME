@@ -133,83 +133,12 @@ def _to_float_or_zero(value: object) -> float:
     return 0.0 if parsed is None else float(parsed)
 
 
-# Valores por defecto para parámetros OSeMOSYS cuando el Excel no trae valor explícito.
-OSEMOSYS_PARAM_DEFAULTS: dict[str, float] = {
-    "yearsplit": 0.0,
-    "discountrate": 0.05,
-    "discountrateidv": 0.05,
-    "operationallife": 1.0,
-    "depreciationmethod": 1.0,
-    "accumulatedannualdemand": 0.0,
-    "specifiedannualdemand": 0.0,
-    "specifieddemandprofile": 0.0,
-    "capacitytoactivityunit": 1.0,
-    "capacityfactor": 1.0,
-    "availabilityfactor": 1.0,
-    "residualcapacity": 0.0,
-    "inputactivityratio": 0.0,
-    "outputactivityratio": 0.0,
-    "capitalcost": 0.000001,
-    "variablecost": 0.000001,
-    "fixedcost": 0.0,
-    "capacityofonetechnologyunit": 0.0,
-    "totalannualmaxcapacity": 9999999.0,
-    "totalannualmincapacity": 0.0,
-    "totalannualmaxcapacityinvestment": 9999999.0,
-    "totalannualmincapacityinvestment": 0.0,
-    "totaltechnologyannualactivityupperlimit": 9999999.0,
-    "totaltechnologyannualactivitylowerlimit": 0.0,
-    "totaltechnologymodelperiodactivityupperlimit": 9999999.0,
-    "totaltechnologymodelperiodactivitylowerlimit": 0.0,
-    "reservemargintagtechnology": 0.0,
-    "reservemargintagfuel": 0.0,
-    "reservemargin": 1.0,
-    "retagtechnology": 0.0,
-    "retagfuel": 0.0,
-    "reminproductiontarget": 0.0,
-    "emissionactivityratio": 0.0,
-    "emissionspenalty": 0.0,
-    "annualexogenousemission": 0.0,
-    "annualemissionlimit": 9999999.0,
-    "modelperiodexogenousemission": 0.0,
-    "modelperiodemissionlimit": 9999999.0,
-    "inputtonewcapacityratio": 0.0,
-    "inputtototalcapacityratio": 0.0,
-    "technologyactivitybymodelowerlimit": 0.0,
-    "technologyactivitybymodeupperlimit": 0.0,
-    "technologyactivitydecreasebymodeLimit": 0.0,
-    "technologyactivityincreasebymodeLimit": 0.0,
-    "emissiontoactivitychangeratio": 0.0,
-    "udcmultipliertotalcapacity": 0.0,
-    "udcmultipliernewcapacity": 0.0,
-    "udcmultiplieractivity": 0.0,
-    "udcconstant": 0.0,
-    "udctag": 2.0,
-    "daysplit": 0.00137,
-    "conversionls": 0.0,
-    "conversionld": 0.0,
-    "conversionlh": 0.0,
-    "daysindaytype": 7.0,
-    "technologytostorage": 0.0,
-    "technologyfromstorage": 0.0,
-    "storagelevelstart": 0.0000001,
-    "storagemaxchargerate": 9999999.0,
-    "storagemaxdischargerate": 9999999.0,
-    "minstoragecharge": 0.0,
-    "operationallifestorage": 0.0,
-    "capitalcoststorage": 0.0,
-    "residualstoragecapacity": 0.0,
-    "disposalcostpercapacity": 0.0,
-    "recoveryvaluepercapacity": 0.0,
-}
-
-
-def _get_param_default(param_name: str | None) -> float:
-    """Retorna el valor por defecto del parámetro OSeMOSYS por nombre normalizado."""
-    if not param_name:
-        return 0.0
-    normalized = "".join(ch for ch in param_name.strip().lower() if ch.isalnum())
-    return OSEMOSYS_PARAM_DEFAULTS.get(normalized, 0.0)
+# Re-export: la fuente única de verdad vive en
+# app.simulation.core.osemosys_defaults (módulo puro, sin dependencias pesadas).
+from app.simulation.core.osemosys_defaults import (  # noqa: F401,E402
+    OSEMOSYS_PARAM_DEFAULTS,
+    get_param_default as _get_param_default,
+)
 
 
 def _to_float_with_param_default(value: object, param_name: str | None) -> float:

@@ -33,7 +33,8 @@ export const ScenarioComparer: React.FC<ScenarioComparerProps> = ({
     simulationApi
       .listRuns({ scope: 'global', status_filter: 'SUCCEEDED', cantidad: 50 })
       .then((data) => {
-        setRuns(data.data || []);
+        // Solo escenarios con resultados utilizables (excluye infactibles).
+        setRuns((data.data || []).filter((r) => !r.is_infeasible_result));
         setLoading(false);
       });
   }, []);

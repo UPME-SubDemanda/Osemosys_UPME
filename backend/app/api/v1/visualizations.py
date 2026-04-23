@@ -286,7 +286,11 @@ def get_result_summary(
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Job no encontrado o sin acceso")
     
-    return chart_service.get_result_summary(db, job_id=job["id"])
+    return chart_service.get_result_summary(
+        db,
+        job_id=job["id"],
+        current_user_id=current_user.id,
+    )
 
 
 @router.get("/{job_id}/chart-data", response_model=ChartDataResponse)

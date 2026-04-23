@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pyomo.environ as pyo
 from pyomo.core import Constraint, Var, value
@@ -208,6 +210,7 @@ def solve_model(
     *,
     solver_name: str = "glpk",
     lp_path: str | Path | None = None,
+    on_solver_finished: Callable[[pyo.ConcreteModel, Any, Any, dict], None] | None = None,
 ) -> dict:
     """Resuelve el modelo usando Pyomo SolverFactory.
 
@@ -217,6 +220,14 @@ def solve_model(
     - Si el status es infactible, ejecuta _run_infeasibility_diagnostics.
     - Retorna dict con solver_name, solver_status, objective_value y,
       si infactible, infeasibility_diagnostics.
+
+    Parameters
+    ----------
+    on_solver_finished :
+        Hook opcional invocado justo antes de retornar, con la firma
+        ``(instance, solver, results, solution_dict)``. Pensado para scripts
+        locales que quieren acceder a la instancia Pyomo y al solver (ej. para
+        correr un análisis de IIS). El pipeline productivo nunca lo usa.
     """
     settings = get_settings()
     if lp_path is not None:
@@ -270,12 +281,20 @@ def solve_model(
         elif "optimal" in raw_status.lower():
             logger.info("SOLUCIÓN ÓPTIMA ENCONTRADA - Objetivo: %.2f", obj)
 
-        return {
+        solution_dict = {
             "solver_name": candidate,
             "solver_status": status_display,
             "objective_value": obj,
             "infeasibility_diagnostics": diagnostics,
         }
+
+        if on_solver_finished is not None:
+            try:
+                on_solver_finished(instance, solver, results, solution_dict)
+            except Exception:  # pragma: no cover - el hook es best-effort
+                logger.exception("on_solver_finished falló; se ignora y se continúa.")
+
+        return solution_dict
 
     # Ningún solver estaba disponible.
     avail_text = ", ".join(

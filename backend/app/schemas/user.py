@@ -50,6 +50,12 @@ class UserPermissionsUpdate(BaseModel):
     can_manage_users: bool
 
 
+class UserPasswordResetPayload(BaseModel):
+    """Payload para resetear la contraseña de un usuario (uso admin)."""
+
+    new_password: str
+
+
 # ============================================================================
 # Arquitectura y Consideraciones Técnicas
 # ============================================================================

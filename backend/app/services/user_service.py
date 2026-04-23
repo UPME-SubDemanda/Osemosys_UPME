@@ -111,6 +111,23 @@ class UserService:
         db.refresh(user)
         return user
 
+    @staticmethod
+    def reset_password(
+        db: Session, *, user_id: uuid.UUID, new_password: str
+    ) -> User:
+        """Restablece la contraseña de un usuario (uso administrativo)."""
+        if not new_password or len(new_password) < 6:
+            raise ConflictError(
+                "La contraseña debe tener al menos 6 caracteres."
+            )
+        user = UserRepository.get_by_id(db, user_id)
+        if not user:
+            raise NotFoundError("Usuario no encontrado.")
+        user.hashed_password = get_password_hash(new_password)
+        db.commit()
+        db.refresh(user)
+        return user
+
 
 # ============================================================================
 # Arquitectura y Consideraciones Técnicas

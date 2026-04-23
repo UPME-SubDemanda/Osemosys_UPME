@@ -34,15 +34,23 @@ export const simulationApi = {
   async submit(
     scenarioId: number,
     solverName: SimulationSolver,
-    options?: { display_name?: string | null },
+    options?: {
+      runIisAnalysis?: boolean;
+      display_name?: string | null;
+    },
   ) {
+    // Unifica en un solo `options` los dos flags opcionales:
+    //   - `runIisAnalysis`: correr análisis de infactibilidad inline (viene del feature).
+    //   - `display_name`: alias visible de la corrida (viene de develop).
     const body: {
       scenario_id: number;
       solver_name: SimulationSolver;
+      run_iis_analysis: boolean;
       display_name?: string;
     } = {
       scenario_id: scenarioId,
       solver_name: solverName,
+      run_iis_analysis: Boolean(options?.runIisAnalysis),
     };
     const dn = options?.display_name?.trim();
     if (dn) body.display_name = dn.slice(0, 255);
@@ -53,6 +61,7 @@ export const simulationApi = {
   async submitFromCsv(
     file: File,
     solverName: SimulationSolver,
+    runIisAnalysis: boolean = false,
     input: {
       input_name?: string;
       simulation_type: SimulationType;
@@ -68,6 +77,7 @@ export const simulationApi = {
     const formData = new FormData();
     formData.append("csv_zip", file);
     formData.append("solver_name", solverName);
+    formData.append("run_iis_analysis", String(runIisAnalysis));
     formData.append("simulation_type", input.simulation_type);
     formData.append("save_as_scenario", input.save_as_scenario ? "true" : "false");
     if (input.input_name?.trim()) formData.append("input_name", input.input_name.trim());
@@ -109,11 +119,33 @@ export const simulationApi = {
     return data;
   },
 
+  /** Cambia la visibilidad del resultado (solo dueño). */
+  async patchVisibility(jobId: number, isPublic: boolean) {
+    const { data } = await httpClient.patch<SimulationRun>(
+      `/simulations/${jobId}`,
+      { is_public: isPublic },
+    );
+    return data;
+  },
+
+  /** Marca/desmarca como favorito del usuario actual. */
+  async setFavorite(jobId: number, isFavorite: boolean) {
+    const { data } = await httpClient.patch<SimulationRun>(
+      `/simulations/${jobId}/favorite`,
+      { is_favorite: isFavorite },
+    );
+    return data;
+  },
+
   async cancel(jobId: number) {
     const { data } = await httpClient.post<SimulationRun>(
       `/simulations/${jobId}/cancel`,
     );
     return data;
+  },
+
+  async deleteJob(jobId: number): Promise<void> {
+    await httpClient.delete(`/simulations/${jobId}`);
   },
 
   async listLogs(jobId: number, cantidad = 100, offset = 1) {
@@ -129,6 +161,40 @@ export const simulationApi = {
       timeout: 5 * 60 * 1000,
     });
     return data;
+  },
+
+  /** Encola el análisis de infactibilidad (IIS + mapeo a parámetros) para un job
+   * SUCCEEDED pero infactible. Solo aplica a HiGHS. Devuelve el job actualizado
+   * con `diagnostic_status='QUEUED'`. */
+  async runInfeasibilityDiagnostic(jobId: number) {
+    const { data } = await httpClient.post<SimulationRun>(
+      `/simulations/${jobId}/diagnose-infeasibility`,
+    );
+    return data;
+  },
+
+  /** Cancela un diagnóstico en QUEUED/RUNNING. */
+  async cancelInfeasibilityDiagnostic(jobId: number) {
+    const { data } = await httpClient.post<SimulationRun>(
+      `/simulations/${jobId}/cancel-diagnostic`,
+    );
+    return data;
+  },
+
+  /** Descarga el reporte de infactibilidad como JSON (attachment). */
+  async downloadInfeasibilityReport(jobId: number): Promise<{ blob: Blob; filename: string }> {
+    const { data, headers } = await httpClient.get(
+      `/simulations/${jobId}/infeasibility-report`,
+      { responseType: "blob", timeout: 2 * 60 * 1000 },
+    );
+    const blob = data as Blob;
+    const disposition = headers["content-disposition"];
+    let filename = `infeasibility_report_job_${jobId}.json`;
+    if (typeof disposition === "string") {
+      const match = /filename="?([^";\n]+)"?/i.exec(disposition);
+      if (match?.[1]) filename = match[1].trim();
+    }
+    return { blob, filename };
   },
 
   async getResultSummary(jobId: number) {

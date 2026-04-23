@@ -385,12 +385,24 @@ def run_pipeline(db: Session, *, job_id: int) -> None:
 
     def _on_stage(stage_name: str, stage_progress: float) -> None:
         job.progress = stage_progress
+        if stage_name == "infeasibility_analysis_start":
+            msg = (
+                "Modelo infactible detectado. Iniciando análisis de infactibilidad "
+                "(IIS + mapeo a parámetros). Esto puede tomar varios segundos."
+            )
+            evt = "WARN"
+        elif stage_name == "infeasibility_analysis_complete":
+            msg = "Análisis de infactibilidad finalizado."
+            evt = "INFO"
+        else:
+            msg = f"Bloque {stage_name} ejecutado."
+            evt = "STAGE"
         SimulationRepository.add_event(
             db,
             job_id=job_id,
-            event_type="STAGE",
+            event_type=evt,
             stage=stage_name,
-            message=f"Bloque {stage_name} ejecutado.",
+            message=msg,
             progress=stage_progress,
         )
         db.commit()
@@ -401,6 +413,7 @@ def run_pipeline(db: Session, *, job_id: int) -> None:
         scenario_id=job.scenario_id,
         solver_name=job.solver_name,
         on_stage=_on_stage,
+        run_iis_analysis=bool(getattr(job, "run_iis_analysis", False)),
     )
 
     job.progress = 85.0
@@ -531,12 +544,24 @@ def run_pipeline_from_csv(db: Session, *, job_id: int) -> None:
 
     def _on_stage(stage_name: str, stage_progress: float) -> None:
         job.progress = stage_progress
+        if stage_name == "infeasibility_analysis_start":
+            msg = (
+                "Modelo infactible detectado. Iniciando análisis de infactibilidad "
+                "(IIS + mapeo a parámetros). Esto puede tomar varios segundos."
+            )
+            evt = "WARN"
+        elif stage_name == "infeasibility_analysis_complete":
+            msg = "Análisis de infactibilidad finalizado."
+            evt = "INFO"
+        else:
+            msg = f"Bloque {stage_name} ejecutado."
+            evt = "STAGE"
         SimulationRepository.add_event(
             db,
             job_id=job_id,
-            event_type="STAGE",
+            event_type=evt,
             stage=stage_name,
-            message=f"Bloque {stage_name} ejecutado.",
+            message=msg,
             progress=stage_progress,
         )
         db.commit()
@@ -546,6 +571,7 @@ def run_pipeline_from_csv(db: Session, *, job_id: int) -> None:
         csv_root,
         solver_name=job.solver_name,
         on_stage=_on_stage,
+        run_iis_analysis=bool(getattr(job, "run_iis_analysis", False)),
     )
 
     job.progress = 85.0

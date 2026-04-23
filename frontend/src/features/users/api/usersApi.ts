@@ -61,6 +61,13 @@ async function setPermissions(userId: string, payload: UserPermissionsPayload): 
   return data;
 }
 
+async function resetPassword(userId: string, newPassword: string): Promise<User> {
+  const { data } = await httpClient.post<User>(`/users/${userId}/reset-password`, {
+    new_password: newPassword,
+  });
+  return data;
+}
+
 export const usersApi = {
   getMe,
   listUsers,
@@ -68,5 +75,6 @@ export const usersApi = {
   setPermissions,
   setCatalogManager,
   setOfficialDataImporter,
+  resetPassword,
 };
 

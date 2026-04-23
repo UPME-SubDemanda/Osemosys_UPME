@@ -11,17 +11,19 @@ from __future__ import annotations
 import logging
 import uuid
 
-from sqlalchemy import and_, cast, func, or_, select, String, text
+from sqlalchemy import and_, cast, func, insert, literal, or_, select, String
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
-from app.db.dialect import osemosys_table
+from app.db.dialect import osemosys_table as _osemosys_table
 from app.models import (
     Emission,
     Fuel,
     OsemosysParamValue,
     Parameter,
+    ParameterStorage,
+    ParameterValue,
     Region,
     Scenario,
     ScenarioPermission,
@@ -37,6 +39,9 @@ from app.services.pagination import build_meta, normalize_pagination
 from app.services.user_service import UserService
 
 logger = logging.getLogger(__name__)
+
+# Compatibilidad para tests legacy que hacen monkeypatch de este símbolo.
+osemosys_table = _osemosys_table
 
 
 CLONE_BATCH_SIZE = 500_000
@@ -190,49 +195,64 @@ class ScenarioService:
         """
         total = 0
         cursor = 0
-        osemosys_param_value_table = osemosys_table("osemosys_param_value")
+        table = OsemosysParamValue.__table__
 
         while True:
-            max_id_in_batch = db.execute(
-                text(f"""
-                    SELECT MAX(id) FROM (
-                        SELECT id FROM {osemosys_param_value_table}
-                        WHERE id_scenario = :src AND id > :cursor
-                        ORDER BY id
-                        LIMIT :batch
-                    ) t
-                """),
-                {"src": source_id, "cursor": cursor, "batch": batch_size},
-            ).scalar()
+            id_batch_subquery = (
+                select(table.c.id)
+                .where(table.c.id_scenario == source_id, table.c.id > cursor)
+                .order_by(table.c.id)
+                .limit(batch_size)
+                .subquery()
+            )
+            max_id_in_batch = db.execute(select(func.max(id_batch_subquery.c.id))).scalar()
 
             if max_id_in_batch is None:
                 break
 
+            clone_select = select(
+                literal(new_id),
+                table.c.param_name,
+                table.c.id_region,
+                table.c.id_technology,
+                table.c.id_fuel,
+                table.c.id_emission,
+                table.c.id_timeslice,
+                table.c.id_mode_of_operation,
+                table.c.id_season,
+                table.c.id_daytype,
+                table.c.id_dailytimebracket,
+                table.c.id_storage_set,
+                table.c.id_udc_set,
+                table.c.year,
+                table.c.value,
+            ).where(
+                table.c.id_scenario == source_id,
+                table.c.id > cursor,
+                table.c.id <= max_id_in_batch,
+            )
+
             cnt = db.execute(
-                text(f"""
-                    INSERT INTO {osemosys_param_value_table}
-                        (id_scenario, param_name,
-                         id_region, id_technology, id_fuel, id_emission,
-                         id_timeslice, id_mode_of_operation,
-                         id_season, id_daytype, id_dailytimebracket,
-                         id_storage_set, id_udc_set, year, value)
-                    SELECT
-                        :new_id, param_name,
-                        id_region, id_technology, id_fuel, id_emission,
-                        id_timeslice, id_mode_of_operation,
-                        id_season, id_daytype, id_dailytimebracket,
-                        id_storage_set, id_udc_set, year, value
-                    FROM {osemosys_param_value_table}
-                    WHERE id_scenario = :src
-                      AND id > :cursor
-                      AND id <= :max_id
-                """),
-                {
-                    "new_id": new_id,
-                    "src": source_id,
-                    "cursor": cursor,
-                    "max_id": max_id_in_batch,
-                },
+                insert(table).from_select(
+                    [
+                        table.c.id_scenario,
+                        table.c.param_name,
+                        table.c.id_region,
+                        table.c.id_technology,
+                        table.c.id_fuel,
+                        table.c.id_emission,
+                        table.c.id_timeslice,
+                        table.c.id_mode_of_operation,
+                        table.c.id_season,
+                        table.c.id_daytype,
+                        table.c.id_dailytimebracket,
+                        table.c.id_storage_set,
+                        table.c.id_udc_set,
+                        table.c.year,
+                        table.c.value,
+                    ],
+                    clone_select,
+                )
             ).rowcount
 
             db.commit()
@@ -254,29 +274,57 @@ class ScenarioService:
         Las dimensiones que parameter_value no tiene (timeslice, mode, season, etc.)
         quedan NULL y se completan después por run_notebook_preprocess.
         """
-        osemosys_param_value_table = osemosys_table("osemosys_param_value")
-        parameter_value_table = osemosys_table("parameter_value")
-        parameter_table = osemosys_table("parameter")
-        parameter_storage_table = osemosys_table("parameter_storage")
+        target_table = OsemosysParamValue.__table__
+        pv_table = ParameterValue.__table__
+        p_table = Parameter.__table__
+        ps_table = ParameterStorage.__table__
+
+        source_select = (
+            select(
+                literal(target_scenario_id),
+                p_table.c.name,
+                pv_table.c.id_region,
+                pv_table.c.id_technology,
+                pv_table.c.id_fuel,
+                pv_table.c.id_emission,
+                ps_table.c.timesline,
+                literal(None),
+                ps_table.c.season,
+                ps_table.c.daytype,
+                ps_table.c.dailytimebracket,
+                ps_table.c.id_storage_set,
+                literal(None),
+                pv_table.c.year,
+                pv_table.c.value,
+            )
+            .select_from(
+                pv_table.join(p_table, pv_table.c.id_parameter == p_table.c.id).outerjoin(
+                    ps_table, ps_table.c.id_parameter_value == pv_table.c.id
+                )
+            )
+        )
+
         result = db.execute(
-            text(f"""
-                INSERT INTO {osemosys_param_value_table}
-                    (id_scenario, param_name,
-                     id_region, id_technology, id_fuel, id_emission,
-                     id_timeslice, id_mode_of_operation,
-                     id_season, id_daytype, id_dailytimebracket,
-                     id_storage_set, id_udc_set, year, value)
-                SELECT
-                    :target_id, p.name,
-                    pv.id_region, pv.id_technology, pv.id_fuel, pv.id_emission,
-                    ps.timesline, NULL,
-                    ps.season, ps.daytype, ps.dailytimebracket,
-                    ps.id_storage_set, NULL, pv.year, pv.value
-                FROM {parameter_value_table} pv
-                JOIN {parameter_table} p ON pv.id_parameter = p.id
-                LEFT JOIN {parameter_storage_table} ps ON ps.id_parameter_value = pv.id
-            """),
-            {"target_id": target_scenario_id},
+            insert(target_table).from_select(
+                [
+                    target_table.c.id_scenario,
+                    target_table.c.param_name,
+                    target_table.c.id_region,
+                    target_table.c.id_technology,
+                    target_table.c.id_fuel,
+                    target_table.c.id_emission,
+                    target_table.c.id_timeslice,
+                    target_table.c.id_mode_of_operation,
+                    target_table.c.id_season,
+                    target_table.c.id_daytype,
+                    target_table.c.id_dailytimebracket,
+                    target_table.c.id_storage_set,
+                    target_table.c.id_udc_set,
+                    target_table.c.year,
+                    target_table.c.value,
+                ],
+                source_select,
+            )
         )
         return result.rowcount
 

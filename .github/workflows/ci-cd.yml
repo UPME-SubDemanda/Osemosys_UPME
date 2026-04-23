@@ -58,7 +58,22 @@ jobs:
           npm run build
 
       - name: Run Backend Tests
-        run: docker compose run --rm api python -m pytest -q
+        run: |
+          docker compose up -d db redis
+          db_ready=0
+          for _ in $(seq 1 40); do
+            if docker compose exec -T db pg_isready -U "${POSTGRES_USER:-osemosys}" -d "${POSTGRES_DB:-osemosys}" >/dev/null 2>&1; then
+              db_ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "${db_ready}" -ne 1 ]; then
+            echo "::error::PostgreSQL no quedó listo a tiempo para ejecutar tests."
+            docker compose logs db
+            exit 1
+          fi
+          docker compose run --rm api python -m pytest -q
 
       - name: Build Backend And Frontend Images
         run: docker compose build api simulation-worker frontend

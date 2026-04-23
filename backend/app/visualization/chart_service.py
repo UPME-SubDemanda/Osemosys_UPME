@@ -879,15 +879,21 @@ def _procesar_bloque_single(
 def get_result_summary(
     db: Session,
     job_id: int,
+    current_user_id=None,
 ) -> ResultSummaryResponse:
-    """Devuelve resumen de KPIs para el header de visualización."""
+    """Devuelve resumen de KPIs para el header de visualización.
+
+    Si se provee ``current_user_id`` (UUID), se completan los flags
+    ``is_favorite`` para ese usuario; ``is_public``/``is_infeasible_result``
+    se derivan del job mismo.
+    """
+    from app.models import Scenario, SimulationJobFavorite, User
+    from app.services.simulation_service import SimulationService
+
     job = db.query(SimulationJob).filter(SimulationJob.id == job_id).first()
 
     if not job:
         raise ValueError(f"Job {job_id} no encontrado.")
-
-    # Obtener nombre del escenario y etiqueta (si existe)
-    from app.models import Scenario
 
     scenario = None
     if job.scenario_id is not None:
@@ -906,7 +912,6 @@ def get_result_summary(
 
     solver_status = (job.model_timings_json or {}).get("solver_status", "unknown")
 
-    # Total CO2 emissions
     total_co2 = (
         db.query(func.coalesce(func.sum(OsemosysOutputParamValue.value), 0))
         .filter(
@@ -915,6 +920,24 @@ def get_result_summary(
         )
         .scalar()
     ) or 0.0
+
+    is_favorite = False
+    if current_user_id is not None:
+        is_favorite = (
+            db.query(SimulationJobFavorite)
+            .filter(
+                SimulationJobFavorite.user_id == current_user_id,
+                SimulationJobFavorite.job_id == job_id,
+            )
+            .first()
+            is not None
+        )
+
+    owner = (
+        db.query(User.username).filter(User.id == job.user_id).scalar()
+        if job.user_id
+        else None
+    )
 
     return ResultSummaryResponse(
         job_id=job.id,
@@ -930,6 +953,10 @@ def get_result_summary(
         total_dispatch=job.total_dispatch or 0.0,
         total_unmet=job.total_unmet or 0.0,
         total_co2=float(total_co2),
+        is_public=bool(getattr(job, "is_public", True)),
+        is_favorite=bool(is_favorite),
+        is_infeasible_result=SimulationService._is_infeasible_succeeded_job(job),
+        owner_username=owner,
     )
 
 

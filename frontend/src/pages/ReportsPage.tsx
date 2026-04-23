@@ -366,6 +366,7 @@ export function ReportsPage() {
           onLoadReport={handleLoadReport}
           templates={templates}
           canManageOfficial={canManageOfficial}
+          onGoToGenerator={() => setTab("generator")}
         />
       ) : (
         <ReportGeneratorTab
@@ -2044,6 +2045,7 @@ function SavedReportsTab({
   onLoadReport,
   templates,
   canManageOfficial,
+  onGoToGenerator,
 }: {
   reports: SavedReport[];
   loading: boolean;
@@ -2051,6 +2053,7 @@ function SavedReportsTab({
   onLoadReport: (r: SavedReport) => void;
   templates: SavedChartTemplate[];
   canManageOfficial: boolean;
+  onGoToGenerator: () => void;
 }) {
   const templatesById = useMemo(
     () => new Map(templates.map((t) => [t.id, t])),
@@ -2102,6 +2105,13 @@ function SavedReportsTab({
           gráficas y luego usa "Guardar reporte" para almacenar la colección
           con un nombre.
         </p>
+        <button
+          type="button"
+          onClick={onGoToGenerator}
+          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500"
+        >
+          Ir al Generador de reporte →
+        </button>
       </div>
     );
   }

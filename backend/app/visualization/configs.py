@@ -26,6 +26,10 @@ _CONTAMINANTES = {"EMIBC", "EMICO", "EMICOVDM", "EMINH3", "EMINOx", "EMIPM10", "
 ROAD_TRANSPORT_CODES = {"BUS", "MOT", "TCK", "STT", "LDV", "FWD", "TAX", "MIC"}
 _ROAD_TRANSPORT_PATTERN = "|".join(ROAD_TRANSPORT_CODES)
 
+# Importaciones de líquidos (compartido: ref_import, liquidos_prod_import)
+_PREFIJOS_IMP_LIQUIDOS = ("IMPDSL", "IMPGSL", "IMPJET", "IMPLPG")
+_PREFIJOS_LIQUIDOS_PROD_IMPORT = _PREFIJOS_IMP_LIQUIDOS + ("UPSREF_CAR", "UPSREF_BAR")
+
 
 # ════════════════════════════════════════════════════════════════════════
 # MAPEO DE VARIABLES → TÍTULOS (para capacidad)
@@ -106,14 +110,16 @@ def _filtro_ref_barrancabermeja(df, **kw):
     return df[df["TECHNOLOGY"].str.startswith("UPSREF_BAR")]
 
 
+def _filtro_liquidos_produccion_importacion(df, **kw):
+    """Líquidos: importaciones (DSL, GSL, JET, LPG) + refinerías (CAR, BAR)."""
+    return df[df["TECHNOLOGY"].str.startswith(_PREFIJOS_LIQUIDOS_PROD_IMPORT)]
+
+
 def _filtro_ref_import(df, **kw):
     """Refinerías + importaciones."""
     return df[
         df["TECHNOLOGY"].str.startswith("UPSREF")
-        | df["TECHNOLOGY"].str.startswith("IMPLPG")
-        | df["TECHNOLOGY"].str.startswith("IMPDSL")
-        | df["TECHNOLOGY"].str.startswith("IMPGSL")
-        | df["TECHNOLOGY"].str.startswith("IMPJET")
+        | df["TECHNOLOGY"].str.startswith(_PREFIJOS_IMP_LIQUIDOS)
     ]
 
 
@@ -398,6 +404,17 @@ CONFIGS = {
         "agrupar_por": "FUEL",
         "color_fn": _color_por_grupo_fijo,
         "variable_default": "UseByTechnology",
+    },
+    "liquidos_prod_import": {
+        "titulo": "Líquidos - Producción + Importación - ProductionByTechnology",
+        "figura": "Figura LIQ-PROD",
+        "filename": "Fig_Liquidos_Prod_Import",
+        "print": "LÍQUIDOS: PRODUCCIÓN + IMPORTACIÓN",
+        "filtro": _filtro_liquidos_produccion_importacion,
+        "msg_sin_datos": "Sin tecnologías de líquidos (IMPDSL/IMPGSL/IMPJET/IMPLPG/UPSREF_CAR/UPSREF_BAR)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": generar_colores_tecnologias,
+        "variable_default": "ProductionByTechnology",
     },
     # ═══════════════════════════════════════════════════════════════════
     # RESIDENCIAL

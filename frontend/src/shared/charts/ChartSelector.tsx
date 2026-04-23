@@ -233,6 +233,7 @@ const MENU: Module[] = [
       { id: 'ref_import',     label: 'Refinerías - Importaciones - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true },
       { id: 'ref_cartagena',   label: 'Refinería de Cartagena - UseByTechnology', allowedGroupings: ['FUEL'], soportaPareto: true },
       { id: 'ref_barrancabermeja', label: 'Refinería de Barrancabermeja - UseByTechnology', allowedGroupings: ['FUEL'], soportaPareto: true },
+      { id: 'liquidos_prod_import', label: 'Líquidos - Producción + Importación', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
       { id: 'ups_refinacion', label: 'Upstream Refinación - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true },
       { id: 'saf_produccion', label: 'SAF - Producción - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true },
     ],

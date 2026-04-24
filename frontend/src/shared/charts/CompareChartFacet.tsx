@@ -16,6 +16,11 @@ import {
   extractSvgRootInnerXml,
   remapSvgFragmentIds,
 } from "./mergeFacetChartsSvg";
+import { buildStackedTooltipOptions } from "./chartTooltips";
+import {
+  createLegendDblclickState,
+  dispatchLegendClick,
+} from "./chartLegendInteractions";
 import HighchartsReact from "highcharts-react-official";
 import type {
   CompareChartFacetResponse,
@@ -234,6 +239,8 @@ function FacetChart({
   syncGroup,
   hiddenSeriesNames,
   onLegendToggle,
+  onLegendIsolate,
+  onLegendRestoreAll,
   inverted,
   chartHeight,
   showHighchartsLegend,
@@ -246,6 +253,8 @@ function FacetChart({
   syncGroup: string;
   hiddenSeriesNames: Set<string>;
   onLegendToggle: (seriesName: string) => void;
+  onLegendIsolate: (seriesName: string) => void;
+  onLegendRestoreAll: () => void;
   inverted: boolean;
   chartHeight: number;
   showHighchartsLegend: boolean;
@@ -255,6 +264,7 @@ function FacetChart({
   facetExportInstanceId: string;
 }) {
   const chartRef = useRef<Highcharts.Chart | null>(null);
+  const legendDblclickStateRef = useRef(createLegendDblclickState());
   const [chartGeneration, setChartGeneration] = useState(0);
 
   useEffect(() => {
@@ -381,15 +391,10 @@ function FacetChart({
           formatter: stackLabelFormatter,
         },
       },
-      tooltip: {
-        headerFormat: "<b>{point.x}</b><br/>",
-        pointFormat:
-          "{series.name}: {point.y:,.2f} " +
-          yAxisLabel +
-          "<br/>Total: {point.stackTotal:,.2f} " +
-          yAxisLabel,
-        shared: true,
-      },
+      tooltip: buildStackedTooltipOptions({
+        unitLabel: yAxisLabel,
+        headerPrefix: () => facetTitleText,
+      }),
       plotOptions: {
         series: {
           states: {
@@ -405,8 +410,18 @@ function FacetChart({
           events: showHighchartsLegend
             ? {
                 // Sincroniza visibilidad de series entre todas las facetas del mismo grupo.
+                // 1 click → toggle; doble click → aislar (o restaurar si ya está aislada).
                 legendItemClick: function (this: Highcharts.Series) {
-                  onLegendToggle(this.name);
+                  const name = this.name;
+                  dispatchLegendClick(
+                    legendDblclickStateRef.current,
+                    name,
+                    {
+                      onToggle: onLegendToggle,
+                      onIsolate: onLegendIsolate,
+                      onRestoreAll: onLegendRestoreAll,
+                    },
+                  );
                   return false;
                 },
               }
@@ -551,6 +566,26 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
       };
     });
   };
+
+  const handleLegendIsolate = (seriesName: string) => {
+    setLegendHover({ dataSig: seriesStateSignature, seriesName: null });
+    setLegendState(() => ({
+      signature: seriesStateSignature,
+      hiddenSeriesNames: new Set<string>(
+        sharedLegendItems.map((item) => item.name).filter((n) => n !== seriesName),
+      ),
+    }));
+  };
+
+  const handleLegendRestoreAll = () => {
+    setLegendHover({ dataSig: seriesStateSignature, seriesName: null });
+    setLegendState(() => ({
+      signature: seriesStateSignature,
+      hiddenSeriesNames: new Set<string>(),
+    }));
+  };
+
+  const htmlLegendDblclickStateRef = useRef(createLegendDblclickState());
 
   const facetChartHeight = useMemo(() => {
     const catLen = Math.max(
@@ -838,7 +873,21 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
                 <button
                   key={name}
                   type="button"
-                  onClick={() => handleLegendToggle(name)}
+                  onClick={() =>
+                    dispatchLegendClick(
+                      htmlLegendDblclickStateRef.current,
+                      name,
+                      {
+                        onToggle: handleLegendToggle,
+                        onIsolate: handleLegendIsolate,
+                        onRestoreAll: handleLegendRestoreAll,
+                      },
+                    )
+                  }
+                  onDoubleClick={(e) => {
+                    // Evita selección de texto en dblclick rápidos.
+                    e.preventDefault();
+                  }}
                   onMouseEnter={() => {
                     if (!hidden) {
                       setLegendHover({ dataSig: seriesStateSignature, seriesName: name });
@@ -908,6 +957,8 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
                   syncGroup={data.title}
                   hiddenSeriesNames={hiddenSeriesNames}
                   onLegendToggle={handleLegendToggle}
+                  onLegendIsolate={handleLegendIsolate}
+                  onLegendRestoreAll={handleLegendRestoreAll}
                   inverted={inverted}
                   chartHeight={facetChartHeight}
                   showHighchartsLegend={

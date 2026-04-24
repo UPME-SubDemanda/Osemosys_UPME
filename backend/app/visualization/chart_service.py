@@ -1618,6 +1618,65 @@ def render_chart_visualization_bytes(
     return buf.getvalue()
 
 
+def render_pareto_chart_bytes(
+    pareto: ParetoChartResponse,
+    fmt: str = "svg",
+) -> bytes:
+    """Renderiza un ParetoChartResponse (barras descendentes + % acumulado)."""
+    if fmt not in ("png", "svg"):
+        raise ValueError("fmt debe ser 'png' o 'svg'")
+    import io
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    categories = list(pareto.categories)
+    values = list(pareto.values)
+    cum_pct = list(pareto.cumulative_percent)
+    n = len(categories)
+    if n == 0:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.text(0.5, 0.5, "Sin datos", ha="center", va="center")
+        ax.set_axis_off()
+        buf = io.BytesIO()
+        fig.savefig(buf, format=fmt, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        buf.seek(0)
+        return buf.getvalue()
+
+    x = np.arange(n)
+    fig, ax1 = plt.subplots(figsize=(max(12, n * 0.5), 7))
+    ax1.bar(x, values, color="#60a5fa", edgecolor="#1e3a8a", linewidth=0.5)
+    ax1.set_ylabel(pareto.yAxisLabel, fontsize=10, color="#1e3a8a")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(
+        categories,
+        rotation=45 if n > 8 else 0,
+        ha="right" if n > 8 else "center",
+        fontsize=8,
+    )
+    ax1.grid(axis="y", alpha=0.3, linewidth=0.5)
+    ax1.spines["top"].set_visible(False)
+
+    ax2 = ax1.twinx()
+    ax2.plot(x, cum_pct, color="#dc2626", marker="o", linewidth=2)
+    ax2.set_ylabel("% acumulado", fontsize=10, color="#dc2626")
+    ax2.set_ylim(0, 110)
+    ax2.spines["top"].set_visible(False)
+
+    ax1.set_title(pareto.title, fontsize=13, fontweight="bold", pad=12)
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format=fmt, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.getvalue()
+
+
 def _facet_x_axis_label_step(categories: list[Any]) -> int:
     """Paso entre etiquetas visibles del eje X (responsive).
 
@@ -1985,6 +2044,25 @@ def chart_data_to_csv_bytes(chart: ChartDataResponse) -> bytes:
             val = s.data[i] if i < len(s.data) else None
             row.append(val)
         writer.writerow(row)
+    return buffer.getvalue().encode("utf-8-sig")
+
+
+def pareto_data_to_csv_bytes(pareto: ParetoChartResponse) -> bytes:
+    """CSV UTF-8 con BOM: categoría, valor, % acumulado."""
+    import csv
+    import io
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["Categoria", pareto.yAxisLabel, "% Acumulado"])
+    for i, cat in enumerate(pareto.categories):
+        val = pareto.values[i] if i < len(pareto.values) else None
+        cum = (
+            pareto.cumulative_percent[i]
+            if i < len(pareto.cumulative_percent)
+            else None
+        )
+        writer.writerow([cat, val, cum])
     return buffer.getvalue().encode("utf-8-sig")
 
 

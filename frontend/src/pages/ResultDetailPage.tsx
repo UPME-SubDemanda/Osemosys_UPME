@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
   AlignLeft,
@@ -53,6 +53,7 @@ import { ScenarioTagChip } from '../shared/components/ScenarioTagChip';
 import { downloadBlob } from '../shared/utils/downloadBlob';
 import { formatCompactNumber, formatPercent } from '../shared/utils/numberFormat';
 import { SaveChartModal } from '../features/reports/components/SaveChartModal';
+import { savedChartsApi } from '@/features/reports/api/savedChartsApi';
 import { FavoriteStarButton } from '../features/simulation/components/FavoriteStarButton';
 
 const MAX_COMPARE_COLUMNS = 4;
@@ -293,6 +294,32 @@ export function ResultDetailPage() {
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [showSaveChartModal, setShowSaveChartModal] = useState(false);
   const [savedChartToast, setSavedChartToast] = useState<string | null>(null);
+  /**
+   * Flujo "crear gráfica y agregarla al reporte". Si la URL tiene el query
+   * param ?addToReport=<id>, el botón Guardar cambia de etiqueta y al guardar
+   * se inserta automáticamente en el reporte indicado.
+   */
+  const [searchParams] = useSearchParams();
+  const navigateResult = useNavigate();
+  const addToReportId = (() => {
+    const raw = searchParams.get("addToReport");
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+  const addMode = (searchParams.get("addMode") || "") as
+    | ""
+    | "generator"
+    | "dashboard";
+  const addAfterIdx = (() => {
+    const raw = searchParams.get("addAfterIdx");
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  })();
+  const addCatId = searchParams.get("addCatId");
+  const addSubId = searchParams.get("addSubId");
+  const isAddToReportFlow = addToReportId != null;
   const hasInfeasibilityDetails = Boolean(runResult?.infeasibility_diagnostics);
   const normalizedSolverStatus = (
     summary?.solver_status ?? runResult?.solver_status ?? ''
@@ -1384,16 +1411,25 @@ export function ResultDetailPage() {
       {isOptimal ? (
         <>
           <div className="flex items-center justify-end gap-2">
+            {isAddToReportFlow ? (
+              <span className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold text-cyan-200">
+                Agregando al reporte #{addToReportId}
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={() => setShowSaveChartModal(true)}
               className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20"
-              title="Guardar esta gráfica como plantilla reutilizable en reportes"
+              title={
+                isAddToReportFlow
+                  ? "Guardar esta gráfica y agregarla automáticamente al reporte"
+                  : "Guardar esta gráfica como plantilla reutilizable en reportes"
+              }
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
               </svg>
-              Guardar gráfica
+              {isAddToReportFlow ? "Guardar gráfica y agregar al reporte" : "Guardar gráfica"}
             </button>
           </div>
 
@@ -1615,9 +1651,67 @@ export function ResultDetailPage() {
         facetPlacement={chartFacetPlacement}
         facetLegendMode={chartFacetLegendMode}
         chartLabel={getChartLabel(chartSelection.tipo) ?? null}
-        onSaved={(tpl) => {
-          setSavedChartToast(`"${tpl.name}" guardada. Úsala en el Generador de reportes.`);
-          window.setTimeout(() => setSavedChartToast(null), 4000);
+        saveButtonLabel={isAddToReportFlow ? "Guardar gráfica y agregar al reporte" : undefined}
+        onSaved={async (tpl) => {
+          if (!isAddToReportFlow || addToReportId == null) {
+            setSavedChartToast(`"${tpl.name}" guardada. Úsala en el Generador de reportes.`);
+            window.setTimeout(() => setSavedChartToast(null), 4000);
+            return;
+          }
+          try {
+            const report = await savedChartsApi.getReport(addToReportId);
+            const items = Array.isArray(report.items) ? [...report.items] : [];
+            const insertAt =
+              addAfterIdx != null
+                ? Math.max(0, Math.min(items.length, addAfterIdx + 1))
+                : items.length;
+            const existingIdx = items.indexOf(tpl.id);
+            if (existingIdx >= 0) items.splice(existingIdx, 1);
+            items.splice(insertAt, 0, tpl.id);
+            const layoutUpdate = (() => {
+              if (addMode !== "dashboard") return undefined;
+              if (!report.layout) return undefined;
+              const stripped = {
+                ...report.layout,
+                categories: report.layout.categories.map((c) => ({
+                  ...c,
+                  items: c.items.filter((id) => id !== tpl.id),
+                  subcategories: c.subcategories.map((s) => ({
+                    ...s,
+                    items: s.items.filter((id) => id !== tpl.id),
+                  })),
+                })),
+              };
+              const nextCategories = stripped.categories.map((c) => {
+                if (c.id !== addCatId) return c;
+                if (addSubId) {
+                  return {
+                    ...c,
+                    subcategories: c.subcategories.map((s) =>
+                      s.id === addSubId ? { ...s, items: [...s.items, tpl.id] } : s,
+                    ),
+                  };
+                }
+                return { ...c, items: [...c.items, tpl.id] };
+              });
+              return { ...stripped, categories: nextCategories };
+            })();
+            await savedChartsApi.updateReport(addToReportId, {
+              items,
+              ...(layoutUpdate ? { layout: layoutUpdate } : {}),
+            });
+            if (addMode === "dashboard") {
+              navigateResult(paths.reportDashboard(addToReportId));
+            } else {
+              navigateResult(`${paths.reports}?load=${addToReportId}`);
+            }
+          } catch (err) {
+            setSavedChartToast(
+              `"${tpl.name}" guardada, pero no se pudo agregar al reporte: ` +
+                (err instanceof Error ? err.message : "error desconocido"),
+            );
+            window.setTimeout(() => setSavedChartToast(null), 6000);
+          }
         }}
       />
 

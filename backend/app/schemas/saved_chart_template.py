@@ -70,6 +70,7 @@ class SavedChartTemplatePublic(SavedChartTemplateBase):
     is_public: bool = False
     owner_username: str | None = None
     is_owner: bool = True
+    is_favorite: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -196,3 +197,10 @@ class ReportSavedPublic(ReportSavedBase):
     is_official: bool = False
     owner_username: str | None = None
     is_owner: bool = True
+    is_favorite: bool = False
+
+
+class SavedFavoritePatch(BaseModel):
+    """Payload para toggle de favorito (chart o report)."""
+
+    is_favorite: bool

@@ -364,8 +364,8 @@ def delete_simulation(
     job = db.get(SimulationJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Simulación no encontrada.")
-    is_admin = bool(getattr(current_user, "is_admin", False))
-    if job.user_id != current_user.id and not is_admin:
+    is_scenario_admin = bool(getattr(current_user, "can_manage_scenarios", False))
+    if job.user_id != current_user.id and not is_scenario_admin:
         raise HTTPException(
             status_code=403,
             detail="No tienes permisos para eliminar esta simulación.",

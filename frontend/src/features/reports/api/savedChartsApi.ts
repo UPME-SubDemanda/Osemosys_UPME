@@ -43,8 +43,35 @@ export const savedChartsApi = {
 
   // ── Reportes guardados (colecciones) ──
 
-  async listReports() {
-    const { data } = await httpClient.get<SavedReport[]>("/saved-reports");
+  async listReports(params?: { includeOthersPrivate?: boolean }) {
+    const query: Record<string, string> = {};
+    if (params?.includeOthersPrivate) query.include_others_private = "true";
+    const { data } = await httpClient.get<SavedReport[]>("/saved-reports", {
+      params: query,
+    });
+    return data;
+  },
+
+  async setChartFavorite(templateId: number, isFavorite: boolean) {
+    const { data } = await httpClient.patch<SavedChartTemplate>(
+      `/saved-chart-templates/${templateId}/favorite`,
+      { is_favorite: isFavorite },
+    );
+    return data;
+  },
+
+  async setReportFavorite(reportId: number, isFavorite: boolean) {
+    const { data } = await httpClient.patch<SavedReport>(
+      `/saved-reports/${reportId}/favorite`,
+      { is_favorite: isFavorite },
+    );
+    return data;
+  },
+
+  async copyReport(reportId: number) {
+    const { data } = await httpClient.post<SavedReport>(
+      `/saved-reports/${reportId}/copy`,
+    );
     return data;
   },
 

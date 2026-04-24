@@ -2116,7 +2116,7 @@ export function SimulationPage() {
                 // Eliminar job (dueño o admin, solo si no está activo).
                 // Eliminación permanente — queda registro en el Historial.
                 const canDeleteJob =
-                  ownedSet.has(r.id) || Boolean(user?.is_admin);
+                  ownedSet.has(r.id) || Boolean(user?.can_manage_scenarios);
                 if (!ACTIVE_STATUSES.has(r.status) && canDeleteJob) {
                   const deleteBusy = deletingJobId === r.id;
                   const isOwner = ownedSet.has(r.id);

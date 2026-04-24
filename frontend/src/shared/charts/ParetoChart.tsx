@@ -5,6 +5,7 @@ import {
   buildChartExportMenuItems,
   onHighchartsExportError,
 } from './chartExportingShared';
+import { TOOLTIP_BASE_OPTIONS, fmtValue } from './chartTooltips';
 import HighchartsReact from 'highcharts-react-official';
 import type { ParetoChartResponse } from '../../types/domain';
 import type { ChartSelection } from './ChartSelector';
@@ -66,13 +67,33 @@ export const ParetoChart: React.FC<ParetoChartProps> = ({ data, serverExport }) 
         },
       ],
       tooltip: {
+        ...TOOLTIP_BASE_OPTIONS,
         shared: false,
         formatter(this: Highcharts.TooltipFormatterContextObject) {
           const pt = this.point as Highcharts.Point & { y: number; index: number };
+          const color = this.series.color ?? '#3b82f6';
           if (this.series.type === 'column') {
-            return `<b>${this.x}</b><br/>${data.yAxisLabel}: <b>${Highcharts.numberFormat(pt.y, 2, '.', ',')}</b>`;
+            return `
+              <div style="min-width:200px">
+                <div style="font-weight:700; color:#f8fafc; margin-bottom:4px">${this.x}</div>
+                <div>
+                  <span style="color:${color};font-size:14px;line-height:1">●</span>
+                  <span style="margin-left:4px">${data.yAxisLabel}</span>:
+                  <b style="color:#f8fafc; font-variant-numeric:tabular-nums">${fmtValue(pt.y)}</b>
+                </div>
+              </div>
+            `;
           }
-          return `<b>${this.x}</b><br/>% Acumulado: <b>${Highcharts.numberFormat(pt.y, 1, '.', ',')}%</b>`;
+          return `
+            <div style="min-width:200px">
+              <div style="font-weight:700; color:#f8fafc; margin-bottom:4px">${this.x}</div>
+              <div>
+                <span style="color:${color};font-size:14px;line-height:1">●</span>
+                <span style="margin-left:4px">% Acumulado</span>:
+                <b style="color:#f8fafc; font-variant-numeric:tabular-nums">${Highcharts.numberFormat(pt.y, 1, '.', ',')}%</b>
+              </div>
+            </div>
+          `;
         },
       },
       plotOptions: {

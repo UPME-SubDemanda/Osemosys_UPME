@@ -1,10 +1,15 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Highcharts from './highchartsSetup';
 import {
   EXPORTING_CONTEXT_BUTTON_DARK,
   buildChartExportMenuItems,
   onHighchartsExportError,
 } from './chartExportingShared';
+import { buildLineTooltipOptions } from './chartTooltips';
+import {
+  createLegendDblclickState,
+  dispatchLegendClick,
+} from './chartLegendInteractions';
 import HighchartsReact from 'highcharts-react-official';
 import type { ChartDataResponse } from '../../types/domain';
 import type { ChartSelection } from './ChartSelector';
@@ -15,13 +20,47 @@ interface LineChartProps {
 }
 
 export const LineChart: React.FC<LineChartProps> = ({ data, serverExport }) => {
+  const legendDblclickStateRef = useRef(createLegendDblclickState());
+  const [hiddenNames, setHiddenNames] = useState<Set<string>>(() => new Set());
+
+  const dataSignature = useMemo(
+    () => data.series.map((s) => s.name).join('|'),
+    [data.series],
+  );
+  useEffect(() => {
+    setHiddenNames(new Set());
+    legendDblclickStateRef.current.isolatedName = null;
+  }, [dataSignature]);
+
+  const handleToggle = (name: string) => {
+    setHiddenNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+  const handleIsolate = (name: string) => {
+    setHiddenNames(new Set(data.series.map((s) => s.name).filter((n) => n !== name)));
+  };
+  const handleRestoreAll = () => setHiddenNames(new Set());
+
   const options = useMemo<Highcharts.Options>(() => {
+    const legendItemClick = function (this: Highcharts.Series): boolean {
+      dispatchLegendClick(legendDblclickStateRef.current, this.name, {
+        onToggle: handleToggle,
+        onIsolate: handleIsolate,
+        onRestoreAll: handleRestoreAll,
+      });
+      return false;
+    };
     const series = data.series.map((s) => ({
       type: 'line' as const,
       name: s.name,
       data: s.data,
       color: s.color,
       marker: { enabled: true, radius: 3 },
+      visible: !hiddenNames.has(s.name),
     }));
 
     return {
@@ -55,16 +94,11 @@ export const LineChart: React.FC<LineChartProps> = ({ data, serverExport }) => {
         labels: { style: { color: '#94a3b8', fontSize: '13px' } },
         gridLineColor: '#334155',
       },
-      tooltip: {
-        shared: true,
-        crosshairs: true,
-        headerFormat: '<b>{point.key}</b><br/>',
-        pointFormat:
-          '<span style="color:{series.color}">●</span> {series.name}: <b>{point.y:,.2f}</b> ' +
-          data.yAxisLabel +
-          '<br/>',
-      },
+      tooltip: buildLineTooltipOptions({ unitLabel: data.yAxisLabel }),
       plotOptions: {
+        series: {
+          events: { legendItemClick },
+        },
         line: {
           dataLabels: { enabled: false },
           marker: { enabled: true, radius: 3 },
@@ -109,7 +143,8 @@ export const LineChart: React.FC<LineChartProps> = ({ data, serverExport }) => {
         itemHoverStyle: { color: '#f8fafc' },
       },
     };
-  }, [data, serverExport]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, serverExport, hiddenNames]);
 
   return (
     <div style={{ width: '100%' }}>

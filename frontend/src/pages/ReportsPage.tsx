@@ -1051,17 +1051,20 @@ function ReportGeneratorTab({
         : [],
     );
     // Prioridad para los escenarios globales:
-    //   1) memoria client-side (última sesión en este navegador);
-    //   2) default_job_ids persistidos en el reporte;
+    //   1) default_job_ids persistidos en el reporte (si existen, siempre ganan);
+    //   2) memoria client-side (última sesión en este navegador) como fallback;
     //   3) vacío.
-    const remembered = loadReportScenarios(loadReportRequest.id);
-    if (remembered && remembered.length > 0) {
-      setGlobalScenarios(remembered);
-    } else if (
-      Array.isArray(loadReportRequest.default_job_ids) &&
-      loadReportRequest.default_job_ids.length > 0
-    ) {
-      setGlobalScenarios([...loadReportRequest.default_job_ids]);
+    const savedDefaults = Array.isArray(loadReportRequest.default_job_ids)
+      ? loadReportRequest.default_job_ids
+      : null;
+    const hasDefaults = savedDefaults && savedDefaults.some((v) => v != null);
+    if (hasDefaults) {
+      setGlobalScenarios([...(savedDefaults as (number | null)[])]);
+    } else {
+      const remembered = loadReportScenarios(loadReportRequest.id);
+      if (remembered && remembered.length > 0) {
+        setGlobalScenarios(remembered);
+      }
     }
     // Si el reporte tiene layout persistido, abrir directamente en vista Categorías.
     if (loadReportRequest.layout) {

@@ -8,7 +8,7 @@
  * La generación de reportes se apoya en `/saved-chart-templates/report`, que
  * renderiza cada gráfica con los mismos helpers que usa la página de resultados.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/shared/components/Button";
 import { JobSelect } from "@/shared/components/JobSelect";
@@ -27,7 +27,12 @@ import { CategoriesPanel } from "@/features/reports/components/CategoriesPanel";
 import { FavoriteStar } from "@/features/reports/components/FavoriteStar";
 import { ChartPickerModal } from "@/features/reports/components/ChartPickerModal";
 import { IconEye, IconPencil, IconSwap } from "@/features/reports/components/CardActionIcons";
+import { RowScenarioPicker } from "@/features/reports/components/RowScenarioPicker";
 import { pickRepresentativeJob } from "@/features/reports/pickRepresentativeJob";
+import {
+  loadReportScenarios,
+  saveReportScenarios,
+} from "@/features/reports/scenarioMemory";
 import type {
   ReportLayout,
   ReportTemplateItem,
@@ -204,6 +209,152 @@ function InsertChartHere({
   );
 }
 
+/**
+ * Panel explícito para configurar los escenarios predeterminados del reporte.
+ * Muestra cuáles están persistidos hoy, permite sobrescribirlos con los
+ * escenarios actuales, o quitarlos. Persiste en `report.default_job_ids`
+ * mediante `savedChartsApi.updateReport`.
+ */
+function DefaultScenariosPanel({
+  reportId,
+  current,
+  savedDefaults,
+  scenarioAliases,
+  availableJobs,
+  onSaved,
+}: {
+  reportId: number | null;
+  current: (number | null)[];
+  savedDefaults: (number | null)[] | null;
+  scenarioAliases: string[];
+  availableJobs: SimulationRun[];
+  onSaved: (nextDefaults: (number | null)[] | null) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const jobLabel = (jid: number | null | undefined): string => {
+    if (jid == null) return "—";
+    const j = availableJobs.find((r) => r.id === jid);
+    return (
+      j?.display_name?.trim() ||
+      j?.scenario_name ||
+      j?.input_name ||
+      `Job ${jid}`
+    );
+  };
+  const aliasLabel = (idx: number): string => {
+    const a = scenarioAliases[idx]?.trim();
+    return a && a.length > 0 ? a : `Escenario ${idx + 1}`;
+  };
+  const hasDefaults =
+    Array.isArray(savedDefaults) && savedDefaults.some((v) => v != null);
+  const sameAsSaved =
+    hasDefaults &&
+    savedDefaults!.length === current.length &&
+    savedDefaults!.every((v, i) => (v ?? null) === (current[i] ?? null));
+
+  const persist = async (next: (number | null)[] | null) => {
+    if (!reportId) return;
+    setSaving(true);
+    try {
+      await savedChartsApi.updateReport(reportId, { default_job_ids: next });
+      onSaved(next);
+    } catch (err) {
+      alert(
+        err instanceof Error
+          ? err.message
+          : "No se pudieron guardar los predeterminados.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!reportId) {
+    return (
+      <div className="rounded-md border border-slate-800 bg-slate-900/40 px-3 py-2 text-[11px] text-slate-400">
+        Guarda primero este reporte para poder fijar escenarios predeterminados.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 space-y-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="m-0 text-[11px] font-semibold uppercase tracking-wider text-emerald-200">
+          Escenarios predeterminados del reporte
+          {hasDefaults ? (
+            sameAsSaved ? (
+              <span className="ml-2 rounded-full bg-emerald-500/15 border border-emerald-500/40 px-1.5 py-0.5 text-[10px] text-emerald-200 normal-case">
+                ✓ usando los predeterminados
+              </span>
+            ) : (
+              <span className="ml-2 rounded-full bg-amber-500/10 border border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-200 normal-case">
+                cambios no guardados
+              </span>
+            )
+          ) : (
+            <span className="ml-2 rounded-full bg-slate-800/70 border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400 normal-case">
+              sin predeterminados
+            </span>
+          )}
+        </p>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => {
+              if (
+                !confirm(
+                  "¿Guardar los escenarios seleccionados como predeterminados del reporte?\n\nLa próxima vez que se abra, cargará con estos.",
+                )
+              )
+                return;
+              void persist(current);
+            }}
+            className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+          >
+            Guardar como predeterminados
+          </button>
+          {hasDefaults ? (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                if (!confirm("¿Quitar los escenarios predeterminados del reporte?"))
+                  return;
+                void persist(null);
+              }}
+              className="rounded border border-slate-700 px-2 py-0.5 text-[10px] font-semibold text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+            >
+              Quitar predeterminados
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {hasDefaults ? (
+        <div className="flex flex-wrap gap-1.5 text-[11px]">
+          {savedDefaults!.map((jid, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1 rounded border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-0.5 text-emerald-200"
+            >
+              <span className="text-emerald-300/70 text-[10px] uppercase tracking-wider">
+                {aliasLabel(i)}:
+              </span>
+              <span>{jobLabel(jid)}</span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="m-0 text-[11px] text-slate-400">
+          Este reporte no tiene escenarios predeterminados. Guarda los
+          seleccionados para que la próxima vez se abran así.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function templateSummary(t: SavedChartTemplate): string {
   const bits: string[] = [];
   bits.push(`Tipo: ${t.tipo}`);
@@ -215,7 +366,11 @@ function templateSummary(t: SavedChartTemplate): string {
   if (t.view_mode) bits.push(`Trazo: ${t.view_mode}`);
   bits.push(
     t.compare_mode === "facet"
-      ? `Modo: comparación · ${t.num_scenarios} escenarios`
+      ? `Modo: facet · ${t.num_scenarios} escenarios`
+      : t.compare_mode === "by-year"
+      ? `Modo: por año · ${t.num_scenarios} escenarios`
+      : t.compare_mode === "line-total"
+      ? `Modo: líneas totales · ${t.num_scenarios} escenarios`
       : `Modo: único · 1 escenario`,
   );
   return bits.join(" · ");
@@ -753,14 +908,34 @@ function ReportGeneratorTab({
   onTemplatesRefresh: () => void;
   isAdminReports: boolean;
 }) {
-  /** Orden del reporte: lista ordenada de template_ids seleccionados. */
-  const [order, setOrder] = useState<number[]>([]);
-  /** Datos asociados (job_ids por template_id). */
+  /**
+   * Orden del reporte: lista de filas con id estable. Permite duplicados de la
+   * misma plantilla (por ejemplo para representar el mismo chart con escenarios
+   * distintos). Cada fila puede tener un `slotOverride` opcional que elige qué
+   * escenarios globales consume (por índice 0-based en globalScenarios).
+   */
+  type RowState = {
+    rowId: string;
+    tpl_id: number;
+    slotOverride?: number[] | null;
+  };
+  const [rows, setRows] = useState<RowState[]>([]);
+  /** Derivado para compatibilidad (layout, checkboxes, payload fallback). */
+  const order = useMemo(() => rows.map((r) => r.tpl_id), [rows]);
+  /** Genera un id único estable por fila (solo client-side). */
+  const nextRowIdRef = useRef(0);
+  const makeRowId = () => {
+    nextRowIdRef.current += 1;
+    return `r${Date.now().toString(36)}-${nextRowIdRef.current}`;
+  };
+  /** Datos asociados (job_ids por rowId). Se deriva de globalScenarios + slotOverride. */
   const [selectionData, setSelectionData] = useState<Record<number, SelectionData>>({});
   /** Qué acordeones están expandidos (por module id). */
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   /** Escenarios globales: slot i se propaga al slot i de cada plantilla. */
   const [globalScenarios, setGlobalScenarios] = useState<(number | null)[]>([]);
+  /** Alias por escenario global (persistido en el reporte). */
+  const [scenarioAliases, setScenarioAliases] = useState<string[]>([]);
 
   const [fmt, setFmt] = useState<"png" | "svg">("png");
   const [organizeFolders, setOrganizeFolders] = useState(false);
@@ -770,39 +945,55 @@ function ReportGeneratorTab({
   const [renameOpen, setRenameOpen] = useState(false);
   /**
    * Compensación de scroll al mover una gráfica con ↑/↓: el click deja un
-   * anchor; al re-renderizar, ajustamos window.scrollY para que el mismo
-   * botón quede bajo el cursor.
+   * anchor; después de re-renderizar (requestAnimationFrame), ajustamos el
+   * scroll para que el botón clicado quede más o menos bajo el cursor.
+   *
+   * Implementación robusta: capturamos `pageY` del click (espacio documento)
+   * y después del paint calculamos el desplazamiento sobre la misma fila
+   * identificada por `data-row-id`, sin depender del `btn` DOM ref. Así, si
+   * React desmonta/reemplaza el botón por algún motivo, no queda un anchor
+   * roto que rompa interacciones futuras.
    */
-  const scrollAnchorRef = useRef<{ btn: HTMLElement; beforeTop: number } | null>(
-    null,
-  );
-  useLayoutEffect(() => {
-    const anchor = scrollAnchorRef.current;
-    if (!anchor) return;
-    scrollAnchorRef.current = null;
-    const rect = anchor.btn.getBoundingClientRect();
-    // rect puede ser 0x0 si la fila se desmontó (ej. remove). En ese caso no hacemos nada.
-    if (rect.width === 0 && rect.height === 0) return;
-    const delta = rect.top - anchor.beforeTop;
-    if (delta !== 0) window.scrollBy({ left: 0, top: delta });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order]);
-  const anchorAndRun = (e: React.MouseEvent<HTMLButtonElement>, run: () => void) => {
-    const btn = e.currentTarget;
-    scrollAnchorRef.current = { btn, beforeTop: btn.getBoundingClientRect().top };
+  const anchorAndRun = (
+    e: React.MouseEvent<HTMLButtonElement>,
+    rowId: string,
+    run: () => void,
+  ) => {
+    const clickClientY = e.clientY;
     run();
+    requestAnimationFrame(() => {
+      try {
+        const selector = `[data-row-id="${rowId}"]`;
+        const target = document.querySelector<HTMLElement>(selector);
+        if (!target) return;
+        const newRect = target.getBoundingClientRect();
+        if (newRect.width === 0 && newRect.height === 0) return;
+        // Mantener la fila aproximadamente a la misma altura visual que tenía
+        // el click (en viewport). Si se salió fuera del viewport, no hacemos
+        // nada — el usuario ve el scroll natural.
+        const rowCenter = newRect.top + newRect.height / 2;
+        const delta = rowCenter - clickClientY;
+        if (Math.abs(delta) > 4) {
+          window.scrollBy({ left: 0, top: delta, behavior: "auto" });
+        }
+      } catch {
+        /* ignore */
+      }
+    });
   };
 
   /** Preview modal (visualiza una plantilla con escenarios seleccionados). */
   const [previewTemplateInline, setPreviewTemplateInline] =
     useState<SavedChartTemplate | null>(null);
-  /** Modal para reemplazar un item del reporte por otra plantilla. */
-  const [replaceTargetId, setReplaceTargetId] = useState<number | null>(null);
+  /** Modal para reemplazar un item del reporte por otra plantilla (row-based). */
+  const [replaceTargetId, setReplaceTargetId] = useState<string | null>(null);
   /** Índice 0-based después del cual insertar una nueva gráfica (picker). */
   const [insertAfterIdx, setInsertAfterIdx] = useState<number | null>(null);
   /** Edición inline del report_title por plantilla. */
   const [titleEditingId, setTitleEditingId] = useState<number | null>(null);
   const [titleDraft, setTitleDraft] = useState<string>("");
+  /** Fila cuya asignación de escenarios está expandida. null = todas colapsadas. */
+  const [editingSlotsRowId, setEditingSlotsRowId] = useState<string | null>(null);
 
   /** Vista del paso 2: lista plana ordenada o agrupada por categorías. */
   const [viewMode, setViewMode] = useState<"list" | "categories">("list");
@@ -822,13 +1013,25 @@ function ReportGeneratorTab({
   // ── Cargar un reporte guardado (desde la tab "Mis reportes") ──
   useEffect(() => {
     if (!loadReportRequest) return;
+    // Si aún no cargaron las plantillas accesibles, esperar; de lo contrario
+    // filtraríamos todo a [] y el reporte quedaría vacío en el Generador.
+    if (loading) return;
+    if (templates.length === 0 && (loadReportRequest.items?.length ?? 0) > 0) {
+      return;
+    }
     const validIds = loadReportRequest.items.filter((id) =>
       templates.some((t) => t.id === id),
     );
-    setOrder(validIds);
+    // Permite duplicados: cada elemento crea una fila independiente con rowId nuevo.
+    setRows(
+      validIds.map((tid) => ({ rowId: makeRowId(), tpl_id: tid })),
+    );
     setSelectionData(() => {
       const next: Record<number, SelectionData> = {};
+      const seen = new Set<number>();
       for (const tid of validIds) {
+        if (seen.has(tid)) continue;
+        seen.add(tid);
         const tpl = templates.find((t) => t.id === tid);
         if (tpl) {
           next[tid] = {
@@ -841,6 +1044,25 @@ function ReportGeneratorTab({
     setFmt(loadReportRequest.fmt);
     setCurrentReportId(loadReportRequest.id);
     setLoadedReport(loadReportRequest);
+    // Restaurar aliases persistidos del reporte.
+    setScenarioAliases(
+      Array.isArray(loadReportRequest.scenario_aliases)
+        ? [...loadReportRequest.scenario_aliases]
+        : [],
+    );
+    // Prioridad para los escenarios globales:
+    //   1) memoria client-side (última sesión en este navegador);
+    //   2) default_job_ids persistidos en el reporte;
+    //   3) vacío.
+    const remembered = loadReportScenarios(loadReportRequest.id);
+    if (remembered && remembered.length > 0) {
+      setGlobalScenarios(remembered);
+    } else if (
+      Array.isArray(loadReportRequest.default_job_ids) &&
+      loadReportRequest.default_job_ids.length > 0
+    ) {
+      setGlobalScenarios([...loadReportRequest.default_job_ids]);
+    }
     // Si el reporte tiene layout persistido, abrir directamente en vista Categorías.
     if (loadReportRequest.layout) {
       setPendingLayout(loadReportRequest.layout);
@@ -925,12 +1147,13 @@ function ReportGeneratorTab({
     return result;
   }, [templates]);
 
-  // Expandir por defecto todos los grupos la primera vez que se cargan templates.
+  // Mantenemos los grupos colapsados por defecto para reducir ruido visual.
+  // Los usuarios expanden manualmente la categoría que necesitan.
   useEffect(() => {
     setExpandedGroups((prev) => {
       if (Object.keys(prev).length > 0) return prev;
       const next: Record<string, boolean> = {};
-      for (const { module } of groupedTemplates) next[module.id] = true;
+      for (const { module } of groupedTemplates) next[module.id] = false;
       return next;
     });
   }, [groupedTemplates]);
@@ -938,9 +1161,38 @@ function ReportGeneratorTab({
   const selectedIds = useMemo(() => new Set(order), [order]);
   const orderIndexOf = (tplId: number) => order.indexOf(tplId);
 
+  /** `setOrder`-compatible shim: acepta una función que recibe `order` (number[])
+   *  y devuelve un nuevo `order`. Reconstruye `rows` preservando los rowIds
+   *  existentes cuando sea posible (match por template_id desde la izquierda). */
+  const setOrder = (updater: (prev: number[]) => number[]) => {
+    setRows((prevRows) => {
+      const prevOrder = prevRows.map((r) => r.tpl_id);
+      const nextOrder = updater(prevOrder);
+      if (nextOrder === prevOrder) return prevRows;
+      const usedRowIds = new Set<string>();
+      const byTpl = new Map<number, RowState[]>();
+      for (const r of prevRows) {
+        if (!byTpl.has(r.tpl_id)) byTpl.set(r.tpl_id, []);
+        byTpl.get(r.tpl_id)!.push(r);
+      }
+      const next: RowState[] = [];
+      for (const tplId of nextOrder) {
+        const pool = byTpl.get(tplId) ?? [];
+        const reused = pool.find((r) => !usedRowIds.has(r.rowId));
+        if (reused) {
+          usedRowIds.add(reused.rowId);
+          next.push(reused);
+        } else {
+          next.push({ rowId: makeRowId(), tpl_id: tplId });
+        }
+      }
+      return next;
+    });
+  };
+
   const addTemplate = (tpl: SavedChartTemplate) => {
     if (selectedIds.has(tpl.id)) return;
-    setOrder((prev) => [...prev, tpl.id]);
+    setRows((prev) => [...prev, { rowId: makeRowId(), tpl_id: tpl.id }]);
     setSelectionData((prev) => ({
       ...prev,
       [tpl.id]: {
@@ -949,8 +1201,26 @@ function ReportGeneratorTab({
     }));
   };
 
+  /** Elimina una fila por rowId (una sola instancia). */
+  const removeRow = (rowId: string) => {
+    setRows((prev) => {
+      const next = prev.filter((r) => r.rowId !== rowId);
+      const remainingTplIds = new Set(next.map((r) => r.tpl_id));
+      setSelectionData((prevSel) => {
+        const nextSel = { ...prevSel };
+        for (const key of Object.keys(nextSel)) {
+          const tid = Number(key);
+          if (!remainingTplIds.has(tid)) delete nextSel[tid];
+        }
+        return nextSel;
+      });
+      return next;
+    });
+  };
+
+  /** Elimina todas las instancias de un template (usado por el checkbox). */
   const removeTemplate = (tplId: number) => {
-    setOrder((prev) => prev.filter((id) => id !== tplId));
+    setRows((prev) => prev.filter((r) => r.tpl_id !== tplId));
     setSelectionData((prev) => {
       const next = { ...prev };
       delete next[tplId];
@@ -958,36 +1228,143 @@ function ReportGeneratorTab({
     });
   };
 
-  /** Reemplaza `oldId` por `newId` preservando la posición. Ajusta selectionData
-   *  a la nueva cardinalidad de escenarios. */
-  const replaceTemplate = (oldId: number, newTpl: SavedChartTemplate) => {
-    if (oldId === newTpl.id) return;
-    setOrder((prev) => {
-      const idx = prev.indexOf(oldId);
+  /** Reemplaza la plantilla de una fila específica por otra. */
+  const replaceRow = (rowId: string, newTpl: SavedChartTemplate) => {
+    setRows((prev) => {
+      const idx = prev.findIndex((r) => r.rowId === rowId);
       if (idx < 0) return prev;
-      if (prev.includes(newTpl.id)) {
-        // newId ya estaba: solo quitamos oldId.
-        return prev.filter((id) => id !== oldId);
-      }
+      if (prev[idx]!.tpl_id === newTpl.id) return prev;
       const next = [...prev];
-      next[idx] = newTpl.id;
+      next[idx] = {
+        rowId,
+        tpl_id: newTpl.id,
+        // Al reemplazar, recorta/expande slotOverride a la nueva num_scenarios.
+        slotOverride: next[idx]!.slotOverride
+          ? next[idx]!.slotOverride!.slice(0, newTpl.num_scenarios)
+          : null,
+      };
       return next;
     });
-    setSelectionData((prev) => {
-      const next = { ...prev };
-      const oldJobs = next[oldId]?.job_ids ?? [];
-      delete next[oldId];
-      const trimmed = oldJobs.slice(0, newTpl.num_scenarios);
-      const padded = [
-        ...trimmed,
-        ...Array.from(
-          { length: Math.max(0, newTpl.num_scenarios - trimmed.length) },
-          () => null,
-        ),
-      ] as (number | null)[];
-      next[newTpl.id] = { job_ids: padded };
+    setSelectionData((prev) => ({
+      ...prev,
+      [newTpl.id]: prev[newTpl.id] ?? {
+        job_ids: Array.from({ length: newTpl.num_scenarios }, () => null),
+      },
+    }));
+  };
+
+  /** Duplica una fila existente inmediatamente después. */
+  const duplicateRow = (rowId: string) => {
+    setRows((prev) => {
+      const idx = prev.findIndex((r) => r.rowId === rowId);
+      if (idx < 0) return prev;
+      const src = prev[idx]!;
+      const templatesLocal = templates;
+      const tpl = templatesLocal.find((t) => t.id === src.tpl_id);
+      const numScenarios = tpl?.num_scenarios ?? 1;
+      const srcSlots =
+        src.slotOverride ??
+        Array.from({ length: numScenarios }, (_, i) => i);
+
+      // Máximo escenario ya demandado por cualquier fila (incluyendo overrides);
+      // es el límite superior actual de `globalScenarios` implícito.
+      let maxSlotAnyRow = 0;
+      for (const r of prev) {
+        const t = templatesLocal.find((tt) => tt.id === r.tpl_id);
+        const slots =
+          r.slotOverride ??
+          Array.from(
+            { length: t?.num_scenarios ?? 1 },
+            (_, i) => i,
+          );
+        for (const s of slots) if (s > maxSlotAnyRow) maxSlotAnyRow = s;
+      }
+      const capacity = maxSlotAnyRow + 1;
+
+      if (numScenarios === 1) {
+        // Usar el primer escenario NO utilizado por otras copias de la MISMA
+        // plantilla. Sólo crecer (agregar nuevo slot) si ya están todas tomadas.
+        const usedBySameTpl = new Set<number>();
+        for (const r of prev) {
+          if (r.tpl_id !== src.tpl_id) continue;
+          const slots =
+            r.slotOverride ??
+            Array.from({ length: numScenarios }, (_, i) => i);
+          for (const s of slots) usedBySameTpl.add(s);
+        }
+        let chosen: number | null = null;
+        for (let s = 0; s < capacity; s += 1) {
+          if (!usedBySameTpl.has(s)) {
+            chosen = s;
+            break;
+          }
+        }
+        if (chosen == null) chosen = capacity; // crecer solo si todas tomadas
+        const clone: RowState = {
+          rowId: makeRowId(),
+          tpl_id: src.tpl_id,
+          slotOverride: [chosen],
+        };
+        const next = [...prev];
+        next.splice(idx + 1, 0, clone);
+        return next;
+      }
+
+      // Multi-escenario: buscar el primer offset ≥ 0 cuya ventana [off..off+N-1]
+      // no coincida con la ventana de otra copia de la misma plantilla. Si todas
+      // caben dentro del capacity actual sin crecer, usamos ese offset; si no,
+      // extendemos al siguiente bloque libre más allá de capacity.
+      const windowsBySameTpl: string[] = [];
+      for (const r of prev) {
+        if (r.tpl_id !== src.tpl_id) continue;
+        const slots =
+          r.slotOverride ??
+          Array.from({ length: numScenarios }, (_, i) => i);
+        windowsBySameTpl.push(slots.slice(0, numScenarios).join(","));
+      }
+      const maxOffset = Math.max(0, capacity - numScenarios);
+      let chosenOffset: number | null = null;
+      for (let off = 0; off <= maxOffset; off += 1) {
+        const candidate = Array.from(
+          { length: numScenarios },
+          (_, i) => off + i,
+        ).join(",");
+        if (!windowsBySameTpl.includes(candidate)) {
+          chosenOffset = off;
+          break;
+        }
+      }
+      if (chosenOffset == null) chosenOffset = maxOffset + 1;
+      const nextSlots = Array.from(
+        { length: numScenarios },
+        (_, i) => chosenOffset! + i,
+      );
+      const clone: RowState = {
+        rowId: makeRowId(),
+        tpl_id: src.tpl_id,
+        slotOverride: nextSlots,
+      };
+      const next = [...prev];
+      next.splice(idx + 1, 0, clone);
       return next;
     });
+  };
+
+  /** Cambia el slot override de una fila. `slots === null` → volver al default. */
+  const setRowSlotOverride = (rowId: string, slots: number[] | null) => {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.rowId === rowId
+          ? (slots == null
+              ? (() => {
+                  const copy = { ...r };
+                  delete copy.slotOverride;
+                  return copy;
+                })()
+              : { ...r, slotOverride: slots })
+          : r,
+      ),
+    );
   };
 
   /** Actualiza report_title de un template en el backend y refresca local. */
@@ -1008,19 +1385,11 @@ function ReportGeneratorTab({
     else addTemplate(tpl);
   };
 
-  const setJobAt = (templateId: number, index: number, jobId: number | null) => {
-    setSelectionData((prev) => {
-      const item = prev[templateId];
-      if (!item) return prev;
-      const nextJobs = [...item.job_ids];
-      nextJobs[index] = jobId;
-      return { ...prev, [templateId]: { ...item, job_ids: nextJobs } };
-    });
-  };
 
-  const moveUp = (tplId: number) => {
-    setOrder((prev) => {
-      const i = prev.indexOf(tplId);
+  /** Sube la fila con rowId una posición. */
+  const moveRowUp = (rowId: string) => {
+    setRows((prev) => {
+      const i = prev.findIndex((r) => r.rowId === rowId);
       if (i <= 0) return prev;
       const next = [...prev];
       const tmp = next[i - 1]!;
@@ -1029,10 +1398,10 @@ function ReportGeneratorTab({
       return next;
     });
   };
-
-  const moveDown = (tplId: number) => {
-    setOrder((prev) => {
-      const i = prev.indexOf(tplId);
+  /** Baja la fila con rowId una posición. */
+  const moveRowDown = (rowId: string) => {
+    setRows((prev) => {
+      const i = prev.findIndex((r) => r.rowId === rowId);
       if (i < 0 || i >= prev.length - 1) return prev;
       const next = [...prev];
       const tmp = next[i + 1]!;
@@ -1042,14 +1411,13 @@ function ReportGeneratorTab({
     });
   };
 
-  /** Inserta una plantilla en la posición `index` (0-based). Si ya está en
-   *  el orden, primero la saca para evitar duplicados. */
+  /** Inserta una nueva fila con `newTpl` en la posición `index` (0-based). No
+   *  elimina otras instancias del mismo template — permite duplicados. */
   const insertAtIndex = (newTpl: SavedChartTemplate, index: number) => {
-    setOrder((prev) => {
-      const without = prev.filter((id) => id !== newTpl.id);
-      const clamped = Math.max(0, Math.min(without.length, index));
-      const next = [...without];
-      next.splice(clamped, 0, newTpl.id);
+    setRows((prev) => {
+      const clamped = Math.max(0, Math.min(prev.length, index));
+      const next = [...prev];
+      next.splice(clamped, 0, { rowId: makeRowId(), tpl_id: newTpl.id });
       return next;
     });
     setSelectionData((prev) => {
@@ -1069,7 +1437,7 @@ function ReportGeneratorTab({
    * agregada automáticamente en la posición indicada.
    */
   const generatorNavigate = useNavigate();
-  const startCreateNewChart = (insertAfter: number | null) => {
+  const startCreateNewChart = async (insertAfter: number | null) => {
     if (currentReportId == null) {
       alert(
         "Guarda primero este reporte para poder agregar nuevas gráficas a él desde la página de resultados.",
@@ -1084,6 +1452,28 @@ function ReportGeneratorTab({
       );
       return;
     }
+    // Si hay cambios sin guardar en el generador, persistirlos antes de navegar;
+    // si no, al volver desde ResultDetailPage los cambios locales se perderían
+    // porque el auto-insert se basa en `report.items` del backend.
+    if (isDirty) {
+      try {
+        const updated = await savedChartsApi.updateReport(currentReportId, {
+          items: order,
+          fmt,
+          layout: viewMode === "categories" ? pendingLayout : null,
+          scenario_aliases: scenarioAliases.map((s) => s ?? ""),
+        });
+        setLoadedReport(updated);
+        onReportSaved();
+      } catch (err) {
+        alert(
+          err instanceof Error
+            ? `No se pudieron guardar los cambios pendientes: ${err.message}`
+            : "No se pudieron guardar los cambios pendientes.",
+        );
+        return;
+      }
+    }
     const params = new URLSearchParams();
     params.set("addToReport", String(currentReportId));
     params.set("addMode", "generator");
@@ -1091,16 +1481,17 @@ function ReportGeneratorTab({
     generatorNavigate(`${paths.resultsDetail(job.id)}?${params.toString()}`);
   };
 
-  /** Mueve `tplId` a la posición `newIndex` (0-based), clampeada al rango. */
-  const moveTo = (tplId: number, newIndex: number) => {
-    setOrder((prev) => {
-      const i = prev.indexOf(tplId);
+  /** Mueve la fila con rowId a la posición `newIndex` (0-based). */
+  const moveRowTo = (rowId: string, newIndex: number) => {
+    setRows((prev) => {
+      const i = prev.findIndex((r) => r.rowId === rowId);
       if (i < 0) return prev;
       const target = Math.max(0, Math.min(prev.length - 1, newIndex));
       if (target === i) return prev;
+      const row = prev[i]!;
       const next = [...prev];
       next.splice(i, 1);
-      next.splice(target, 0, tplId);
+      next.splice(target, 0, row);
       return next;
     });
   };
@@ -1128,7 +1519,7 @@ function ReportGeneratorTab({
     });
   };
   const clearAll = () => {
-    setOrder([]);
+    setRows([]);
     setSelectionData({});
   };
   const toggleGroupAll = (
@@ -1167,26 +1558,49 @@ function ReportGeneratorTab({
   };
 
   // ── Lista ordenada materializada (para render del panel derecho y envío) ──
+  /**
+   * Cada fila tiene `tpl`, su rowId estable y sus `job_ids` resueltos desde
+   * `slotOverride` (índices 0-based en globalScenarios) o, por default, los
+   * primeros `num_scenarios` slots globales.
+   */
   const orderedItems = useMemo(() => {
-    return order
-      .map((id) => {
-        const tpl = templates.find((t) => t.id === id);
-        const data = selectionData[id];
-        return tpl && data ? { tpl, data } : null;
+    return rows
+      .map((row) => {
+        const tpl = templates.find((t) => t.id === row.tpl_id);
+        if (!tpl) return null;
+        const defaultSlots = Array.from(
+          { length: tpl.num_scenarios },
+          (_, i) => i,
+        );
+        const slots = row.slotOverride ?? defaultSlots;
+        const job_ids: (number | null)[] = slots
+          .slice(0, tpl.num_scenarios)
+          .map((slotIdx) => globalScenarios[slotIdx] ?? null);
+        while (job_ids.length < tpl.num_scenarios) job_ids.push(null);
+        return { row, tpl, data: { job_ids } as SelectionData };
       })
-      .filter((x): x is { tpl: SavedChartTemplate; data: SelectionData } => x !== null);
-  }, [order, templates, selectionData]);
+      .filter(
+        (x): x is { row: RowState; tpl: SavedChartTemplate; data: SelectionData } =>
+          x !== null,
+      );
+  }, [rows, templates, globalScenarios]);
 
   const allSelected =
-    templates.length > 0 && orderedItems.length === templates.length;
-  const someSelected = orderedItems.length > 0 && !allSelected;
+    templates.length > 0 && selectedIds.size === templates.length;
+  const someSelected = selectedIds.size > 0 && !allSelected;
 
   // ── Escenarios globales ──
-  // N = máximo de num_scenarios entre las plantillas seleccionadas.
+  // N = (mayor num_scenarios entre plantillas) o el mayor índice referenciado
+  // por cualquier slotOverride de una fila (+1). Así, si una fila usa slot #4,
+  // aparecen 5 campos de escenario global aunque ninguna plantilla pida 5.
   const maxScenariosNeeded = useMemo(() => {
     let max = 0;
-    for (const { tpl } of orderedItems) {
+    for (const { tpl, row } of orderedItems) {
       if (tpl.num_scenarios > max) max = tpl.num_scenarios;
+      if (row.slotOverride && row.slotOverride.length > 0) {
+        const rowMax = Math.max(...row.slotOverride) + 1;
+        if (rowMax > max) max = rowMax;
+      }
     }
     return max;
   }, [orderedItems]);
@@ -1202,6 +1616,27 @@ function ReportGeneratorTab({
       return next;
     });
   }, [maxScenariosNeeded]);
+
+  // Persiste los escenarios elegidos para este reporte (memoria client-side).
+  useEffect(() => {
+    if (currentReportId == null) return;
+    saveReportScenarios(currentReportId, globalScenarios);
+  }, [currentReportId, globalScenarios]);
+
+  /** Cambia el alias de un escenario global. */
+  const setScenarioAliasAt = (idx: number, value: string) => {
+    setScenarioAliases((prev) => {
+      const next = [...prev];
+      while (next.length <= idx) next.push("");
+      next[idx] = value;
+      return next;
+    });
+  };
+  /** Etiqueta human-readable del escenario en posición `idx`. */
+  const scenarioLabel = (idx: number): string => {
+    const a = scenarioAliases[idx]?.trim();
+    return a && a.length > 0 ? a : `Escenario ${idx + 1}`;
+  };
 
   const setGlobalScenarioAt = (idx: number, value: number | null) => {
     setGlobalScenarios((prev) => {
@@ -1281,6 +1716,7 @@ function ReportGeneratorTab({
         items: order,
         fmt,
         layout: viewMode === "categories" ? pendingLayout : null,
+        scenario_aliases: scenarioAliases.map((s) => s ?? ""),
       });
       setLoadedReport(updated);
       onReportSaved();
@@ -1297,10 +1733,23 @@ function ReportGeneratorTab({
     setGenerating(true);
     setGenerateError(null);
     try {
-      const items: ReportTemplateItem[] = orderedItems.map(({ tpl, data }) => ({
-        template_id: tpl.id,
-        job_ids: data.job_ids.filter((j): j is number => j != null),
-      }));
+      const reportHasMultiScenarios = maxScenariosNeeded > 1;
+      const items: ReportTemplateItem[] = orderedItems.map(({ tpl, row, data }) => {
+        const base: ReportTemplateItem = {
+          template_id: tpl.id,
+          job_ids: data.job_ids.filter((j): j is number => j != null),
+        };
+        if (tpl.num_scenarios === 1 && reportHasMultiScenarios) {
+          const slotIdx =
+            row.slotOverride && row.slotOverride.length > 0
+              ? row.slotOverride[0]!
+              : 0;
+          const alias = scenarioAliases[slotIdx]?.trim();
+          base.scenario_alias_for_title =
+            alias && alias.length > 0 ? alias : `Escenario ${slotIdx + 1}`;
+        }
+        return base;
+      });
       // Si el usuario eligió "Organizar en carpetas", usamos el layout actual
       // (vista Categorías) o derivamos uno automático desde el orden plano.
       let categoriesPayload:
@@ -1344,6 +1793,16 @@ function ReportGeneratorTab({
         }));
       }
       const overridesForPayload: Record<string, string> = {};
+      // Pre-poblar con los aliases: el alias del slot i se aplica al job_id
+      // que esté asignado en globalScenarios[i] (si lo hay).
+      for (let i = 0; i < globalScenarios.length; i += 1) {
+        const jid = globalScenarios[i];
+        const alias = scenarioAliases[i]?.trim();
+        if (jid != null && alias && alias.length > 0) {
+          overridesForPayload[String(jid)] = alias;
+        }
+      }
+      // Los overrides explícitos (rename results) sobreescriben aliases.
       const uniqueJobs = new Set<number>();
       for (const it of items) {
         for (const j of it.job_ids) uniqueJobs.add(j);
@@ -1444,7 +1903,7 @@ function ReportGeneratorTab({
             ).length;
             const allInGroup = groupSelectedCount === groupTpls.length;
             const someInGroup = groupSelectedCount > 0 && !allInGroup;
-            const expanded = expandedGroups[module.id] ?? true;
+            const expanded = expandedGroups[module.id] ?? false;
             return (
               <div
                 key={module.id}
@@ -1458,7 +1917,15 @@ function ReportGeneratorTab({
                     ref={(el) => {
                       if (el) el.indeterminate = someInGroup;
                     }}
-                    onChange={(e) => toggleGroupAll(groupTpls, e.target.checked)}
+                    onChange={(e) => {
+                      const shouldSelect = e.target.checked;
+                      const n = groupTpls.length;
+                      const msg = shouldSelect
+                        ? `¿Agregar las ${n} gráfica${n === 1 ? "" : "s"} de "${module.label}" al reporte?`
+                        : `¿Quitar del reporte las ${n} gráfica${n === 1 ? "" : "s"} de "${module.label}"?`;
+                      if (!window.confirm(msg)) return;
+                      toggleGroupAll(groupTpls, shouldSelect);
+                    }}
                     className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-600 bg-slate-950 text-cyan-500 focus:ring-cyan-500/40"
                   />
                   <button
@@ -1586,17 +2053,26 @@ function ReportGeneratorTab({
                 {Array.from({ length: maxScenariosNeeded }).map((_, idx) => {
                   const value = globalScenarios[idx] ?? null;
                   return (
-                    <label key={idx} className="grid gap-1">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300/80">
-                        Escenario {idx + 1}
-                      </span>
-                      <JobSelect
-                        value={value}
-                        onChange={(next) => setGlobalScenarioAt(idx, next)}
-                        jobs={availableJobs}
-                        loading={loadingJobs}
+                    <div key={idx} className="grid gap-1">
+                      <label className="grid gap-1">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300/80">
+                          {scenarioLabel(idx)}
+                        </span>
+                        <JobSelect
+                          value={value}
+                          onChange={(next) => setGlobalScenarioAt(idx, next)}
+                          jobs={availableJobs}
+                          loading={loadingJobs}
+                        />
+                      </label>
+                      <input
+                        type="text"
+                        value={scenarioAliases[idx] ?? ""}
+                        onChange={(e) => setScenarioAliasAt(idx, e.target.value)}
+                        placeholder={`Alias (opcional) · Escenario ${idx + 1}`}
+                        className="rounded border border-emerald-500/30 bg-emerald-500/5 px-2 py-1 text-[11px] text-emerald-100 placeholder:text-emerald-300/40"
                       />
-                    </label>
+                    </div>
                   );
                 })}
               </div>
@@ -1618,6 +2094,31 @@ function ReportGeneratorTab({
                   Aplicar a todas las gráficas
                 </button>
               </div>
+
+              {/* Panel de escenarios predeterminados del reporte */}
+              <DefaultScenariosPanel
+                reportId={currentReportId}
+                current={globalScenarios}
+                savedDefaults={
+                  Array.isArray(loadedReport?.default_job_ids)
+                    ? (loadedReport?.default_job_ids as (number | null)[])
+                    : null
+                }
+                scenarioAliases={scenarioAliases}
+                availableJobs={availableJobs}
+                onSaved={(nextDefaults) => {
+                  setLoadedReport((prev) =>
+                    prev ? { ...prev, default_job_ids: nextDefaults } : prev,
+                  );
+                  onReportSaved();
+                  setReportToast(
+                    nextDefaults
+                      ? "Escenarios predeterminados del reporte actualizados."
+                      : "Predeterminados eliminados.",
+                  );
+                  window.setTimeout(() => setReportToast(null), 3500);
+                }}
+              />
             </div>
 
             {/* Toggle Lista / Categorías */}
@@ -1697,23 +2198,31 @@ function ReportGeneratorTab({
 
             {viewMode === "list" ? (
               <ol className="list-none p-0 m-0">
-                {orderedItems.map(({ tpl }, idx) => {
+                {orderedItems.map(({ row, tpl }, idx) => {
                   const isFirst = idx === 0;
                   const isLast = idx === orderedItems.length - 1;
+                  const defaultSlots = Array.from(
+                    { length: tpl.num_scenarios },
+                    (_, i) => i,
+                  );
+                  const effectiveSlots = row.slotOverride ?? defaultSlots;
                   return (
-                    <div key={`wrap-${tpl.id}`}>
+                    <div key={row.rowId}>
                       {idx === 0 ? (
                         <InsertChartHere
                           onClick={() => setInsertAfterIdx(-1)}
                           label="Insertar gráfica al inicio"
                         />
                       ) : null}
-                    <li className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
+                    <li
+                      data-row-id={row.rowId}
+                      className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3"
+                    >
                       <div className="flex flex-wrap items-start gap-3">
                         <PositionInput
                           index={idx}
                           total={orderedItems.length}
-                          onSubmit={(newIndex) => moveTo(tpl.id, newIndex)}
+                          onSubmit={(newIndex) => moveRowTo(row.rowId, newIndex)}
                         />
                         <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -1721,14 +2230,15 @@ function ReportGeneratorTab({
                               <span style={{ color: "#fbbf24" }} className="text-sm leading-none">★</span>
                             ) : null}
                             <p className="m-0 text-sm font-semibold text-white break-words">
+                              {tpl.report_title || tpl.name}
+                            </p>
+                          </div>
+                          {tpl.report_title ? (
+                            <p className="m-0 text-[11px] text-slate-500 break-words">
+                              <span className="text-slate-600">Gráfica oficial:</span>{" "}
                               {tpl.name}
                             </p>
-                            {tpl.report_title ? (
-                              <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-300">
-                                Título: {tpl.report_title}
-                              </span>
-                            ) : null}
-                          </div>
+                          ) : null}
                           <p className="m-0 text-xs text-slate-500">
                             {templateSummary(tpl)}
                           </p>
@@ -1744,11 +2254,19 @@ function ReportGeneratorTab({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setReplaceTargetId(tpl.id)}
+                            onClick={() => setReplaceTargetId(row.rowId)}
                             title="Reemplazar por otra gráfica guardada"
                             className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-indigo-500/40 px-2 text-[11px] font-semibold text-indigo-300 hover:bg-indigo-500/10"
                           >
                             <IconSwap /> Reemplazar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => duplicateRow(row.rowId)}
+                            title="Duplicar esta fila (misma gráfica, otros escenarios)"
+                            className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-slate-600 px-2 text-[11px] font-semibold text-slate-300 hover:bg-slate-800"
+                          >
+                            ⧉ Duplicar
                           </button>
                           {canEditChartReportTitle(tpl) ? (
                             <button
@@ -1765,7 +2283,7 @@ function ReportGeneratorTab({
                           ) : null}
                           <button
                             type="button"
-                            onClick={(e) => anchorAndRun(e, () => moveUp(tpl.id))}
+                            onClick={(e) => anchorAndRun(e, row.rowId, () => moveRowUp(row.rowId))}
                             disabled={isFirst}
                             title="Subir"
                             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -1774,7 +2292,7 @@ function ReportGeneratorTab({
                           </button>
                           <button
                             type="button"
-                            onClick={(e) => anchorAndRun(e, () => moveDown(tpl.id))}
+                            onClick={(e) => anchorAndRun(e, row.rowId, () => moveRowDown(row.rowId))}
                             disabled={isLast}
                             title="Bajar"
                             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -1783,14 +2301,62 @@ function ReportGeneratorTab({
                           </button>
                           <button
                             type="button"
-                            onClick={() => removeTemplate(tpl.id)}
-                            title="Quitar del reporte"
+                            onClick={() => removeRow(row.rowId)}
+                            title="Quitar esta fila del reporte"
                             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-500/40 text-rose-300 hover:bg-rose-500/10"
                           >
                             ×
                           </button>
                         </div>
                       </div>
+                      {/* Chip siempre visible: qué escenarios usa; botón "Asignar" abre el picker */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/60 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
+                          <span className="text-slate-500 uppercase tracking-wider">
+                            Escenario{effectiveSlots.length === 1 ? "" : "s"}:
+                          </span>
+                          {effectiveSlots
+                            .map((s, i) => (
+                              <span key={i} className="text-cyan-300">
+                                {scenarioLabel(s)}
+                              </span>
+                            ))
+                            .reduce<React.ReactNode[]>((acc, el, i) => {
+                              if (i > 0)
+                                acc.push(
+                                  <span key={`sep-${i}`} className="text-slate-600">
+                                    ·
+                                  </span>,
+                                );
+                              acc.push(el);
+                              return acc;
+                            }, [])}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingSlotsRowId((cur) =>
+                              cur === row.rowId ? null : row.rowId,
+                            )
+                          }
+                          className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-slate-700 px-2 text-[10px] font-semibold text-slate-300 hover:bg-slate-800"
+                        >
+                          {editingSlotsRowId === row.rowId ? "Ocultar asignación" : "Asignar escenarios"}
+                        </button>
+                      </div>
+                      {editingSlotsRowId === row.rowId ? (
+                        <RowScenarioPicker
+                          tpl={tpl}
+                          effectiveSlots={effectiveSlots}
+                          globalScenariosLen={Math.max(
+                            maxScenariosNeeded,
+                            globalScenarios.length,
+                            tpl.num_scenarios,
+                          )}
+                          isOverride={Boolean(row.slotOverride)}
+                          onChange={(slots) => setRowSlotOverride(row.rowId, slots)}
+                        />
+                      ) : null}
                       {titleEditingId === tpl.id ? (
                         <div className="rounded-md border border-cyan-500/30 bg-cyan-500/5 px-3 py-2 space-y-1">
                           <p className="m-0 text-[10px] text-slate-400">
@@ -1842,7 +2408,7 @@ function ReportGeneratorTab({
                 layout={pendingLayout}
                 onLayoutChange={setPendingLayout}
                 items={order}
-                onItemsChange={setOrder}
+                onItemsChange={(nextIds: number[]) => setOrder(() => nextIds)}
                 accessibleTemplates={templates}
               />
             ) : (
@@ -2085,6 +2651,8 @@ function ReportGeneratorTab({
         existingReportId={currentReportId}
         existingReports={savedReports}
         layout={viewMode === "categories" ? pendingLayout : null}
+        scenarioAliases={scenarioAliases}
+        defaultJobIds={globalScenarios}
         onSaved={(saved) => {
           setCurrentReportId(saved.id);
           setLoadedReport(saved);
@@ -2131,6 +2699,35 @@ function ReportGeneratorTab({
               )
             : []
         }
+        scenarioAliasSuffix={(() => {
+          const tpl = previewTemplateInline;
+          if (!tpl || tpl.num_scenarios !== 1) return undefined;
+          const totalSlots = Math.max(
+            scenarioAliases.length,
+            globalScenarios.length,
+          );
+          if (totalSlots <= 1) return undefined;
+          const row = rows.find((r) => r.tpl_id === tpl.id);
+          const slotIdx =
+            row?.slotOverride && row.slotOverride.length > 0
+              ? row.slotOverride[0]!
+              : 0;
+          const alias = scenarioAliases[slotIdx]?.trim();
+          return alias && alias.length > 0 ? alias : `Escenario ${slotIdx + 1}`;
+        })()}
+        scenarioNames={(() => {
+          const tpl = previewTemplateInline;
+          if (!tpl) return undefined;
+          const row = rows.find((r) => r.tpl_id === tpl.id);
+          const slots =
+            row?.slotOverride && row.slotOverride.length > 0
+              ? row.slotOverride.slice(0, tpl.num_scenarios)
+              : Array.from({ length: tpl.num_scenarios }, (_, i) => i);
+          return slots.map((s) => {
+            const a = scenarioAliases[s]?.trim();
+            return a && a.length > 0 ? a : `Escenario ${s + 1}`;
+          });
+        })()}
       />
 
       <ChartPickerModal
@@ -2138,14 +2735,8 @@ function ReportGeneratorTab({
         onClose={() => setReplaceTargetId(null)}
         title="Reemplazar gráfica"
         templates={templates}
-        compatibleWith={
-          replaceTargetId != null
-            ? templates.find((t) => t.id === replaceTargetId) ?? null
-            : null
-        }
-        excludeIds={replaceTargetId != null ? [replaceTargetId] : undefined}
         onPick={(tpl) => {
-          if (replaceTargetId != null) replaceTemplate(replaceTargetId, tpl);
+          if (replaceTargetId != null) replaceRow(replaceTargetId, tpl);
           setReplaceTargetId(null);
         }}
       />
@@ -2257,6 +2848,8 @@ function SaveReportModal({
   existingReports,
   onSaved,
   layout,
+  scenarioAliases,
+  defaultJobIds,
 }: {
   open: boolean;
   onClose: () => void;
@@ -2267,6 +2860,10 @@ function SaveReportModal({
   onSaved: (saved: SavedReport) => void;
   /** Layout en construcción (vista Categorías). null = modo auto en el dashboard. */
   layout?: ReportLayout | null;
+  /** Aliases por escenario global. */
+  scenarioAliases?: string[];
+  /** Job IDs actualmente seleccionados; se persisten como default al guardar. */
+  defaultJobIds?: (number | null)[];
 }) {
   const existing = existingReportId
     ? existingReports.find((r) => r.id === existingReportId) ?? null
@@ -2301,6 +2898,8 @@ function SaveReportModal({
           fmt,
           items,
           layout: layout ?? null,
+          scenario_aliases: (scenarioAliases ?? []).map((s) => s ?? ""),
+          default_job_ids: defaultJobIds ?? null,
         });
         onSaved(updated);
       } else {
@@ -2310,6 +2909,8 @@ function SaveReportModal({
           fmt,
           items,
           layout: layout ?? null,
+          scenario_aliases: (scenarioAliases ?? []).map((s) => s ?? ""),
+          default_job_ids: defaultJobIds ?? null,
         });
         onSaved(created);
       }

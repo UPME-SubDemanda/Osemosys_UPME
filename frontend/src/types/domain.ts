@@ -439,6 +439,50 @@ export type ChartCatalogItem = {
   soporta_pareto: boolean;
 };
 
+/** Tipo de línea de una serie sintética (overlay). */
+export type SyntheticLineStyle =
+  | "Solid"
+  | "Dash"
+  | "Dot"
+  | "DashDot"
+  | "ShortDash";
+
+/** Símbolo del marker de una serie sintética. `none` oculta los markers. */
+export type SyntheticMarkerSymbol =
+  | "circle"
+  | "diamond"
+  | "square"
+  | "triangle"
+  | "triangle-down"
+  | "none";
+
+/**
+ * Serie manual con puntos (año, valor). Se adjunta a una plantilla para overlays
+ * de línea (p.ej. datos externos de un estudio comparable).
+ */
+export type SyntheticSeries = {
+  id: string;
+  name: string;
+  /** Nota descriptiva opcional (fuente de datos, supuestos, etc.). */
+  description?: string | null;
+  /**
+   * Si `false`, la serie existe pero no se dibuja en la gráfica ni se cuenta
+   * en el reporte. Permite guardar varias series y alternar cuáles mostrar.
+   * Si está ausente, se considera `true` (retrocompatible con templates viejos).
+   */
+  active?: boolean | null;
+  color: string;
+  data: Array<[number, number]>;
+  /** Estilo de línea. Default: ShortDash (punteada, señal visual de "manual"). */
+  lineStyle?: SyntheticLineStyle | null;
+  /** Símbolo del marker. Default: diamond. */
+  markerSymbol?: SyntheticMarkerSymbol | null;
+  /** Radio del marker en px. Default: 5. */
+  markerRadius?: number | null;
+  /** Grosor de línea en px. Default: 2 (Highcharts default). */
+  lineWidth?: number | null;
+};
+
 /** Plantilla de gráfica guardada por un usuario para generar reportes. */
 export type SavedChartTemplate = {
   id: number;
@@ -451,7 +495,11 @@ export type SavedChartTemplate = {
   variable: string | null;
   agrupar_por: string | null;
   view_mode: "column" | "line" | "pareto" | null;
-  compare_mode: "off" | "facet";
+  compare_mode: "off" | "facet" | "by-year" | "line-total";
+  /** Años a graficar cuando `compare_mode === "by-year"`. Null en otros modos. */
+  years_to_plot: number[] | null;
+  /** Series manuales overlay (línea). */
+  synthetic_series: SyntheticSeries[] | null;
   bar_orientation: "vertical" | "horizontal" | null;
   facet_placement: "inline" | "stacked" | null;
   facet_legend_mode: "shared" | "perFacet" | null;
@@ -487,6 +535,8 @@ export type SavedChartTemplateUpdate = {
 export type ReportTemplateItem = {
   template_id: number;
   job_ids: number[];
+  /** Alias del escenario para agregar al título al exportar (solo single-chart). */
+  scenario_alias_for_title?: string | null;
 };
 
 /** Subcategoría dentro de una categoría del reporte. */
@@ -555,6 +605,10 @@ export type SavedReport = {
   is_favorite?: boolean;
   /** null = modo automático (frontend computa por módulo); objeto = override manual. */
   layout?: ReportLayout | null;
+  /** Alias por escenario global (0-based). `null`/ausente = sin aliases. */
+  scenario_aliases?: string[] | null;
+  /** Job IDs por defecto por slot (0-based). `null` en la posición = slot vacío. */
+  default_job_ids?: (number | null)[] | null;
 };
 
 export type SavedReportCreate = {
@@ -563,6 +617,8 @@ export type SavedReportCreate = {
   fmt: "png" | "svg";
   items: number[];
   layout?: ReportLayout | null;
+  scenario_aliases?: string[] | null;
+  default_job_ids?: (number | null)[] | null;
 };
 
 export type SavedReportUpdate = {
@@ -574,6 +630,10 @@ export type SavedReportUpdate = {
   is_official?: boolean;
   /** Enviar `null` resetea al modo automático; enviar objeto guarda el override. */
   layout?: ReportLayout | null;
+  /** Enviar `null` o `[]` limpia los aliases. */
+  scenario_aliases?: string[] | null;
+  /** Enviar `null` o `[]` limpia los defaults. */
+  default_job_ids?: (number | null)[] | null;
 };
 
 export type ResultSummaryResponse = {

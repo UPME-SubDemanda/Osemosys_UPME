@@ -87,14 +87,27 @@ export function ResultsPage() {
       .finally(() => setLoadingReports(false));
   }, [viewReportRun, reportsLoaded, loadingReports]);
 
-  /** Abre el dashboard del reporte con `runId` pre-cargado como Escenario 1. */
+  /**
+   * Abre el dashboard del reporte pre-cargando `runId` en el slot `slotIdx`
+   * (0-based). Se respetan los `default_job_ids` existentes del reporte para
+   * rellenar los demás slots.
+   */
   const openReportWithRun = useCallback(
-    (reportId: number, runId: number) => {
-      window.sessionStorage.setItem(
-        `dashboard-prefill-scenarios:${reportId}`,
-        JSON.stringify([runId]),
+    (report: SavedReport, runId: number, slotIdx: number) => {
+      const defaults = Array.isArray(report.default_job_ids)
+        ? [...report.default_job_ids]
+        : [];
+      const length = Math.max(defaults.length, slotIdx + 1);
+      const slots: (number | null)[] = Array.from(
+        { length },
+        (_, i) => defaults[i] ?? null,
       );
-      window.location.assign(paths.reportDashboard(reportId));
+      slots[slotIdx] = runId;
+      window.sessionStorage.setItem(
+        `dashboard-prefill-scenarios:${report.id}`,
+        JSON.stringify(slots),
+      );
+      window.location.assign(paths.reportDashboard(report.id));
     },
     [],
   );
@@ -523,7 +536,9 @@ export function ResultsPage() {
           reports={reports}
           loading={loadingReports}
           onClose={() => setViewReportRun(null)}
-          onPick={(reportId) => openReportWithRun(reportId, viewReportRun.id)}
+          onPick={(report, slotIdx) =>
+            openReportWithRun(report, viewReportRun.id, slotIdx)
+          }
         />
       ) : null}
     </section>
@@ -543,9 +558,11 @@ function ChooseReportForRunModal({
   reports: SavedReport[];
   loading: boolean;
   onClose: () => void;
-  onPick: (reportId: number) => void;
+  onPick: (report: SavedReport, slotIdx: number) => void;
 }) {
   const [filter, setFilter] = useState("");
+  /** Reporte seleccionado para elegir slot (paso 2 del modal). */
+  const [picked, setPicked] = useState<SavedReport | null>(null);
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return reports;
@@ -555,6 +572,27 @@ function ChooseReportForRunModal({
         (r.description ?? "").toLowerCase().includes(q),
     );
   }, [reports, filter]);
+
+  /** Número de slots del reporte: max(defaults.length, aliases.length, 1). */
+  const slotsOf = (r: SavedReport): number => {
+    const d = Array.isArray(r.default_job_ids) ? r.default_job_ids.length : 0;
+    const a = Array.isArray(r.scenario_aliases) ? r.scenario_aliases.length : 0;
+    return Math.max(d, a, 1);
+  };
+  const slotLabel = (r: SavedReport, idx: number): string => {
+    const alias = (r.scenario_aliases ?? [])[idx]?.trim();
+    return alias && alias.length > 0 ? alias : `Escenario ${idx + 1}`;
+  };
+
+  const handleReportPick = (r: SavedReport) => {
+    const n = slotsOf(r);
+    if (n <= 1) {
+      // Un solo escenario → no preguntes, asigna al slot 0.
+      onPick(r, 0);
+      return;
+    }
+    setPicked(r);
+  };
 
   const runLabel =
     run.display_name?.trim() ||
@@ -611,7 +649,36 @@ function ChooseReportForRunModal({
           className="rounded-lg border border-slate-700 bg-slate-950/50 px-3 py-2 text-sm text-slate-100"
         />
 
-        {loading ? (
+        {picked ? (
+          <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3 space-y-2">
+            <p className="m-0 text-xs text-slate-300">
+              ¿En qué escenario de <strong>{picked.name}</strong> quieres cargar{" "}
+              <strong className="text-cyan-300">{runLabel}</strong>?
+            </p>
+            <div className="grid gap-1">
+              {Array.from({ length: slotsOf(picked) }).map((_, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => onPick(picked, idx)}
+                  className="w-full rounded-lg border border-slate-800 bg-slate-950/40 p-2 text-left hover:border-cyan-500/50 hover:bg-cyan-500/10 text-sm text-slate-100"
+                >
+                  <span className="text-slate-500 text-[11px] uppercase tracking-wider">
+                    Slot {idx + 1} ·
+                  </span>{" "}
+                  <strong>{slotLabel(picked, idx)}</strong>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPicked(null)}
+              className="text-[11px] text-slate-400 hover:text-slate-200 underline underline-offset-2"
+            >
+              ← Elegir otro reporte
+            </button>
+          </div>
+        ) : loading ? (
           <p className="m-0 text-xs text-slate-500">Cargando reportes…</p>
         ) : filtered.length === 0 ? (
           <p className="m-0 text-xs text-slate-500">
@@ -625,7 +692,7 @@ function ChooseReportForRunModal({
               <li key={r.id}>
                 <button
                   type="button"
-                  onClick={() => onPick(r.id)}
+                  onClick={() => handleReportPick(r)}
                   className="w-full rounded-lg border border-slate-800 bg-slate-950/40 p-3 text-left hover:border-cyan-500/50 hover:bg-cyan-500/10"
                 >
                   <div className="flex items-center justify-between gap-2">

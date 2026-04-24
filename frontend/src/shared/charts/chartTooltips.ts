@@ -147,10 +147,33 @@ type LineTooltipOptions = {
  * Tooltip para gráficas de líneas (no apiladas).
  *
  * Comportamiento:
- * - Respeta el orden de series-definición (coincide con la leyenda) para facilitar
- *   identificar cada color/línea.
+ * - Ordena series descendentemente por valor absoluto en el punto activo
+ *   (en líneas sí tiene lógica: magnitudes comparables directamente, no hay stack).
  * - Filtra series con valor 0 exacto.
- * - Agrega un pie pequeño bajo cada serie con el delta vs. el año anterior.
+ *
+ * TODO: Opción "mostrar delta vs año anterior" (flag de preferencia de usuario).
+ * Implementación original conservada abajo comentada por si queremos reactivarla
+ * como toggle:
+ *
+ *   const activeIndex = this.point?.index ?? points[0]?.point?.index ?? 0;
+ *   const categories = (points[0]?.series.xAxis as Highcharts.Axis | undefined)
+ *     ?.categories as (string | number)[] | undefined;
+ *   const prevCategory =
+ *     activeIndex > 0 && categories ? categories[activeIndex - 1] : null;
+ *   // …en cada fila…
+ *   const dataArr = p.series.data as Array<Highcharts.Point & { y: number | null }>;
+ *   const prevPoint = activeIndex > 0 ? dataArr[activeIndex - 1] : null;
+ *   const prevY = prevPoint?.y ?? null;
+ *   const hasDelta = prevY != null && prevCategory != null;
+ *   const delta = hasDelta ? y - (prevY as number) : 0;
+ *   const sign = delta > 0 ? '▲ +' : delta < 0 ? '▼ ' : '';
+ *   const deltaColor = delta > 0 ? '#4ade80' : delta < 0 ? '#f87171' : '#94a3b8';
+ *   const deltaLine = hasDelta
+ *     ? `<div style="font-size:10px; color:#94a3b8; margin-top:1px">
+ *          vs ${escapeHtml(String(prevCategory))}:
+ *          <span style="color:${deltaColor}">${sign}${fmtValue(Math.abs(delta))}</span>
+ *        </div>`
+ *     : '';
  */
 export function buildLineTooltipOptions(
   opts: LineTooltipOptions,
@@ -161,38 +184,21 @@ export function buildLineTooltipOptions(
     shared: true,
     formatter: function (this: Highcharts.TooltipFormatterContextObject): string {
       const points = this.points ?? [];
-      const visible = points.filter((p) => (p.y ?? 0) !== 0);
-
-      const activeIndex = this.point?.index ?? points[0]?.point?.index ?? 0;
-      const categories = (points[0]?.series.xAxis as Highcharts.Axis | undefined)
-        ?.categories as (string | number)[] | undefined;
-      const prevCategory =
-        activeIndex > 0 && categories ? categories[activeIndex - 1] : null;
+      const visible = points
+        .filter((p) => (p.y ?? 0) !== 0)
+        .slice()
+        .sort((a, b) => Math.abs(b.y ?? 0) - Math.abs(a.y ?? 0));
 
       const rows = visible
         .map((p) => {
           const y = p.y ?? 0;
-          const dataArr = p.series.data as Array<Highcharts.Point & { y: number | null }>;
-          const prevPoint = activeIndex > 0 ? dataArr[activeIndex - 1] : null;
-          const prevY = prevPoint?.y ?? null;
-          const hasDelta = prevY != null && prevCategory != null;
-          const delta = hasDelta ? y - (prevY as number) : 0;
-          const sign = delta > 0 ? '▲ +' : delta < 0 ? '▼ ' : '';
-          const deltaColor = delta > 0 ? '#4ade80' : delta < 0 ? '#f87171' : '#94a3b8';
-          const deltaLine = hasDelta
-            ? `<div style="font-size:10px; color:#94a3b8; margin-top:1px">
-                 vs ${escapeHtml(String(prevCategory))}:
-                 <span style="color:${deltaColor}">${sign}${fmtValue(Math.abs(delta))}</span>
-               </div>`
-            : '';
           return `<tr>
             <td style="padding:2px 10px 2px 0; vertical-align:top; white-space:nowrap">
               <span style="color:${p.color};font-size:14px;line-height:1">●</span>
               <span style="margin-left:4px">${escapeHtml(p.series.name)}</span>
             </td>
             <td style="padding:2px 0; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap">
-              <div><b style="color:#f8fafc">${fmtValue(y)}</b> <span style="color:#94a3b8">${escapeHtml(unitLabel)}</span></div>
-              ${deltaLine}
+              <b style="color:#f8fafc">${fmtValue(y)}</b> <span style="color:#94a3b8">${escapeHtml(unitLabel)}</span>
             </td>
           </tr>`;
         })

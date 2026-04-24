@@ -25,6 +25,7 @@ import { useCurrentUser } from "@/app/providers/useCurrentUser";
 import { PreviewChartModal } from "@/features/reports/components/PreviewChartModal";
 import { CategoriesPanel } from "@/features/reports/components/CategoriesPanel";
 import { FavoriteStar } from "@/features/reports/components/FavoriteStar";
+import { ChartPickerModal } from "@/features/reports/components/ChartPickerModal";
 import type {
   ReportLayout,
   ReportTemplateItem,
@@ -317,6 +318,8 @@ export function ReportsPage() {
           onLoadReportConsumed={() => setLoadReportRequest(null)}
           onReportSaved={refreshReports}
           savedReports={reports}
+          onTemplatesRefresh={refresh}
+          isAdminReports={isAdminReports}
         />
       )}
     </div>
@@ -654,6 +657,8 @@ function ReportGeneratorTab({
   onLoadReportConsumed,
   onReportSaved,
   savedReports,
+  onTemplatesRefresh,
+  isAdminReports,
 }: {
   templates: SavedChartTemplate[];
   loading: boolean;
@@ -663,6 +668,8 @@ function ReportGeneratorTab({
   onLoadReportConsumed: () => void;
   onReportSaved: () => void;
   savedReports: SavedReport[];
+  onTemplatesRefresh: () => void;
+  isAdminReports: boolean;
 }) {
   /** Orden del reporte: lista ordenada de template_ids seleccionados. */
   const [order, setOrder] = useState<number[]>([]);
@@ -676,6 +683,17 @@ function ReportGeneratorTab({
   const [fmt, setFmt] = useState<"png" | "svg">("png");
   const [organizeFolders, setOrganizeFolders] = useState(false);
   const [generating, setGenerating] = useState(false);
+  /** Alias por job_id solo para el export (no muta display_name real). */
+  const [renameOverrides, setRenameOverrides] = useState<Record<number, string>>({});
+  const [renameOpen, setRenameOpen] = useState(false);
+  /** Preview modal (visualiza una plantilla con escenarios seleccionados). */
+  const [previewTemplateInline, setPreviewTemplateInline] =
+    useState<SavedChartTemplate | null>(null);
+  /** Modal para reemplazar un item del reporte por otra plantilla. */
+  const [replaceTargetId, setReplaceTargetId] = useState<number | null>(null);
+  /** Edición inline del report_title por plantilla. */
+  const [titleEditingId, setTitleEditingId] = useState<number | null>(null);
+  const [titleDraft, setTitleDraft] = useState<string>("");
 
   /** Vista del paso 2: lista plana ordenada o agrupada por categorías. */
   const [viewMode, setViewMode] = useState<"list" | "categories">("list");
@@ -830,6 +848,51 @@ function ReportGeneratorTab({
       return next;
     });
   };
+
+  /** Reemplaza `oldId` por `newId` preservando la posición. Ajusta selectionData
+   *  a la nueva cardinalidad de escenarios. */
+  const replaceTemplate = (oldId: number, newTpl: SavedChartTemplate) => {
+    if (oldId === newTpl.id) return;
+    setOrder((prev) => {
+      const idx = prev.indexOf(oldId);
+      if (idx < 0) return prev;
+      if (prev.includes(newTpl.id)) {
+        // newId ya estaba: solo quitamos oldId.
+        return prev.filter((id) => id !== oldId);
+      }
+      const next = [...prev];
+      next[idx] = newTpl.id;
+      return next;
+    });
+    setSelectionData((prev) => {
+      const next = { ...prev };
+      const oldJobs = next[oldId]?.job_ids ?? [];
+      delete next[oldId];
+      const trimmed = oldJobs.slice(0, newTpl.num_scenarios);
+      const padded = [
+        ...trimmed,
+        ...Array.from(
+          { length: Math.max(0, newTpl.num_scenarios - trimmed.length) },
+          () => null,
+        ),
+      ] as (number | null)[];
+      next[newTpl.id] = { job_ids: padded };
+      return next;
+    });
+  };
+
+  /** Actualiza report_title de un template en el backend y refresca local. */
+  const updateChartReportTitle = async (templateId: number, newTitle: string) => {
+    try {
+      await savedChartsApi.update(templateId, { report_title: newTitle });
+      onTemplatesRefresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "No se pudo actualizar el título.");
+    }
+  };
+
+  const canEditChartReportTitle = (tpl: SavedChartTemplate): boolean =>
+    Boolean(tpl.is_owner) || isAdminReports;
 
   const toggleTemplate = (tpl: SavedChartTemplate) => {
     if (selectedIds.has(tpl.id)) removeTemplate(tpl.id);
@@ -1108,12 +1171,23 @@ function ReportGeneratorTab({
           })),
         }));
       }
+      const overridesForPayload: Record<string, string> = {};
+      const uniqueJobs = new Set<number>();
+      for (const it of items) {
+        for (const j of it.job_ids) uniqueJobs.add(j);
+      }
+      for (const jid of uniqueJobs) {
+        const v = (renameOverrides[jid] ?? "").trim();
+        if (v) overridesForPayload[String(jid)] = v;
+      }
+      const hasOverrides = Object.keys(overridesForPayload).length > 0;
       const { blob, filename } = await savedChartsApi.generateReport({
         items,
         fmt,
         ...(organizeFolders && categoriesPayload
           ? { organize_by_category: true, categories: categoriesPayload }
           : {}),
+        ...(hasOverrides ? { job_display_overrides: overridesForPayload } : {}),
       });
       downloadBlob(blob, filename);
     } catch (err: unknown) {
@@ -1463,15 +1537,54 @@ function ReportGeneratorTab({
                         <span className="inline-flex h-8 w-10 shrink-0 items-center justify-center rounded-md border border-cyan-500/30 bg-cyan-500/10 text-sm font-bold tabular-nums text-cyan-300">
                           {String(idx + 1).padStart(2, "0")}
                         </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="m-0 text-sm font-semibold text-white break-words">
-                            {tpl.name}
-                          </p>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {tpl.is_favorite ? (
+                              <span style={{ color: "#fbbf24" }} className="text-sm leading-none">★</span>
+                            ) : null}
+                            <p className="m-0 text-sm font-semibold text-white break-words">
+                              {tpl.name}
+                            </p>
+                            {tpl.report_title ? (
+                              <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-300">
+                                Título: {tpl.report_title}
+                              </span>
+                            ) : null}
+                          </div>
                           <p className="m-0 text-xs text-slate-500">
                             {templateSummary(tpl)}
                           </p>
                         </div>
-                        <div className="flex shrink-0 items-center gap-1">
+                        <div className="flex shrink-0 items-center gap-1 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewTemplateInline(tpl)}
+                            title="Visualizar con los escenarios seleccionados"
+                            className="inline-flex h-8 items-center justify-center rounded-md border border-emerald-500/40 px-2 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/10"
+                          >
+                            👁 Visualizar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReplaceTargetId(tpl.id)}
+                            title="Reemplazar por otra gráfica guardada"
+                            className="inline-flex h-8 items-center justify-center rounded-md border border-indigo-500/40 px-2 text-[11px] font-semibold text-indigo-300 hover:bg-indigo-500/10"
+                          >
+                            ⇆ Reemplazar
+                          </button>
+                          {canEditChartReportTitle(tpl) ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTitleEditingId(tpl.id);
+                                setTitleDraft(tpl.report_title ?? "");
+                              }}
+                              title="Editar título usado al renderizar en reportes"
+                              className="inline-flex h-8 items-center justify-center rounded-md border border-cyan-500/40 px-2 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-500/10"
+                            >
+                              ✎ Título
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             onClick={() => moveUp(tpl.id)}
@@ -1500,6 +1613,39 @@ function ReportGeneratorTab({
                           </button>
                         </div>
                       </div>
+                      {titleEditingId === tpl.id ? (
+                        <div className="rounded-md border border-cyan-500/30 bg-cyan-500/5 px-3 py-2 space-y-1">
+                          <p className="m-0 text-[10px] text-slate-400">
+                            Título usado al renderizar en reportes (vacío → título automático):
+                          </p>
+                          <div className="flex gap-1">
+                            <input
+                              type="text"
+                              value={titleDraft}
+                              onChange={(e) => setTitleDraft(e.target.value)}
+                              placeholder={tpl.name}
+                              className="flex-1 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100"
+                            />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await updateChartReportTitle(tpl.id, titleDraft);
+                                setTitleEditingId(null);
+                              }}
+                              className="rounded bg-cyan-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-cyan-500"
+                            >
+                              Guardar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setTitleEditingId(null)}
+                              className="rounded border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-300 hover:bg-slate-800"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                       <div
                         className="grid gap-2"
                         style={{
@@ -1636,6 +1782,50 @@ function ReportGeneratorTab({
           </span>
         </label>
 
+        {globalScenarios.some((j) => j != null) ? (
+          <div className="rounded-lg border border-slate-800 bg-slate-950/30 p-3 space-y-2">
+            <button
+              type="button"
+              onClick={() => setRenameOpen((v) => !v)}
+              className="flex w-full items-center justify-between gap-2 text-left"
+            >
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                Renombrar resultados (solo este export)
+              </span>
+              <span className={`text-slate-500 transition-transform ${renameOpen ? "rotate-180" : ""}`}>▾</span>
+            </button>
+            {renameOpen ? (
+              <div className="space-y-1.5">
+                <p className="m-0 text-[10px] text-slate-500 leading-snug">
+                  Cambia cómo aparece cada resultado en los títulos de las imágenes. No modifica el escenario ni el alias guardado del resultado.
+                </p>
+                {globalScenarios.map((jid, idx) => {
+                  if (jid == null) return null;
+                  const job = availableJobs.find((j) => j.id === jid);
+                  const base =
+                    (job?.display_name?.trim() || job?.scenario_name || `Job ${jid}`);
+                  return (
+                    <label key={`${idx}-${jid}`} className="grid gap-0.5">
+                      <span className="text-[10px] text-slate-500">
+                        Escenario {idx + 1} · <span className="text-slate-400">{base}</span>
+                      </span>
+                      <input
+                        type="text"
+                        value={renameOverrides[jid] ?? ""}
+                        onChange={(e) =>
+                          setRenameOverrides((prev) => ({ ...prev, [jid]: e.target.value }))
+                        }
+                        placeholder={base}
+                        className="rounded border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-600"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {generateError ? (
           <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
             {generateError}
@@ -1761,6 +1951,38 @@ function ReportGeneratorTab({
           }}
         />
       ) : null}
+
+      <PreviewChartModal
+        open={previewTemplateInline !== null}
+        onClose={() => setPreviewTemplateInline(null)}
+        template={previewTemplateInline}
+        availableJobs={availableJobs}
+        loadingJobs={loadingJobs}
+        initialJobIds={
+          previewTemplateInline
+            ? (selectionData[previewTemplateInline.id]?.job_ids ?? []).filter(
+                (j): j is number => j != null,
+              )
+            : []
+        }
+      />
+
+      <ChartPickerModal
+        open={replaceTargetId != null}
+        onClose={() => setReplaceTargetId(null)}
+        title="Reemplazar gráfica"
+        templates={templates}
+        compatibleWith={
+          replaceTargetId != null
+            ? templates.find((t) => t.id === replaceTargetId) ?? null
+            : null
+        }
+        excludeIds={replaceTargetId != null ? [replaceTargetId] : undefined}
+        onPick={(tpl) => {
+          if (replaceTargetId != null) replaceTemplate(replaceTargetId, tpl);
+          setReplaceTargetId(null);
+        }}
+      />
     </div>
   );
 }

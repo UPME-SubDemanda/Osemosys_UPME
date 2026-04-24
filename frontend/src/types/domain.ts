@@ -458,6 +458,8 @@ export type SavedChartTemplate = {
   num_scenarios: number;
   legend_title: string | null;
   filename_mode: "result" | "tags" | null;
+  /** Título personalizado usado al renderizar en reportes (null → título auto). */
+  report_title?: string | null;
   created_at: string;
   /** Visibilidad: false = solo dueño, true = visible a todos (solo lectura). */
   is_public?: boolean;
@@ -478,6 +480,8 @@ export type SavedChartTemplateUpdate = {
   name?: string;
   description?: string | null;
   is_public?: boolean;
+  /** Enviar "" o null limpia el override. */
+  report_title?: string | null;
 };
 
 export type ReportTemplateItem = {
@@ -527,6 +531,11 @@ export type ReportRequest = {
   report_name?: string | null;
   organize_by_category?: boolean;
   categories?: ReportCategoryExport[];
+  /**
+   * Alias por job_id solo para este export; no muta el `display_name` real del
+   * resultado. Las claves son strings por el wire format (JSON).
+   */
+  job_display_overrides?: Record<string, string> | null;
 };
 
 /** Reporte guardado: colección ordenada de IDs de SavedChartTemplate. */

@@ -388,7 +388,7 @@ def export_chart(
     fmt: str = Query("png", description="Formato: png, svg o csv"),
     view_mode: str = Query(
         "column",
-        description="column (barras apiladas) o line (líneas); solo afecta png/svg",
+        description="column (barras apiladas), line (líneas) o pareto; solo afecta png/svg",
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -396,8 +396,10 @@ def export_chart(
     """Exporta la gráfica actual como imagen (Matplotlib) o CSV, sin depender del navegador."""
     if fmt not in ("png", "svg", "csv"):
         raise HTTPException(status_code=400, detail="fmt debe ser 'png', 'svg' o 'csv'")
-    if view_mode not in ("column", "line"):
-        raise HTTPException(status_code=400, detail="view_mode debe ser 'column' o 'line'")
+    if view_mode not in ("column", "line", "pareto"):
+        raise HTTPException(
+            status_code=400, detail="view_mode debe ser 'column', 'line' o 'pareto'"
+        )
 
     try:
         job = SimulationService.get_by_id(db, current_user=current_user, job_id=job_id)
@@ -405,6 +407,51 @@ def export_chart(
             raise HTTPException(status_code=400, detail="Job no está en estado SUCCEEDED")
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Job no encontrado o sin acceso")
+
+    # Rama Pareto: usa un dataset y renderer distintos (no hay "series apiladas").
+    if view_mode == "pareto":
+        try:
+            pareto = chart_service.build_pareto_data(
+                db=db,
+                job_id=job["id"],
+                tipo=tipo,
+                un=un,
+                sub_filtro=sub_filtro,
+                loc=loc,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        if not pareto.categories:
+            raise HTTPException(
+                status_code=404,
+                detail="Sin datos para exportar con los filtros actuales",
+            )
+
+        base_name = _safe_export_basename(pareto.title)
+        if fmt == "csv":
+            body = chart_service.pareto_data_to_csv_bytes(pareto)
+            filename = f"{base_name}.csv"
+            return StreamingResponse(
+                io.BytesIO(body),
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+
+        img_fmt = "svg" if fmt == "svg" else "png"
+        try:
+            img_bytes = chart_service.render_pareto_chart_bytes(pareto, fmt=img_fmt)
+        except Exception as e:
+            logger.exception("Error renderizando Pareto para export")
+            raise HTTPException(status_code=500, detail=str(e))
+
+        filename = f"{base_name}.{img_fmt}"
+        media = "image/svg+xml" if img_fmt == "svg" else "image/png"
+        return StreamingResponse(
+            io.BytesIO(img_bytes),
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     try:
         chart = chart_service.build_chart_data(

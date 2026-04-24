@@ -1,10 +1,15 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Highcharts from './highchartsSetup';
 import {
   EXPORTING_CONTEXT_BUTTON_DARK,
   INDIVIDUAL_CHART_EXPORT_MENU_ITEMS,
   onHighchartsExportError,
 } from './chartExportingShared';
+import { buildStackedSinglePointTooltipOptions } from './chartTooltips';
+import {
+  createLegendDblclickState,
+  dispatchLegendClick,
+} from './chartLegendInteractions';
 import HighchartsReact from 'highcharts-react-official';
 import type { CompareChartResponse } from '../../types/domain';
 
@@ -18,7 +23,43 @@ export const CompareChart: React.FC<CompareChartProps> = ({
   barOrientation = 'vertical',
 }) => {
   const inverted = barOrientation === 'horizontal';
+  const legendDblclickStateRef = useRef(createLegendDblclickState());
+
+  const allSeriesNames = useMemo(() => {
+    const names = new Set<string>();
+    data.subplots.forEach((sp) => sp.series.forEach((s) => names.add(s.name)));
+    return Array.from(names);
+  }, [data.subplots]);
+
+  const [hiddenNames, setHiddenNames] = useState<Set<string>>(() => new Set());
+  const dataSignature = allSeriesNames.join('|');
+  useEffect(() => {
+    setHiddenNames(new Set());
+    legendDblclickStateRef.current.isolatedName = null;
+  }, [dataSignature]);
+
+  const handleToggle = (name: string) => {
+    setHiddenNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+  const handleIsolate = (name: string) => {
+    setHiddenNames(new Set(allSeriesNames.filter((n) => n !== name)));
+  };
+  const handleRestoreAll = () => setHiddenNames(new Set());
+
   const options = useMemo<Highcharts.Options>(() => {
+    const legendItemClick = function (this: Highcharts.Series): boolean {
+      dispatchLegendClick(legendDblclickStateRef.current, this.name, {
+        onToggle: handleToggle,
+        onIsolate: handleIsolate,
+        onRestoreAll: handleRestoreAll,
+      });
+      return false;
+    };
     const numSubplots = data.subplots.length;
 
     const xAxis: Highcharts.XAxisOptions[] = [];
@@ -84,10 +125,8 @@ export const CompareChart: React.FC<CompareChartProps> = ({
           stacking: 'normal',
           borderWidth: 0,
           showInLegend: idx === 0,
-          tooltip: {
-            valueDecimals: 2,
-            valueSuffix: ` ${data.yAxisLabel}`,
-          },
+          visible: !hiddenNames.has(s.name),
+          custom: { subplotYear: subplot.year },
         });
       });
     });
@@ -109,8 +148,18 @@ export const CompareChart: React.FC<CompareChartProps> = ({
       },
       xAxis,
       yAxis,
-      tooltip: { shared: false },
+      tooltip: buildStackedSinglePointTooltipOptions({
+        unitLabel: data.yAxisLabel,
+        headerPrefix: (ctx) => {
+          const year = (ctx.series.userOptions as { custom?: { subplotYear?: number | string } })
+            .custom?.subplotYear;
+          return year != null ? String(year) : null;
+        },
+      }),
       plotOptions: {
+        series: {
+          events: { legendItemClick },
+        },
         column: {
           stacking: 'normal',
           borderWidth: 0,
@@ -146,7 +195,8 @@ export const CompareChart: React.FC<CompareChartProps> = ({
         itemHoverStyle: { color: '#f8fafc' },
       },
     };
-  }, [data, inverted]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, inverted, hiddenNames]);
 
   return (
     <div style={{ width: '100%' }}>

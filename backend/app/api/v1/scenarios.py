@@ -226,6 +226,7 @@ def create_scenario_from_excel(
     tag_ids: str | None = Form(default=None),
     simulation_type: str = Form(default="NATIONAL"),
     include_udc_reserve_margin: str = Form(default="false"),
+    collapse_timeslices: str | None = Form(default="true"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -268,6 +269,7 @@ def create_scenario_from_excel(
             imported_by=current_user.username,
             selected_sheet_name=sheet_name,
             scenario_id_override=sid,
+            collapse_timeslices=_collapse_timeslices_from_form(collapse_timeslices),
         )
         ScenarioService.sync_catalogs_from_scenario_values(db, scenario_id=sid)
         if _form_bool_flag(include_udc_reserve_margin):
@@ -340,6 +342,13 @@ def _form_bool_flag(value: str | None) -> bool:
     if value is None or value == "":
         return False
     return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _collapse_timeslices_from_form(value: str | None) -> bool:
+    """Default True: mismo comportamiento histórico al importar SAND desde Excel."""
+    if value is None or str(value).strip() == "":
+        return True
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 def _parse_tag_ids_csv(value: str | None) -> list[int]:
@@ -801,6 +810,7 @@ def update_scenario_from_excel(
     scenario_id: int,
     file: UploadFile = File(...),
     sheet_name: str = Form(...),
+    collapse_timeslices: str | None = Form(default="true"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -828,12 +838,14 @@ def update_scenario_from_excel(
         raise HTTPException(status_code=422, detail="El archivo está vacío.")
 
     try:
+        ct = _collapse_timeslices_from_form(collapse_timeslices)
         preview = OfficialImportService.preview_scenario_from_excel(
             db,
             scenario_id=scenario_id,
             filename=filename,
             content=content,
             selected_sheet_name=sheet_name,
+            collapse_timeslices=ct,
         )
         result = OfficialImportService.update_scenario_from_excel(
             db,
@@ -841,6 +853,7 @@ def update_scenario_from_excel(
             filename=filename,
             content=content,
             selected_sheet_name=sheet_name,
+            collapse_timeslices=ct,
         )
         ScenarioService.sync_catalogs_from_scenario_values(db, scenario_id=scenario_id)
         changed_param_names = sorted({row["param_name"] for row in preview["changes"]})
@@ -862,6 +875,7 @@ def preview_scenario_from_excel(
     scenario_id: int,
     file: UploadFile = File(...),
     sheet_name: str = Form(...),
+    collapse_timeslices: str | None = Form(default="true"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -894,6 +908,7 @@ def preview_scenario_from_excel(
             filename=filename,
             content=content,
             selected_sheet_name=sheet_name,
+            collapse_timeslices=_collapse_timeslices_from_form(collapse_timeslices),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

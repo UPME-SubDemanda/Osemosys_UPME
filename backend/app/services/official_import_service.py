@@ -613,11 +613,17 @@ def _parse_sand_rows(
     dtb_map: dict[str, int] | None = None,
     udc_map: dict[str, int] | None = None,
     create_missing_catalogs: bool = True,
+    collapse_timeslices: bool = True,
 ):
     """Generador que parsea filas SAND (hoja Parameters) y yield ParsedRow.
 
     Si ``create_missing_catalogs`` es True (import), crea catálogos faltantes.
     Si es False (update), solo resuelve IDs existentes.
+
+    Si ``collapse_timeslices`` es True (default), filas con distinto timeslice pero
+    mismo parámetro e índices (sin TS) se marcan con ``group_key`` para agregación
+    (promedio CapacityFactor, suma resto). Si es False, cada timeslice queda en fila
+    independiente (``group_key`` None).
 
     Yields: ParsedRow por cada fila válida del sheet.
     """
@@ -723,7 +729,7 @@ def _parse_sand_rows(
                     year_values[yr] = _to_float_with_param_default(row_values[col_idx], param_name)
 
         group_key: tuple | None = None
-        if has_timeslice_col and timeslice_code:
+        if collapse_timeslices and has_timeslice_col and timeslice_code:
             group_key = (
                 _normalize_key(param_name), region_name, technology_name,
                 fuel_name, emission_name, mode_code, storage_code,
@@ -794,11 +800,13 @@ def _import_sand_matrix_sheet(
     daytype_map: dict[str, int] | None = None,
     dtb_map: dict[str, int] | None = None,
     udc_map: dict[str, int] | None = None,
+    collapse_timeslices: bool = True,
 ) -> Scenario | None:
     """Importa hoja SAND (formato Parameters) usando inserción por lotes.
 
-    Siempre agrega todos los timeslices a 1 solo: promedia para
-    CapacityFactor y suma para los demás parámetros.
+    Si ``collapse_timeslices`` es True (default), agrega filas que comparten el mismo
+    parámetro e índices salvo timeslice: promedio para CapacityFactor y suma para el resto.
+    Si es False, conserva una fila por timeslice del Excel.
     """
     if fallback_scenario is None:
         fallback_scenario = Scenario(
@@ -826,9 +834,6 @@ def _import_sand_matrix_sheet(
         parsed_year = _to_int(raw)
         if parsed_year is not None and 1900 <= parsed_year <= 2200:
             year_cols.append((idx, parsed_year))
-
-    has_timeslice_col = "timeslice" in header_idx
-    need_aggregation = has_timeslice_col
 
     pending_batch: list[dict] = []
 
@@ -862,7 +867,7 @@ def _import_sand_matrix_sheet(
     _AggKey = tuple
     _agg_buffer: dict[_AggKey, list[dict]] = {}
 
-    def _flush_agg_group(group_key: _AggKey, rows_in_group: list[dict]) -> None:
+    def _flush_agg_group(_group_key: _AggKey, rows_in_group: list[dict]) -> None:
         if not rows_in_group:
             return
         param_name = rows_in_group[0]["param_name"]
@@ -910,6 +915,7 @@ def _import_sand_matrix_sheet(
         dtb_map=dtb_map,
         udc_map=udc_map,
         create_missing_catalogs=True,
+        collapse_timeslices=collapse_timeslices,
     ):
         if parsed.group_key is not None:
             row_entry = {
@@ -960,12 +966,13 @@ def _update_sand_matrix_sheet(
     daytype_map: dict[str, int] | None = None,
     dtb_map: dict[str, int] | None = None,
     udc_map: dict[str, int] | None = None,
+    collapse_timeslices: bool = True,
 ) -> dict:
     """Actualiza valores existentes en un escenario a partir de una hoja SAND.
 
     Aplica la misma lógica de parsing y agregación de timeslices que la
-    importación, pero en lugar de insertar ejecuta UPDATE-only. Los registros
-    no encontrados se registran como advertencias.
+    importación (según ``collapse_timeslices``), pero en lugar de insertar
+    ejecuta UPDATE-only. Los registros no encontrados se registran como advertencias.
 
     Retorna dict con contadores ``updated`` y ``not_found``.
     """
@@ -1117,6 +1124,7 @@ def _update_sand_matrix_sheet(
         dtb_map=dtb_map,
         udc_map=udc_map,
         create_missing_catalogs=False,
+        collapse_timeslices=collapse_timeslices,
     ):
         if parsed.group_key is not None:
             row_entry = {
@@ -1162,12 +1170,13 @@ def _preview_sand_matrix_sheet(
     daytype_map: dict[str, int] | None = None,
     dtb_map: dict[str, int] | None = None,
     udc_map: dict[str, int] | None = None,
+    collapse_timeslices: bool = True,
 ) -> dict:
     """Genera preview de cambios sin modificar la base de datos.
 
     Misma logica de parsing/agregacion que ``_update_sand_matrix_sheet``
-    pero recopila diffs ``(row_id, old_value, new_value, nombres)``
-    en vez de ejecutar UPDATEs.
+    (según ``collapse_timeslices``) pero recopila diffs
+    ``(row_id, old_value, new_value, nombres)`` en vez de ejecutar UPDATEs.
     """
     logger.info("🔎 [preview] Entrando a _preview_sand_matrix_sheet (scenario_id=%s).", scenario_id)
     logger.info("⏳ [2/3] Descargando datos del escenario desde la BD...")
@@ -1523,6 +1532,7 @@ def _preview_sand_matrix_sheet(
         dtb_map=dtb_map,
         udc_map=udc_map,
         create_missing_catalogs=False,
+        collapse_timeslices=collapse_timeslices,
     ):
         parsed_rows_first_pass += 1
         ids = parsed.ids
@@ -1674,6 +1684,7 @@ def _preview_sand_matrix_sheet(
         dtb_map=dtb_map,
         udc_map=udc_map,
         create_missing_catalogs=False,
+        collapse_timeslices=collapse_timeslices,
     ):
         parsed_rows_count += 1
         if parsed_rows_count % 500 == 0:
@@ -1801,12 +1812,13 @@ def _import_sand_matrix_sheet_to_parameter_value(
     dtb_map: dict[str, int],
     storage_map: dict[str, int],
     default_solver_id: int,
+    collapse_timeslices: bool = True,
 ) -> None:
     """Importa hoja SAND (Parameters) a `parameter_value` en lotes.
 
-    Reutiliza la lógica de agregación de timeslices:
-    - CapacityFactor: promedio.
-    - demás parámetros: suma.
+    Si ``collapse_timeslices`` es True (default), agrega filas que comparten el mismo
+    parámetro e índices salvo timeslice: CapacityFactor promedio, demás suma.
+    Si es False, conserva una fila por timeslice del Excel.
     """
     rows_iter = sheet.iter_rows(values_only=True)
     header_row = next(rows_iter, None)
@@ -1825,7 +1837,7 @@ def _import_sand_matrix_sheet_to_parameter_value(
             year_cols.append((idx, parsed_year))
 
     has_timeslice_col = "timeslice" in header_idx
-    need_aggregation = has_timeslice_col
+    need_aggregation = has_timeslice_col and collapse_timeslices
 
     pending_batch: list[dict] = []
 
@@ -2036,13 +2048,13 @@ def _import_sand_matrix_sheet_to_parameter_value(
                 stats.skipped += 1
             continue
 
+        # Sin id_timeslice en la clave: se agregan todos los timeslices del grupo.
         group_key: _AggKey = (
             int(parameter_id),
             int(id_region),
             id_technology,
             id_fuel,
             id_emission,
-            id_timeslice,
             id_daytype,
             id_season,
             id_dtb,
@@ -2146,6 +2158,7 @@ class OfficialImportService:
         scenario_id_override: int | None = None,
         use_default_scenario: bool = False,
         replace_scenario_data: bool = False,
+        collapse_timeslices: bool = True,
     ) -> dict[str, object]:
         workbook = load_workbook(filename=BytesIO(content), data_only=True, read_only=True)
         stats = ImportStats()
@@ -2715,6 +2728,7 @@ class OfficialImportService:
                     dtb_map=dtb_map,
                     storage_map=storage_map,
                     default_solver_id=default_solver_id,
+                    collapse_timeslices=collapse_timeslices,
                 )
             else:
                 should_run_notebook_preprocess = True
@@ -2735,6 +2749,7 @@ class OfficialImportService:
                     daytype_map=daytype_map,
                     dtb_map=dtb_map,
                     udc_map=udc_map,
+                    collapse_timeslices=collapse_timeslices,
                 )
             processed_sand_sheets.add(_normalize_key(sand_parameters_sheet.title))
 
@@ -2761,6 +2776,7 @@ class OfficialImportService:
                         dtb_map=dtb_map,
                         storage_map=storage_map,
                         default_solver_id=default_solver_id,
+                        collapse_timeslices=collapse_timeslices,
                     )
                 else:
                     should_run_notebook_preprocess = True
@@ -2781,6 +2797,7 @@ class OfficialImportService:
                         daytype_map=daytype_map,
                         dtb_map=dtb_map,
                         udc_map=udc_map,
+                        collapse_timeslices=collapse_timeslices,
                     )
 
         # Preprocesamiento tipo notebook (sets, matrices, emisiones a la entrada) al subir datos.
@@ -2812,6 +2829,7 @@ class OfficialImportService:
             "warnings": stats.warnings,
             "notebook_preprocess": notebook_preprocess,
             "notebook_preprocess_error": notebook_preprocess_error,
+            "collapse_timeslices": collapse_timeslices,
         }
 
     @staticmethod
@@ -2822,6 +2840,7 @@ class OfficialImportService:
         filename: str,
         content: bytes,
         selected_sheet_name: str,
+        collapse_timeslices: bool = True,
     ) -> dict:
         """Actualiza valores existentes de un escenario desde un Excel SAND.
 
@@ -2875,6 +2894,7 @@ class OfficialImportService:
             daytype_map=daytype_map,
             dtb_map=dtb_map,
             udc_map=udc_map,
+            collapse_timeslices=collapse_timeslices,
         )
 
         db.commit()
@@ -2895,6 +2915,7 @@ class OfficialImportService:
         filename: str,
         content: bytes,
         selected_sheet_name: str,
+        collapse_timeslices: bool = True,
     ) -> dict:
         """Genera preview de cambios desde un Excel SAND sin modificar datos.
 
@@ -2990,6 +3011,7 @@ class OfficialImportService:
             daytype_map=daytype_map,
             dtb_map=dtb_map,
             udc_map=udc_map,
+            collapse_timeslices=collapse_timeslices,
         )
         logger.info(
             "✅ [preview] Cálculo de diferencias completado en %.2f segundos (changes=%s, not_found=%s).",

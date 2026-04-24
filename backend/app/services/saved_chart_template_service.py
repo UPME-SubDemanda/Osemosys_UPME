@@ -69,6 +69,7 @@ def _chart_to_public_dict(
         "num_scenarios": obj.num_scenarios,
         "legend_title": obj.legend_title,
         "filename_mode": obj.filename_mode,
+        "report_title": obj.report_title,
         "created_at": obj.created_at,
         "is_public": bool(getattr(obj, "is_public", False)),
         "owner_username": owner_username,
@@ -104,27 +105,44 @@ class SavedChartTemplateService:
 
     @staticmethod
     def list_accessible(
-        db: Session, *, user_id: uuid.UUID
+        db: Session,
+        *,
+        user_id: uuid.UUID,
+        current_user: User | None = None,
     ) -> list[dict]:
         """Propias + públicas de otros usuarios; anota is_owner/owner/is_favorite.
+
+        Admin Reportes ve además todas las plantillas privadas ajenas (read-only),
+        para poder abrir/editar reportes que las referencian.
 
         Orden: **favoritos primero**, luego propios, luego por fecha desc.
         """
         fav_ids = _load_chart_favorite_ids(db, user_id=user_id)
+        is_admin_reports = bool(
+            current_user is not None
+            and (
+                getattr(current_user, "is_admin_reports", False)
+                or getattr(current_user, "can_manage_scenarios", False)
+            )
+        )
+        visibility_filter = (
+            None
+            if is_admin_reports
+            else or_(
+                SavedChartTemplate.user_id == user_id,
+                SavedChartTemplate.is_public.is_(True),
+            )
+        )
         stmt = (
             select(SavedChartTemplate, User.username)
             .join(User, User.id == SavedChartTemplate.user_id)
-            .where(
-                or_(
-                    SavedChartTemplate.user_id == user_id,
-                    SavedChartTemplate.is_public.is_(True),
-                )
-            )
             .order_by(
                 (SavedChartTemplate.user_id == user_id).desc(),
                 SavedChartTemplate.created_at.desc(),
             )
         )
+        if visibility_filter is not None:
+            stmt = stmt.where(visibility_filter)
         rows = db.execute(stmt).all()
         out = [
             _chart_to_public_dict(
@@ -141,9 +159,20 @@ class SavedChartTemplateService:
 
     @staticmethod
     def get_accessible(
-        db: Session, *, user_id: uuid.UUID, template_id: int
+        db: Session,
+        *,
+        user_id: uuid.UUID,
+        template_id: int,
+        current_user: User | None = None,
     ) -> tuple[SavedChartTemplate, str | None]:
-        """Devuelve (obj, owner_username) si el usuario la puede ver (dueño o pública)."""
+        """Devuelve (obj, owner_username) si el usuario la puede ver.
+
+        Reglas:
+          - dueño o plantilla pública → accesible;
+          - Admin Reportes (``is_admin_reports`` o ``can_manage_scenarios``) →
+            accede también a privadas ajenas (solo lectura — mutaciones siguen
+            restringidas en ``update``/``delete``).
+        """
         row = db.execute(
             select(SavedChartTemplate, User.username)
             .join(User, User.id == SavedChartTemplate.user_id)
@@ -153,7 +182,15 @@ class SavedChartTemplateService:
             raise NotFoundError("Plantilla de gráfica no encontrada.")
         obj, username = row
         if obj.user_id != user_id and not bool(getattr(obj, "is_public", False)):
-            raise NotFoundError("Plantilla de gráfica no encontrada.")
+            is_admin_reports = bool(
+                current_user is not None
+                and (
+                    getattr(current_user, "is_admin_reports", False)
+                    or getattr(current_user, "can_manage_scenarios", False)
+                )
+            )
+            if not is_admin_reports:
+                raise NotFoundError("Plantilla de gráfica no encontrada.")
         return obj, username
 
     @staticmethod
@@ -197,21 +234,56 @@ class SavedChartTemplateService:
     def update(
         db: Session,
         *,
-        user_id: uuid.UUID,
+        current_user: User,
         template_id: int,
-        name: str | None = None,
-        description: str | None = None,
-        is_public: bool | None = None,
+        data: dict,
     ) -> dict:
-        obj = SavedChartTemplateService.get_for_user(
-            db, user_id=user_id, template_id=template_id
+        """Actualiza una plantilla.
+
+        Reglas:
+          - El dueño puede cambiar todos los campos.
+          - Admin Reportes (``is_admin_reports`` o ``can_manage_scenarios``) puede
+            cambiar únicamente ``report_title`` sobre plantillas accesibles
+            (propias, públicas, o que él tenga visibilidad).
+        """
+        user_id = current_user.id
+        # Carga con semántica "accesible" para permitir admin_reports sobre no-propias.
+        row = db.execute(
+            select(SavedChartTemplate, User.username)
+            .join(User, User.id == SavedChartTemplate.user_id)
+            .where(SavedChartTemplate.id == template_id)
+        ).one_or_none()
+        if row is None:
+            raise NotFoundError("Plantilla de gráfica no encontrada.")
+        obj, username = row
+        is_owner = obj.user_id == user_id
+        is_admin_reports = bool(
+            getattr(current_user, "is_admin_reports", False)
+            or getattr(current_user, "can_manage_scenarios", False)
         )
-        if name is not None:
-            obj.name = name.strip()
-        if description is not None:
-            obj.description = description
-        if is_public is not None:
-            obj.is_public = bool(is_public)
+        is_public_template = bool(getattr(obj, "is_public", False))
+
+        if not is_owner and not (is_admin_reports and is_public_template):
+            raise NotFoundError("Plantilla de gráfica no encontrada.")
+
+        touches_general = any(
+            k in data for k in ("name", "description", "is_public")
+        )
+        if touches_general and not is_owner:
+            raise ForbiddenError(
+                "Solo el dueño puede cambiar nombre, descripción o visibilidad."
+            )
+
+        if "name" in data and data["name"] is not None:
+            obj.name = str(data["name"]).strip()
+        if "description" in data:
+            obj.description = data["description"]
+        if "is_public" in data and data["is_public"] is not None:
+            obj.is_public = bool(data["is_public"])
+        if "report_title" in data:
+            raw = data["report_title"]
+            cleaned = (raw or "").strip() if isinstance(raw, str) else None
+            obj.report_title = cleaned if cleaned else None
         db.commit()
         db.refresh(obj)
         username = SavedChartTemplateService._resolve_owner_username(
@@ -284,6 +356,7 @@ class SavedChartTemplateService:
         template: SavedChartTemplate,
         job_ids: list[int],
         fmt: str,
+        job_display_overrides: dict[int, str] | None = None,
     ) -> tuple[bytes, str]:
         """Renderiza una plantilla y devuelve (bytes, extensión-sin-punto)."""
         if template.compare_mode == "facet":
@@ -300,11 +373,15 @@ class SavedChartTemplateService:
                 loc=template.loc,
                 variable=template.variable,
                 agrupar_por=template.agrupar_por,
+                job_display_overrides=job_display_overrides,
             )
             if not facet_payload.facets or not any(f.series for f in facet_payload.facets):
                 raise ValueError(
                     f"Plantilla '{template.name}': sin datos con los filtros y escenarios seleccionados."
                 )
+            rt = (getattr(template, "report_title", None) or "").strip()
+            if rt:
+                facet_payload.title = rt
             img_bytes = chart_service.render_comparison_facet_figure_bytes(
                 facet_payload,
                 fmt=fmt,
@@ -331,6 +408,9 @@ class SavedChartTemplateService:
             raise ValueError(
                 f"Plantilla '{template.name}': sin datos con los filtros y escenario seleccionados."
             )
+        rt = (getattr(template, "report_title", None) or "").strip()
+        if rt:
+            chart.title = rt
         img_bytes = chart_service.render_chart_visualization_bytes(
             chart,
             fmt=fmt,
@@ -376,6 +456,7 @@ class SavedChartTemplateService:
         fmt: str,
         organize_by_category: bool = False,
         categories: list[ReportCategoryExport] | None = None,
+        job_display_overrides: dict[str, str] | None = None,
     ) -> tuple[io.BytesIO, str]:
         """Construye un ZIP con una imagen por plantilla.
 
@@ -397,6 +478,21 @@ class SavedChartTemplateService:
 
         if not effective_items:
             raise ValueError("El reporte debe tener al menos una gráfica.")
+
+        # Normalizar overrides: JSON trae claves como str; convertimos a int y
+        # descartamos valores vacíos (para que caiga al display_name real).
+        overrides_int: dict[int, str] | None = None
+        if job_display_overrides:
+            tmp: dict[int, str] = {}
+            for k, v in job_display_overrides.items():
+                try:
+                    key = int(k)
+                except (TypeError, ValueError):
+                    continue
+                clean = (v or "").strip()
+                if clean:
+                    tmp[key] = clean
+            overrides_int = tmp or None
 
         # Validar todas las plantillas (incluyendo públicas) y accesos antes de renderizar.
         rendered_by_template: dict[int, tuple[SavedChartTemplate, list[int]]] = {}
@@ -444,7 +540,11 @@ class SavedChartTemplateService:
             """Renderiza y escribe una imagen; devuelve el arcname o None si fue omitida."""
             try:
                 img_bytes, ext = SavedChartTemplateService._render_template(
-                    db, template=template, job_ids=job_ids, fmt=fmt
+                    db,
+                    template=template,
+                    job_ids=job_ids,
+                    fmt=fmt,
+                    job_display_overrides=overrides_int,
                 )
             except ValueError as e:
                 logger.warning("Skip plantilla %s durante reporte: %s", template.id, e)

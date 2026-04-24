@@ -284,6 +284,7 @@ export function ResultsPage() {
                 value={r.display_name ?? null}
                 onSaved={handleRunDisplayNameSaved}
                 compact
+                linkTo={paths.resultsDetail(r.id)}
               />
             ),
             filter: {

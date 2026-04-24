@@ -264,6 +264,27 @@ type ScenarioListParams = {
   permission_scope?: ScenarioPermissionScope;
   cantidad?: number;
   offset?: number;
+  /** Solo surte efecto con rol can_manage_scenarios; incluye OWNER_ONLY ajenos. */
+  include_private?: boolean;
+  /** Filtros multiselect (repiten query param al serializar). */
+  owners?: string[];
+  edit_policies?: ScenarioEditPolicy[];
+  simulation_types?: SimulationType[];
+  tag_ids?: number[];
+};
+
+export type ScenarioFacetsResponse = {
+  owners: string[];
+  edit_policies: string[];
+  simulation_types: string[];
+  tags: Array<{
+    id: number;
+    name: string;
+    color: string;
+    category_id: number;
+    category_name: string;
+    hierarchy_level: number;
+  }>;
 };
 
 /**
@@ -287,8 +308,38 @@ function decodeBase64JsonHeader<T>(rawHeader: string | undefined, fallback: T): 
   }
 }
 
+/** Serializa arrays como ?owners=a&owners=b (formato que FastAPI espera). */
+function repeatArrayParamsSerializer(params: Record<string, unknown>): string {
+  const out = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      for (const v of value) {
+        if (v === undefined || v === null) continue;
+        out.append(key, String(v));
+      }
+    } else {
+      out.append(key, String(value));
+    }
+  }
+  return out.toString();
+}
+
 async function listScenarios(params: ScenarioListParams = {}) {
-  const { data } = await httpClient.get<PaginatedResponse<Scenario>>("/scenarios", { params });
+  const { data } = await httpClient.get<PaginatedResponse<Scenario>>(
+    "/scenarios",
+    { params, paramsSerializer: repeatArrayParamsSerializer },
+  );
+  return data;
+}
+
+async function listScenarioFacets(
+  params: { include_private?: boolean } = {},
+): Promise<ScenarioFacetsResponse> {
+  const { data } = await httpClient.get<ScenarioFacetsResponse>(
+    "/scenarios/facets",
+    { params },
+  );
   return data;
 }
 
@@ -343,6 +394,7 @@ function extractTagAssignmentConflict(
 
 export const scenariosApi = {
   listScenarios,
+  listScenarioFacets,
   listScenarioTags,
   listScenarioTagCategories,
 

@@ -38,6 +38,7 @@ class OsemosysParamValueAudit(Base):
             "param_name",
             "created_at",
         ),
+        Index("ix_osemosys_param_audit_value_id", "id_osemosys_param_value"),
         {"schema": "osemosys"},
     )
 

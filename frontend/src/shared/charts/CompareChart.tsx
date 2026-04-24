@@ -82,6 +82,10 @@ export const CompareChart: React.FC<CompareChartProps> = ({
         },
         width: widthStr,
         left: leftStr,
+        // Mismo top/height que el yAxis para que el eje X quede alineado y
+        // deje espacio a la leyenda en la parte inferior.
+        top: '0%',
+        height: '86%',
         offset: 0,
         labels: { style: { color: '#94a3b8', fontSize: '13px' } },
         lineColor: '#334155',
@@ -96,6 +100,10 @@ export const CompareChart: React.FC<CompareChartProps> = ({
         },
         width: widthStr,
         left: leftStr,
+        // Reservamos el 14% inferior para la leyenda (en multi-axis los yAxis no
+        // ceden espacio automáticamente a la leyenda cuando se fija width/left).
+        top: '0%',
+        height: '86%',
         min: 0,
         gridLineColor: '#334155',
         labels: { style: { color: '#94a3b8', fontSize: '13px' } },

@@ -9,12 +9,14 @@ import { Modal } from "@/shared/components/Modal";
 import { Button } from "@/shared/components/Button";
 import { simulationApi } from "@/features/simulation/api/simulationApi";
 import { HighchartsChart } from "@/shared/charts/HighchartsChart";
+import { CompareChart } from "@/shared/charts/CompareChart";
 import { CompareChartFacet } from "@/shared/charts/CompareChartFacet";
 import { LineChart } from "@/shared/charts/LineChart";
 import { ParetoChart } from "@/shared/charts/ParetoChart";
 import type {
   ChartDataResponse,
   CompareChartFacetResponse,
+  CompareChartResponse,
   ParetoChartResponse,
   SavedChartTemplate,
   SimulationRun,
@@ -29,6 +31,10 @@ type Props = {
   loadingJobs: boolean;
   /** Si se pasa, los slots se pre-rellenan al abrir el modal. */
   initialJobIds?: number[] | undefined;
+  /** Alias a agregar al título (cuando la gráfica vive en reporte multi-escenario). */
+  scenarioAliasSuffix?: string | undefined;
+  /** Nombres (alias) por slot del template, paralelos a jobIds. */
+  scenarioNames?: string[] | undefined;
 };
 
 function partitionJobs(jobs: SimulationRun[]): {
@@ -78,10 +84,14 @@ export function PreviewChartModal({
   availableJobs,
   loadingJobs,
   initialJobIds,
+  scenarioAliasSuffix,
+  scenarioNames,
 }: Props) {
   const [jobIds, setJobIds] = useState<(number | null)[]>([]);
   const [single, setSingle] = useState<ChartDataResponse | null>(null);
   const [facet, setFacet] = useState<CompareChartFacetResponse | null>(null);
+  const [byYear, setByYear] = useState<CompareChartResponse | null>(null);
+  const [lineTotal, setLineTotal] = useState<ChartDataResponse | null>(null);
   const [pareto, setPareto] = useState<ParetoChartResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +129,54 @@ export function PreviewChartModal({
     setLoading(true);
     setError(null);
 
+    // Override del título cuando la plantilla tiene report_title + sufijo por
+    // alias (cuando está en un reporte multi-escenario y es single-chart).
+    const reportTitleOverride = template.report_title?.trim() || null;
+    const suffix = scenarioAliasSuffix?.trim() || null;
+    const applyTitle = <T extends { title?: string | null }>(d: T): T => {
+      const base = reportTitleOverride ?? (d.title ?? "");
+      const finalTitle = suffix ? `${base} — ${suffix}` : base;
+      if (reportTitleOverride || suffix) {
+        (d as { title?: string }).title = finalTitle;
+      }
+      return d;
+    };
+    const aliasOf = (i: number): string | null => {
+      const v = scenarioNames?.[i]?.trim();
+      return v && v.length > 0 ? v : null;
+    };
+    const applyFacetAliases = (d: CompareChartFacetResponse) => {
+      d.facets = d.facets.map((f, i) => {
+        const a = aliasOf(i);
+        return a
+          ? {
+              ...f,
+              display_name: a,
+              scenario_name: a,
+              scenario_tag_name: null,
+            }
+          : f;
+      });
+      return d;
+    };
+    const applySeriesAliases = <T extends { series: { name: string }[] }>(d: T): T => {
+      d.series = d.series.map((s, i) => {
+        const a = aliasOf(i);
+        return a ? { ...s, name: a } : s;
+      });
+      return d;
+    };
+    const applyByYearAliases = (d: CompareChartResponse): CompareChartResponse => {
+      d.subplots = d.subplots.map((sub) => ({
+        ...sub,
+        series: sub.series.map((s, i) => {
+          const a = aliasOf(i);
+          return a ? { ...s, name: a } : s;
+        }),
+      }));
+      return d;
+    };
+
     if (template.view_mode === "pareto" && template.compare_mode === "off") {
       const params: Record<string, string> = {
         tipo: template.tipo,
@@ -133,7 +191,7 @@ export function PreviewChartModal({
           params as Parameters<typeof simulationApi.getParetoData>[1],
         )
         .then((data) => {
-          setPareto(data);
+          setPareto(applyTitle(data));
           setSingle(null);
           setFacet(null);
         })
@@ -157,8 +215,52 @@ export function PreviewChartModal({
       simulationApi
         .getCompareFacetData(params as Parameters<typeof simulationApi.getCompareFacetData>[0])
         .then((data) => {
-          setFacet(data);
+          setFacet(applyTitle(applyFacetAliases(data)));
           setSingle(null);
+          setByYear(null);
+          setLineTotal(null);
+        })
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Error cargando gráfica.");
+        })
+        .finally(() => setLoading(false));
+    } else if (template.compare_mode === "by-year") {
+      const params: Record<string, string> = {
+        job_ids: ids.join(","),
+        tipo: template.tipo,
+        un: template.un,
+        years_to_plot: (template.years_to_plot ?? []).join(","),
+      };
+      if (template.sub_filtro) params.sub_filtro = template.sub_filtro;
+      if (template.loc) params.loc = template.loc;
+      if (template.agrupar_por) params.agrupacion = template.agrupar_por;
+      simulationApi
+        .getCompareData(params as Parameters<typeof simulationApi.getCompareData>[0])
+        .then((data) => {
+          setByYear(applyTitle(applyByYearAliases(data)));
+          setSingle(null);
+          setFacet(null);
+          setLineTotal(null);
+        })
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Error cargando gráfica.");
+        })
+        .finally(() => setLoading(false));
+    } else if (template.compare_mode === "line-total") {
+      const params: Record<string, string> = {
+        job_ids: ids.join(","),
+        tipo: template.tipo,
+        un: template.un,
+      };
+      if (template.sub_filtro) params.sub_filtro = template.sub_filtro;
+      if (template.loc) params.loc = template.loc;
+      simulationApi
+        .getCompareLineData(params as Parameters<typeof simulationApi.getCompareLineData>[0])
+        .then((data) => {
+          setLineTotal(applyTitle(applySeriesAliases(data)));
+          setSingle(null);
+          setFacet(null);
+          setByYear(null);
         })
         .catch((err: unknown) => {
           setError(err instanceof Error ? err.message : "Error cargando gráfica.");
@@ -180,8 +282,10 @@ export function PreviewChartModal({
           params as Parameters<typeof simulationApi.getChartData>[1],
         )
         .then((data) => {
-          setSingle(data);
+          setSingle(applyTitle(data));
           setFacet(null);
+          setByYear(null);
+          setLineTotal(null);
         })
         .catch((err: unknown) => {
           setError(err instanceof Error ? err.message : "Error cargando gráfica.");
@@ -305,11 +409,28 @@ export function PreviewChartModal({
               legendMode={
                 (template.facet_legend_mode ?? "shared") as "shared" | "perFacet"
               }
+              viewMode={template.view_mode === "line" ? "line" : "column"}
               serverFacetExport={{
                 jobIds: jobIds.filter((j): j is number => j != null),
                 selection: selection!,
               }}
               compactToolbar
+            />
+          ) : template.compare_mode === "by-year" && byYear ? (
+            <CompareChart
+              data={byYear}
+              barOrientation={
+                (template.bar_orientation ?? "vertical") as "vertical" | "horizontal"
+              }
+            />
+          ) : template.compare_mode === "line-total" && lineTotal ? (
+            <LineChart
+              data={lineTotal}
+              syntheticSeries={
+                template.synthetic_series
+                  ? template.synthetic_series.filter((s) => s.active !== false)
+                  : undefined
+              }
             />
           ) : template.view_mode === "pareto" && pareto ? (
             <ParetoChart
@@ -326,6 +447,11 @@ export function PreviewChartModal({
                 jobId: jobIds[0] as number,
                 selection: selection!,
               }}
+              syntheticSeries={
+                template.synthetic_series
+                  ? template.synthetic_series.filter((s) => s.active !== false)
+                  : undefined
+              }
             />
           ) : single ? (
             <HighchartsChart

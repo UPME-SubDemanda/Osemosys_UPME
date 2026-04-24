@@ -1,24 +1,188 @@
 """Procesamiento de resultados post-solve.
 
-Replica la celda 26 del notebook: extracción de variables,
-cálculo de variables intermedias, y construcción del dict
-de resultados compatible con el pipeline.
+Extrae TODAS las variables del modelo abstracto (`model_definition.py:331-556`)
+y las deja listas para persistencia. Además calcula variables derivadas
+(Dispatch, UnmetDemand, TotalCapacityAnnual, AccumulatedNewCapacity,
+ProductionByTechnology, UseByTechnology).
 
-Entrada: instancia resuelta + solver_result (de solver.solve_model) + lookups (region_id_by_name, etc.).
-Salida: dict con objective_value, coverage_ratio, dispatch, new_capacity, unmet_demand,
-        annual_emissions, sol (RateOfActivity, NewCapacity, UnmetDemand, AnnualEmissions),
-        intermediate_variables, model_timings.
+Salida: dict con `dispatch`, `new_capacity`, `unmet_demand`, `annual_emissions`
+(capas tipadas legacy para chart_service), `sol` (legacy),
+`intermediate_variables` (universal: nombre de variable → lista de entradas
+`{index, value}`) y `model_timings`. `VARIABLE_INDEX_NAMES` describe cómo
+interpretar cada índice para mapearlo a columnas tipadas en BD.
 """
 
 from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from typing import Iterable
 
 import pandas as pd
 import pyomo.environ as pyo
 
 logger = logging.getLogger(__name__)
+
+
+# ========================================================================
+#  Registro de variables del modelo
+# ========================================================================
+
+# Índices (en orden) para cada Var declarada en model_definition.create_abstract_model.
+# Los nombres coinciden con las dimensiones del modelo (REGION, TECHNOLOGY, FUEL, ...).
+# Se usa en `_build_output_rows` para mapear cada posición a una columna tipada.
+VARIABLE_INDEX_NAMES: dict[str, tuple[str, ...]] = {
+    # Capacity
+    "NumberOfNewTechnologyUnits": ("REGION", "TECHNOLOGY", "YEAR"),
+    "NewCapacity": ("REGION", "TECHNOLOGY", "YEAR"),
+    # Activity
+    "RateOfActivity": ("REGION", "TIMESLICE", "TECHNOLOGY", "MODE_OF_OPERATION", "YEAR"),
+    # Costing
+    "VariableOperatingCost": ("REGION", "TECHNOLOGY", "TIMESLICE", "YEAR"),
+    "SalvageValue": ("REGION", "TECHNOLOGY", "YEAR"),
+    "DiscountedSalvageValue": ("REGION", "TECHNOLOGY", "YEAR"),
+    "OperatingCost": ("REGION", "TECHNOLOGY", "YEAR"),
+    "CapitalInvestment": ("REGION", "TECHNOLOGY", "YEAR"),
+    "DiscountedCapitalInvestment": ("REGION", "TECHNOLOGY", "YEAR"),
+    "DiscountedOperatingCost": ("REGION", "TECHNOLOGY", "YEAR"),
+    "AnnualVariableOperatingCost": ("REGION", "TECHNOLOGY", "YEAR"),
+    "AnnualFixedOperatingCost": ("REGION", "TECHNOLOGY", "YEAR"),
+    "TotalDiscountedCostByTechnology": ("REGION", "TECHNOLOGY", "YEAR"),
+    "TotalDiscountedCost": ("REGION", "YEAR"),
+    # Reserve Margin
+    "TotalCapacityInReserveMargin": ("REGION", "YEAR"),
+    "DemandNeedingReserveMargin": ("REGION", "TIMESLICE", "YEAR"),
+    # RE Targets
+    "TotalREProductionAnnual": ("REGION", "YEAR"),
+    "RETotalProductionOfTargetFuelAnnual": ("REGION", "YEAR"),
+    "TotalTechnologyModelPeriodActivity": ("REGION", "TECHNOLOGY"),
+    # Emissions
+    "AnnualTechnologyEmissionByMode": (
+        "REGION", "TECHNOLOGY", "EMISSION", "MODE_OF_OPERATION", "YEAR",
+    ),
+    "AnnualTechnologyEmission": ("REGION", "TECHNOLOGY", "EMISSION", "YEAR"),
+    "AnnualTechnologyEmissionPenaltyByEmission": (
+        "REGION", "TECHNOLOGY", "EMISSION", "YEAR",
+    ),
+    "AnnualTechnologyEmissionsPenalty": ("REGION", "TECHNOLOGY", "YEAR"),
+    "DiscountedTechnologyEmissionsPenalty": ("REGION", "TECHNOLOGY", "YEAR"),
+    "AnnualEmissions": ("REGION", "EMISSION", "YEAR"),
+    "ModelPeriodEmissions": ("REGION", "EMISSION"),
+    # Storage
+    "NewStorageCapacity": ("REGION", "STORAGE", "YEAR"),
+    "SalvageValueStorage": ("REGION", "STORAGE", "YEAR"),
+    "StorageLevelYearStart": ("REGION", "STORAGE", "YEAR"),
+    "StorageLevelYearFinish": ("REGION", "STORAGE", "YEAR"),
+    "RateOfStorageCharge": (
+        "REGION", "STORAGE", "SEASON", "DAYTYPE", "DAILYTIMEBRACKET", "YEAR",
+    ),
+    "RateOfStorageDischarge": (
+        "REGION", "STORAGE", "SEASON", "DAYTYPE", "DAILYTIMEBRACKET", "YEAR",
+    ),
+    "NetChargeWithinYear": (
+        "REGION", "STORAGE", "SEASON", "DAYTYPE", "DAILYTIMEBRACKET", "YEAR",
+    ),
+    "NetChargeWithinDay": (
+        "REGION", "STORAGE", "SEASON", "DAYTYPE", "DAILYTIMEBRACKET", "YEAR",
+    ),
+    "StorageLevelSeasonStart": ("REGION", "STORAGE", "SEASON", "YEAR"),
+    "StorageLevelDayTypeStart": (
+        "REGION", "STORAGE", "SEASON", "DAYTYPE", "YEAR",
+    ),
+    "StorageLevelDayTypeFinish": (
+        "REGION", "STORAGE", "SEASON", "DAYTYPE", "YEAR",
+    ),
+    "StorageLowerLimit": ("REGION", "STORAGE", "YEAR"),
+    "StorageUpperLimit": ("REGION", "STORAGE", "YEAR"),
+    "AccumulatedNewStorageCapacity": ("REGION", "STORAGE", "YEAR"),
+    "CapitalInvestmentStorage": ("REGION", "STORAGE", "YEAR"),
+    "DiscountedCapitalInvestmentStorage": ("REGION", "STORAGE", "YEAR"),
+    "DiscountedSalvageValueStorage": ("REGION", "STORAGE", "YEAR"),
+    "TotalDiscountedStorageCost": ("REGION", "STORAGE", "YEAR"),
+    # Disposal / Recovery
+    "DisposalCost": ("REGION", "TECHNOLOGY", "YEAR"),
+    "DiscountedDisposalCost": ("REGION", "TECHNOLOGY", "YEAR"),
+    "RecoveryValue": ("REGION", "TECHNOLOGY", "YEAR"),
+    "DiscountedRecoveryValue": ("REGION", "TECHNOLOGY", "YEAR"),
+    # Derivadas (no son Pyomo Var pero el pipeline las trata igual)
+    "TotalCapacityAnnual": ("REGION", "TECHNOLOGY", "YEAR"),
+    "AccumulatedNewCapacity": ("REGION", "TECHNOLOGY", "YEAR"),
+    "ProductionByTechnology": ("REGION", "TECHNOLOGY", "FUEL", "TIMESLICE", "YEAR"),
+    "UseByTechnology": ("REGION", "TECHNOLOGY", "FUEL", "TIMESLICE", "YEAR"),
+    "RateOfProductionByTechnology": (
+        "REGION", "TECHNOLOGY", "FUEL", "TIMESLICE", "YEAR",
+    ),
+    "RateOfUseByTechnology": ("REGION", "TECHNOLOGY", "FUEL", "TIMESLICE", "YEAR"),
+}
+
+# Variables que ya se persisten con columnas tipadas dedicadas (pipeline las
+# toma de los bloques `dispatch`, `new_capacity`, `unmet_demand`,
+# `annual_emissions` del dict de resultados). No se repiten en
+# `intermediate_variables` para evitar duplicación.
+_LEGACY_TYPED_VARIABLES: frozenset[str] = frozenset(
+    {"Dispatch", "NewCapacity", "UnmetDemand", "AnnualEmissions"},
+)
+
+# Variables Pyomo declaradas siempre (independientes de has_storage / has_emissions).
+_ALWAYS_PYOMO_VARIABLES: tuple[str, ...] = (
+    "NumberOfNewTechnologyUnits",
+    "RateOfActivity",
+    "VariableOperatingCost",
+    "SalvageValue",
+    "DiscountedSalvageValue",
+    "OperatingCost",
+    "CapitalInvestment",
+    "DiscountedCapitalInvestment",
+    "DiscountedOperatingCost",
+    "AnnualVariableOperatingCost",
+    "AnnualFixedOperatingCost",
+    "TotalDiscountedCostByTechnology",
+    "TotalDiscountedCost",
+    "TotalCapacityInReserveMargin",
+    "DemandNeedingReserveMargin",
+    "TotalREProductionAnnual",
+    "RETotalProductionOfTargetFuelAnnual",
+    "TotalTechnologyModelPeriodActivity",
+    "DisposalCost",
+    "DiscountedDisposalCost",
+    "RecoveryValue",
+    "DiscountedRecoveryValue",
+)
+
+# Variables Pyomo sólo si el escenario define emisiones.
+_EMISSION_PYOMO_VARIABLES: tuple[str, ...] = (
+    "AnnualTechnologyEmissionByMode",
+    "AnnualTechnologyEmission",
+    "AnnualTechnologyEmissionPenaltyByEmission",
+    "AnnualTechnologyEmissionsPenalty",
+    "DiscountedTechnologyEmissionsPenalty",
+    "ModelPeriodEmissions",
+)
+
+# Variables Pyomo sólo si has_storage.
+_STORAGE_PYOMO_VARIABLES: tuple[str, ...] = (
+    "NewStorageCapacity",
+    "SalvageValueStorage",
+    "StorageLevelYearStart",
+    "StorageLevelYearFinish",
+    "RateOfStorageCharge",
+    "RateOfStorageDischarge",
+    "NetChargeWithinYear",
+    "NetChargeWithinDay",
+    "StorageLevelSeasonStart",
+    "StorageLevelDayTypeStart",
+    "StorageLevelDayTypeFinish",
+    "StorageLowerLimit",
+    "StorageUpperLimit",
+    "AccumulatedNewStorageCapacity",
+    "CapitalInvestmentStorage",
+    "DiscountedCapitalInvestmentStorage",
+    "DiscountedSalvageValueStorage",
+    "TotalDiscountedStorageCost",
+)
+
+# Umbral de poda: valores con magnitud menor no se persisten.
+_EPS = 1e-10
 
 
 def _coerce_year(value) -> int | None:
@@ -66,7 +230,6 @@ def _safe_extract(var_component) -> dict:
 def _variable_to_dataframe(variable, index_names: list[str] | None = None) -> pd.DataFrame:
     """Convierte variable Pyomo indexada o dict a DataFrame.
 
-    Replica la función variable_to_dataframe del notebook.
     Si variable es dict, las claves son tuplas (índices) y el valor el número.
     """
     rows = []
@@ -102,6 +265,22 @@ def _variable_to_dataframe(variable, index_names: list[str] | None = None) -> pd
     return pd.DataFrame(rows, columns=columns)
 
 
+def _index_as_list(key, n_expected: int) -> list:
+    """Normaliza la clave de Pyomo a lista. Convierte años a int.
+
+    Los índices con nombre de dimensión `YEAR` se normalizan a int con
+    ``_coerce_year`` para consistencia con el resto del pipeline.
+    """
+    if isinstance(key, tuple):
+        parts = list(key)
+    else:
+        parts = [key]
+    if len(parts) != n_expected:
+        # Índice inesperado — devolvemos tal cual; el consumidor decide.
+        return parts
+    return parts
+
+
 # ========================================================================
 #  Extracción de resultados principales
 # ========================================================================
@@ -111,7 +290,8 @@ def _extract_dispatch(
     region_id_by_name: dict[str, int],
     technology_id_by_name: dict[str, int],
 ) -> list[dict]:
-    """Extrae dispatch: actividad anual por (región, tecnología, año).
+    """Dispatch anual por (región, tecnología, año).
+
     Usa RateOfActivity × YearSplit para actividad por timeslice; suma por año.
     Asigna coste variable medio y el fuel 'principal' (OutputActivityRatio > 0) por (r,t,y).
     """
@@ -136,7 +316,7 @@ def _extract_dispatch(
     cost_by_rty: dict[tuple, float] = defaultdict(float)
 
     for (r, l, t, mo, y), roa in roa_raw.items():
-        if abs(roa) < 1e-10:
+        if abs(roa) < _EPS:
             continue
         ys = ys_data.get((l, y), 1.0) if ys_data else 1.0
         act = roa * ys
@@ -144,7 +324,6 @@ def _extract_dispatch(
         vc = vc_data.get((r, t, mo, y), 0.0) if vc_data else 0.0
         cost_by_rty[(r, t, y)] += act * vc
 
-    # Best fuel per (r, t, y)
     best_fuel: dict[tuple, str] = {}
     for (r, t, f, mo, y), oar_val in oar_data.items():
         if oar_val > 0:
@@ -154,7 +333,7 @@ def _extract_dispatch(
 
     results = []
     for (r, t, y), total_act in activity_by_rty.items():
-        if total_act < 1e-10:
+        if total_act < _EPS:
             continue
         avg_cost = cost_by_rty[(r, t, y)] / total_act if total_act > 0 else 0.0
         results.append({
@@ -204,6 +383,7 @@ def _compute_unmet_demand(
     region_id_by_name: dict[str, int],
 ) -> list[dict]:
     """Demanda insatisfecha = max(0, Demand - Production) por (r, fuel, y).
+
     Producción por fuel viene de RateOfActivity × OutputActivityRatio × YearSplit;
     demanda de Demand (param). Se agrega por (r, y) para el listado final.
     """
@@ -221,7 +401,7 @@ def _compute_unmet_demand(
 
     prod_by_rfy: dict[tuple, float] = defaultdict(float)
     for (r, l, t, mo, y), roa in roa_raw.items():
-        if abs(roa) < 1e-10:
+        if abs(roa) < _EPS:
             continue
         ys = ys_data.get((l, y), 1.0)
         for f, oar_val in oar_idx.get((r, t, mo, y), ()):
@@ -281,8 +461,41 @@ def _extract_annual_emissions(
 
 
 # ========================================================================
-#  Variables intermedias (celda 26 del notebook)
+#  Variables intermedias
 # ========================================================================
+
+def _extract_pyomo_variable(
+    instance: pyo.ConcreteModel,
+    var_name: str,
+) -> list[dict]:
+    """Extrae una Var Pyomo arbitraria al formato canónico `{index, value}`.
+
+    Aplica poda por |value| > _EPS. La longitud del índice se deduce del
+    registry ``VARIABLE_INDEX_NAMES``; si no hay registro, se usa la tupla
+    natural.
+    """
+    pyo_var = getattr(instance, var_name, None)
+    if pyo_var is None:
+        return []
+    raw = _safe_extract(pyo_var)
+    expected = VARIABLE_INDEX_NAMES.get(var_name)
+    n_expected = len(expected) if expected else 0
+    entries: list[dict] = []
+    for key, value in raw.items():
+        if abs(value) < _EPS:
+            continue
+        idx = _index_as_list(key, n_expected) if n_expected else (
+            list(key) if isinstance(key, tuple) else [key]
+        )
+        # Normalizar año a int cuando el registry indica posición YEAR.
+        if expected:
+            idx = [
+                _coerce_year(v) if name == "YEAR" else v
+                for v, name in zip(idx, expected)
+            ]
+        entries.append({"index": idx, "value": float(value)})
+    return entries
+
 
 def _compute_intermediate_variables(
     instance: pyo.ConcreteModel,
@@ -292,13 +505,37 @@ def _compute_intermediate_variables(
     emissions: list,
     has_storage: bool,
 ) -> dict[str, list]:
-    """Calcula variables intermedias para reportes: TotalCapacityAnnual, AccumulatedNewCapacity,
-    ProductionByTechnology, UseByTechnology, RateOfProduction/Use, emisiones por tecnología,
-    costos descontados, salvage; si has_storage, variables de almacenamiento.
-    Cada entrada es lista de {"index": [...], "value": float}.
+    """Registry-driven extraction of ALL model variables except the 4 typed ones.
+
+    Para cada variable en ``VARIABLE_INDEX_NAMES`` con contraparte Pyomo se
+    extrae tal cual. Adicionalmente se computan las derivadas
+    ``TotalCapacityAnnual``, ``AccumulatedNewCapacity``,
+    ``ProductionByTechnology``, ``UseByTechnology`` y sus alias
+    ``RateOfProductionByTechnology`` / ``RateOfUseByTechnology``.
     """
     out: dict[str, list] = {}
 
+    # ---- 1. Variables Pyomo (siempre) --------------------------------------
+    for var_name in _ALWAYS_PYOMO_VARIABLES:
+        entries = _extract_pyomo_variable(instance, var_name)
+        if entries:
+            out[var_name] = entries
+
+    # ---- 2. Variables Pyomo condicionales: emisiones -----------------------
+    if emissions:
+        for var_name in _EMISSION_PYOMO_VARIABLES:
+            entries = _extract_pyomo_variable(instance, var_name)
+            if entries:
+                out[var_name] = entries
+
+    # ---- 3. Variables Pyomo condicionales: storage -------------------------
+    if has_storage:
+        for var_name in _STORAGE_PYOMO_VARIABLES:
+            entries = _extract_pyomo_variable(instance, var_name)
+            if entries:
+                out[var_name] = entries
+
+    # ---- 4. Derivadas ------------------------------------------------------
     nc_raw = _safe_extract(instance.NewCapacity)
 
     ol_param = getattr(instance, "OperationalLife", None)
@@ -314,9 +551,8 @@ def _compute_intermediate_variables(
             continue
         year_pairs.append((y, int(y_num)))
 
-    # TotalCapacityAnnual + AccumulatedNewCapacity
-    tca_entries = []
-    anc_entries = []
+    tca_entries: list[dict] = []
+    anc_entries: list[dict] = []
     for r in regions:
         for t in technologies:
             ol = int(_coerce_number(ol_data.get((r, t), 1), default=1.0))
@@ -329,12 +565,17 @@ def _compute_intermediate_variables(
                     if 0 <= (int(y_num) - int(yy_num)) < ol
                 )
                 res = rc_data.get((r, t, y), 0.0)
-                tca_entries.append({"index": [r, t, y_num], "value": acc + res})
-                anc_entries.append({"index": [r, t, y_num], "value": acc})
-    out["TotalCapacityAnnual"] = tca_entries
-    out["AccumulatedNewCapacity"] = anc_entries
+                total = acc + res
+                if abs(total) >= _EPS:
+                    tca_entries.append({"index": [r, t, y_num], "value": float(total)})
+                if abs(acc) >= _EPS:
+                    anc_entries.append({"index": [r, t, y_num], "value": float(acc)})
+    if tca_entries:
+        out["TotalCapacityAnnual"] = tca_entries
+    if anc_entries:
+        out["AccumulatedNewCapacity"] = anc_entries
 
-    # ProductionByTechnology y UseByTechnology via RateOfActivity
+    # ProductionByTechnology / UseByTechnology (por timeslice).
     roa_raw = _safe_extract(instance.RateOfActivity)
 
     ys_param = getattr(instance, "YearSplit", None)
@@ -348,74 +589,31 @@ def _compute_intermediate_variables(
     iar_data = _safe_extract(iar_param) if iar_param and hasattr(iar_param, "extract_values") else {}
     iar_idx = _index_ratio_by_rtmoy(iar_data)
 
-    prod_by_rtfy: dict[tuple, float] = defaultdict(float)
-    use_by_rtfy: dict[tuple, float] = defaultdict(float)
-
+    prod_by: dict[tuple, float] = defaultdict(float)
+    use_by: dict[tuple, float] = defaultdict(float)
     for (r, l, t, mo, y), roa in roa_raw.items():
-        if abs(roa) < 1e-10:
+        if abs(roa) < _EPS:
             continue
         ys = ys_data.get((l, y), 1.0)
         for f, oar_val in oar_idx.get((r, t, mo, y), ()):
-            prod_by_rtfy[(r, t, f, y)] += roa * oar_val * ys
+            prod_by[(r, t, f, l, y)] += roa * oar_val * ys
         for f, iar_val in iar_idx.get((r, t, mo, y), ()):
-            use_by_rtfy[(r, t, f, y)] += roa * iar_val * ys
+            use_by[(r, t, f, l, y)] += roa * iar_val * ys
 
-    out["ProductionByTechnology"] = [
-        {"index": [r, t, f, "", _coerce_year(y)], "value": v}
-        for (r, t, f, y), v in prod_by_rtfy.items() if v > 1e-10
+    prod_entries = [
+        {"index": [r, t, f, l, _coerce_year(y)], "value": float(v)}
+        for (r, t, f, l, y), v in prod_by.items() if abs(v) >= _EPS
     ]
-    out["UseByTechnology"] = [
-        {"index": [r, t, f, "", _coerce_year(y)], "value": v}
-        for (r, t, f, y), v in use_by_rtfy.items() if v > 1e-10
+    use_entries = [
+        {"index": [r, t, f, l, _coerce_year(y)], "value": float(v)}
+        for (r, t, f, l, y), v in use_by.items() if abs(v) >= _EPS
     ]
-    out["RateOfProductionByTechnology"] = out["ProductionByTechnology"]
-    out["RateOfUseByTechnology"] = out["UseByTechnology"]
-
-    # Emissions variables
-    if emissions:
-        for var_name in ("AnnualTechnologyEmission",
-                         "AnnualTechnologyEmissionPenaltyByEmission"):
-            pyo_var = getattr(instance, var_name, None)
-            if pyo_var is None:
-                continue
-            vals = _safe_extract(pyo_var)
-            entries = [
-                {"index": list(k), "value": v}
-                for k, v in vals.items() if abs(v) > 1e-10
-            ]
-            if entries:
-                out[var_name] = entries
-
-    # Cost / salvage variables
-    for var_name in ("DiscountedOperatingCost", "DiscountedCapitalInvestment",
-                     "SalvageValue", "DiscountedSalvageValue"):
-        pyo_var = getattr(instance, var_name, None)
-        if pyo_var is None:
-            continue
-        vals = _safe_extract(pyo_var)
-        entries = [
-            {"index": list(k), "value": v}
-            for k, v in vals.items() if abs(v) > 1e-10
-        ]
-        if entries:
-            out[var_name] = entries
-
-    # Storage variables
-    if has_storage:
-        for var_name in (
-            "StorageUpperLimit", "StorageLowerLimit",
-            "StorageLevelYearStart", "StorageLevelYearFinish",
-            "SalvageValueStorage", "DiscountedSalvageValueStorage",
-            "TotalDiscountedStorageCost", "NewStorageCapacity",
-            "CapitalInvestmentStorage", "AccumulatedNewStorageCapacity",
-        ):
-            pyo_var = getattr(instance, var_name, None)
-            if pyo_var is None:
-                continue
-            vals = _safe_extract(pyo_var)
-            entries = [{"index": list(k), "value": v} for k, v in vals.items()]
-            if entries:
-                out[var_name] = entries
+    if prod_entries:
+        out["ProductionByTechnology"] = prod_entries
+        out["RateOfProductionByTechnology"] = prod_entries
+    if use_entries:
+        out["UseByTechnology"] = use_entries
+        out["RateOfUseByTechnology"] = use_entries
 
     return out
 
@@ -436,12 +634,21 @@ def process_results(
     region_id_by_name: dict[str, int],
     technology_id_by_name: dict[str, int],
     region_name_by_id: dict[int, str],
+    fuel_id_by_name: dict[str, int] | None = None,
+    emission_id_by_name: dict[str, int] | None = None,
+    timeslice_id_by_name: dict[str, int] | None = None,
+    mode_of_operation_id_by_name: dict[str, int] | None = None,
+    season_id_by_name: dict[str, int] | None = None,
+    daytype_id_by_name: dict[str, int] | None = None,
+    dailytimebracket_id_by_name: dict[str, int] | None = None,
+    storage_id_by_name: dict[str, int] | None = None,
 ) -> dict:
     """Construye el dict de resultados compatible con el pipeline.
 
-    Retorna la misma estructura que el run_model() anterior.
-    Pasos: extrae dispatch, new_capacity, unmet_demand, annual_emissions; calcula coverage_ratio
-    y total_demand; construye sol (listas con index + value); calcula intermediate_variables y timings.
+    Retorna la misma estructura que antes (dispatch, new_capacity,
+    unmet_demand, annual_emissions, sol, intermediate_variables,
+    model_timings) pero ``intermediate_variables`` contiene ahora todas las
+    variables del modelo extraíbles.
     """
     from time import perf_counter
     timings: dict[str, float] = {}
@@ -461,7 +668,6 @@ def process_results(
     )
     timings["extract_results_seconds"] = perf_counter() - t
 
-    # Añadir region_name a cada fila para exportación a CSV (resultados/)
     for row in dispatch:
         row["region_name"] = region_name_by_id.get(row["region_id"], "")
     for row in new_capacity:
@@ -485,7 +691,6 @@ def process_results(
     if total_demand > 0:
         coverage_ratio = max(0.0, min(1.0, (total_demand - total_unmet) / total_demand))
 
-    # Build sol dict
     sol: dict[str, list] = {
         "RateOfActivity": [],
         "NewCapacity": [],
@@ -527,6 +732,22 @@ def process_results(
     )
     timings["intermediate_vars_seconds"] = perf_counter() - t
 
+    # Lookups usados por el pipeline para persistir columnas tipadas de
+    # intermediate_variables. Se incluyen aquí para evitar que el pipeline
+    # tenga que volver a cargar catálogos. Todos son dict[str, int].
+    lookups = {
+        "REGION": dict(region_id_by_name),
+        "TECHNOLOGY": dict(technology_id_by_name),
+        "FUEL": dict(fuel_id_by_name or {}),
+        "EMISSION": dict(emission_id_by_name or {}),
+        "TIMESLICE": dict(timeslice_id_by_name or {}),
+        "MODE_OF_OPERATION": dict(mode_of_operation_id_by_name or {}),
+        "SEASON": dict(season_id_by_name or {}),
+        "DAYTYPE": dict(daytype_id_by_name or {}),
+        "DAILYTIMEBRACKET": dict(dailytimebracket_id_by_name or {}),
+        "STORAGE": dict(storage_id_by_name or {}),
+    }
+
     result = {
         "objective_value": solver_result["objective_value"],
         "solver_name": solver_result["solver_name"],
@@ -542,6 +763,7 @@ def process_results(
         "sol": sol,
         "intermediate_variables": intermediate_variables,
         "model_timings": timings,
+        "dimension_lookups": lookups,
     }
     if solver_result.get("infeasibility_diagnostics"):
         result["infeasibility_diagnostics"] = solver_result["infeasibility_diagnostics"]

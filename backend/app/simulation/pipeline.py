@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.models import OsemosysParamValue, OsemosysOutputParamValue, SimulationJob
 from app.repositories.simulation_repository import SimulationRepository
 from app.simulation.core.data_processing import PARAM_INDEX
+from app.simulation.core.results_processing import VARIABLE_INDEX_NAMES
 from app.simulation.osemosys_core import run_osemosys_from_csv_dir, run_osemosys_from_db
 
 logger = logging.getLogger(__name__)
@@ -112,84 +113,126 @@ def _check_cancel_requested(db: Session, *, job_id: int) -> None:
         raise RuntimeError("JOB_CANCELLED")
 
 
+def _empty_row_template(job_id: int, variable_name: str) -> dict[str, Any]:
+    """Fila con todas las columnas nullables de osemosys_output_param_value inicializadas a None."""
+    return {
+        "id_simulation_job": job_id,
+        "variable_name": variable_name,
+        "id_region": None,
+        "id_technology": None,
+        "id_fuel": None,
+        "id_emission": None,
+        "id_timeslice": None,
+        "id_mode_of_operation": None,
+        "id_storage": None,
+        "id_season": None,
+        "id_daytype": None,
+        "id_dailytimebracket": None,
+        "technology_name": None,
+        "fuel_name": None,
+        "emission_name": None,
+        "year": None,
+        "value": 0.0,
+        "value2": None,
+        "index_json": None,
+    }
+
+
 def _build_output_rows(
     solution: dict[str, Any],
     job_id: int,
 ) -> list[dict]:
     """Construye la lista de dicts para bulk insert en osemosys_output_param_value."""
     rows: list[dict] = []
+    lookups: dict[str, dict[str, int]] = solution.get("dimension_lookups", {}) or {}
+    fuel_lookup = lookups.get("FUEL", {})
 
     for row in solution.get("dispatch", []):
-        rows.append({
-            "id_simulation_job": job_id,
-            "variable_name": "Dispatch",
-            "id_region": row.get("region_id"),
-            "id_technology": row.get("technology_id"),
-            "technology_name": row.get("technology_name"),
-            "fuel_name": row.get("fuel_name"),
-            "year": row.get("year"),
-            "value": float(row.get("dispatch", 0.0)),
-            "value2": float(row.get("cost", 0.0)),
-            "index_json": None,
-        })
+        r = _empty_row_template(job_id, "Dispatch")
+        r["id_region"] = row.get("region_id")
+        r["id_technology"] = row.get("technology_id")
+        r["technology_name"] = row.get("technology_name")
+        r["fuel_name"] = row.get("fuel_name")
+        if row.get("fuel_name") and fuel_lookup:
+            fid = fuel_lookup.get(row["fuel_name"])
+            if fid is not None:
+                r["id_fuel"] = int(fid)
+        r["year"] = row.get("year")
+        r["value"] = float(row.get("dispatch", 0.0))
+        r["value2"] = float(row.get("cost", 0.0))
+        rows.append(r)
 
     for row in solution.get("new_capacity", []):
-        rows.append({
-            "id_simulation_job": job_id,
-            "variable_name": "NewCapacity",
-            "id_region": row.get("region_id"),
-            "id_technology": row.get("technology_id"),
-            "technology_name": row.get("technology_name"),
-            "fuel_name": None,
-            "year": row.get("year"),
-            "value": float(row.get("new_capacity", 0.0)),
-            "value2": None,
-            "index_json": None,
-        })
+        r = _empty_row_template(job_id, "NewCapacity")
+        r["id_region"] = row.get("region_id")
+        r["id_technology"] = row.get("technology_id")
+        r["technology_name"] = row.get("technology_name")
+        r["year"] = row.get("year")
+        r["value"] = float(row.get("new_capacity", 0.0))
+        rows.append(r)
 
     for row in solution.get("unmet_demand", []):
-        rows.append({
-            "id_simulation_job": job_id,
-            "variable_name": "UnmetDemand",
-            "id_region": row.get("region_id"),
-            "id_technology": None,
-            "technology_name": None,
-            "fuel_name": None,
-            "year": row.get("year"),
-            "value": float(row.get("unmet_demand", 0.0)),
-            "value2": None,
-            "index_json": None,
-        })
+        r = _empty_row_template(job_id, "UnmetDemand")
+        r["id_region"] = row.get("region_id")
+        r["year"] = row.get("year")
+        r["value"] = float(row.get("unmet_demand", 0.0))
+        rows.append(r)
 
     for row in solution.get("annual_emissions", []):
-        rows.append({
-            "id_simulation_job": job_id,
-            "variable_name": "AnnualEmissions",
-            "id_region": row.get("region_id"),
-            "id_technology": None,
-            "technology_name": None,
-            "fuel_name": None,
-            "year": row.get("year"),
-            "value": float(row.get("annual_emissions", 0.0)),
-            "value2": None,
-            "index_json": None,
-        })
+        r = _empty_row_template(job_id, "AnnualEmissions")
+        r["id_region"] = row.get("region_id")
+        r["year"] = row.get("year")
+        r["value"] = float(row.get("annual_emissions", 0.0))
+        rows.append(r)
+
+
+    # Mapeo de nombre de dimensión del registry → columna de OsemosysOutputParamValue.
+    _DIM_TO_ID_COL = {
+        "REGION": "id_region",
+        "TECHNOLOGY": "id_technology",
+        "FUEL": "id_fuel",
+        "EMISSION": "id_emission",
+        "TIMESLICE": "id_timeslice",
+        "MODE_OF_OPERATION": "id_mode_of_operation",
+        "SEASON": "id_season",
+        "DAYTYPE": "id_daytype",
+        "DAILYTIMEBRACKET": "id_dailytimebracket",
+        "STORAGE": "id_storage",
+    }
+    _DIM_TO_NAME_COL = {
+        "TECHNOLOGY": "technology_name",
+        "FUEL": "fuel_name",
+        "EMISSION": "emission_name",
+    }
 
     for var_name, entries in solution.get("intermediate_variables", {}).items():
+        index_names = VARIABLE_INDEX_NAMES.get(var_name, ())
         for entry in entries:
-            rows.append({
-                "id_simulation_job": job_id,
-                "variable_name": var_name,
-                "id_region": None,
-                "id_technology": None,
-                "technology_name": None,
-                "fuel_name": None,
-                "emission_name": None,
-                "year": None,
-                "value": float(entry.get("value", 0.0)),
-                "value2": None,
-                "index_json": entry.get("index"),
-            })
+            idx = entry.get("index") or []
+            row = _empty_row_template(job_id, var_name)
+            row["value"] = float(entry.get("value", 0.0))
+            row["index_json"] = idx
+            if index_names and len(idx) == len(index_names):
+                for dim, raw_val in zip(index_names, idx):
+                    if raw_val is None:
+                        continue
+                    if dim == "YEAR":
+                        try:
+                            row["year"] = int(raw_val)
+                        except (TypeError, ValueError):
+                            pass
+                        continue
+                    name = str(raw_val) if raw_val != "" else None
+                    id_col = _DIM_TO_ID_COL.get(dim)
+                    if id_col and name is not None:
+                        lk = lookups.get(dim, {})
+                        found = lk.get(name)
+                        if found is not None:
+                            row[id_col] = int(found)
+                    name_col = _DIM_TO_NAME_COL.get(dim)
+                    if name_col and name is not None:
+                        row[name_col] = name
+            rows.append(row)
 
     return rows
 

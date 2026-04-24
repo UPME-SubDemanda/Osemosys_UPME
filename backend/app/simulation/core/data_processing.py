@@ -231,6 +231,12 @@ class ProcessingResult:
     technology_id_by_name: dict[str, int] = field(default_factory=dict)
     fuel_id_by_name: dict[str, int] = field(default_factory=dict)
     emission_id_by_name: dict[str, int] = field(default_factory=dict)
+    timeslice_id_by_name: dict[str, int] = field(default_factory=dict)
+    mode_of_operation_id_by_name: dict[str, int] = field(default_factory=dict)
+    season_id_by_name: dict[str, int] = field(default_factory=dict)
+    daytype_id_by_name: dict[str, int] = field(default_factory=dict)
+    dailytimebracket_id_by_name: dict[str, int] = field(default_factory=dict)
+    storage_id_by_name: dict[str, int] = field(default_factory=dict)
     region_name_by_id: dict[int, str] = field(default_factory=dict)
     technology_name_by_id: dict[int, str] = field(default_factory=dict)
     fuel_name_by_id: dict[int, str] = field(default_factory=dict)
@@ -587,6 +593,12 @@ def export_scenario_to_csv(
         technology_id_by_name=lookups["TECHNOLOGY"]["name_to_id"],
         fuel_id_by_name=lookups["FUEL"]["name_to_id"],
         emission_id_by_name=lookups["EMISSION"]["name_to_id"],
+        timeslice_id_by_name=lookups["TIMESLICE"]["name_to_id"],
+        mode_of_operation_id_by_name=lookups["MODE_OF_OPERATION"]["name_to_id"],
+        season_id_by_name=lookups["SEASON"]["name_to_id"],
+        daytype_id_by_name=lookups["DAYTYPE"]["name_to_id"],
+        dailytimebracket_id_by_name=lookups["DAILYTIMEBRACKET"]["name_to_id"],
+        storage_id_by_name=lookups["STORAGE"]["name_to_id"],
         region_name_by_id=lookups["REGION"]["id_to_name"],
         technology_name_by_id=lookups["TECHNOLOGY"]["id_to_name"],
         fuel_name_by_id=lookups["FUEL"]["id_to_name"],
@@ -1158,6 +1170,12 @@ def _build_processing_result_from_csv_dir(csv_dir: str) -> ProcessingResult:
     technology_id_by_name, technology_name_by_id = _lookups_from_list(sets.get("TECHNOLOGY", []))
     fuel_id_by_name, fuel_name_by_id = _lookups_from_list(sets.get("FUEL", []))
     emission_id_by_name, emission_name_by_id = _lookups_from_list(sets.get("EMISSION", []))
+    timeslice_id_by_name, _ = _lookups_from_list(sets.get("TIMESLICE", []))
+    mode_of_operation_id_by_name, _ = _lookups_from_list(sets.get("MODE_OF_OPERATION", []))
+    season_id_by_name, _ = _lookups_from_list(sets.get("SEASON", []))
+    daytype_id_by_name, _ = _lookups_from_list(sets.get("DAYTYPE", []))
+    dailytimebracket_id_by_name, _ = _lookups_from_list(sets.get("DAILYTIMEBRACKET", []))
+    storage_id_by_name, _ = _lookups_from_list(sets.get("STORAGE", []))
     storage_name_by_id = dict(enumerate(sets.get("STORAGE", []), start=1)) if sets.get("STORAGE") else {}
 
     param_count = sum(
@@ -1174,6 +1192,12 @@ def _build_processing_result_from_csv_dir(csv_dir: str) -> ProcessingResult:
         technology_id_by_name=technology_id_by_name,
         fuel_id_by_name=fuel_id_by_name,
         emission_id_by_name=emission_id_by_name,
+        timeslice_id_by_name=timeslice_id_by_name,
+        mode_of_operation_id_by_name=mode_of_operation_id_by_name,
+        season_id_by_name=season_id_by_name,
+        daytype_id_by_name=daytype_id_by_name,
+        dailytimebracket_id_by_name=dailytimebracket_id_by_name,
+        storage_id_by_name=storage_id_by_name,
         region_name_by_id=region_name_by_id,
         technology_name_by_id=technology_name_by_id,
         fuel_name_by_id=fuel_name_by_id,

@@ -23,7 +23,7 @@ export interface ChartSelection {
   sub_filtro?: string;
   loc?: string;
   variable?: string;
-  viewMode?: 'column' | 'line' | 'pareto';
+  viewMode?: 'column' | 'line' | 'area' | 'pareto';
   /** Agrupación enviada al backend: 'TECNOLOGIA' | 'COMBUSTIBLE' | 'FUEL' | 'GROUP' */
   agrupar_por?: string;
 }

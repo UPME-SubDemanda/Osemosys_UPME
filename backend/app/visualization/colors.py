@@ -186,13 +186,8 @@ COLORES_GRUPOS = {
 
 
 def asignar_grupo(nombre: str) -> str:
-    """Retorna la clave del combustible que aparece dentro de *nombre*.
-
-    Usa la paleta desde BD (con fallback a ``COLORES_GRUPOS``).
-    """
-    from app.visualization.catalog_reader import get_colores_grupos
-    grupos = get_colores_grupos()
-    for grupo in grupos:
+    """Retorna la clave del combustible que aparece dentro de *nombre*."""
+    for grupo in COLORES_GRUPOS:
         if grupo in nombre:
             return grupo
     return "OTRO"
@@ -203,8 +198,6 @@ def generar_colores_tecnologias(df, columna: str = "COLOR"):
 
     Usa solo colorsys (stdlib) en lugar de matplotlib/numpy.
     """
-    from app.visualization.catalog_reader import get_colores_grupos
-    colores_grupos = get_colores_grupos()
     df = df.copy()
     df["GRUPO"] = df[columna].apply(asignar_grupo)
     color_dict: dict[str, str] = {}
@@ -212,7 +205,7 @@ def generar_colores_tecnologias(df, columna: str = "COLOR"):
 
     for grupo in sorted(df["GRUPO"].unique()):
         subitems = sorted(df[df["GRUPO"] == grupo][columna].unique())
-        base_color = colores_grupos.get(grupo, "#999999")
+        base_color = COLORES_GRUPOS.get(grupo, "#999999")
         rgb = _hex_to_rgb(base_color)
         h, l, s = colorsys.rgb_to_hls(*rgb)
         n = len(subitems)
@@ -249,8 +242,8 @@ def _ordered_color_list(
 
 def _color_por_sector(df, columna: str = "COLOR"):
     """Paleta fija según COLORES_SECTOR — para gráficas agrupadas por sector."""
-    from app.visualization.catalog_reader import get_colores_sector
-    return _ordered_color_list(get_colores_sector(), df, columna)
+    from app.visualization.configs_comparacion import COLORES_SECTOR  # lazy: evita circular
+    return _ordered_color_list(COLORES_SECTOR, df, columna)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -274,16 +267,13 @@ COLORES_EMISIONES = {
 
 def _color_por_emision(df, columna: str = "COLOR"):
     """Paleta fija por tipo de emisión (GEI y contaminantes criterio)."""
-    from app.visualization.catalog_reader import get_colores_emisiones
-    return _ordered_color_list(get_colores_emisiones(), df, columna)
+    return _ordered_color_list(COLORES_EMISIONES, df, columna)
 
 
 def _color_por_grupo_fijo(df, columna: str = "COLOR"):
     """Paleta fija según COLORES_GRUPOS — para gas y refinerías."""
-    from app.visualization.catalog_reader import get_colores_grupos
-    colores_grupos = get_colores_grupos()
     grupos_presentes = df[columna].unique()
-    colores = [colores_grupos.get(g, "#333333") for g in grupos_presentes]
+    colores = [COLORES_GRUPOS.get(g, "#333333") for g in grupos_presentes]
     return colores, list(grupos_presentes)
 
 
@@ -296,15 +286,12 @@ def _color_electricidad(df, columna: str = "COLOR"):
     """
     Aplica colores por familias a tecnologías de generación eléctrica.
 
-    Usa COLOR_MAP_PWR y FAMILIAS_TEC leídos desde BD (con fallback).
+    Usa COLOR_MAP_PWR que agrupa tecnologías por familia
+    (Solar, Hidro, Eólica, Térmica Fósil, Nuclear, Biomasa, Otras).
     """
-    from app.visualization.catalog_reader import get_color_map_pwr, get_familias_tec
-
-    familias = get_familias_tec()
-    color_map = get_color_map_pwr()
-
     tecnologias_presentes = df[columna].unique()
 
+    # Ordenar tecnologías por familia para mejor visualización
     orden_familias = [
         "SOLAR",
         "HIDRO",
@@ -315,16 +302,20 @@ def _color_electricidad(df, columna: str = "COLOR"):
         "OTRAS",
     ]
 
+    # Crear orden basado en familias
     orden_final: list[str] = []
     for familia in orden_familias:
-        techs_familia = [t for t in familias.get(familia, []) if t in tecnologias_presentes]
+        techs_familia = [t for t in FAMILIAS_TEC[familia] if t in tecnologias_presentes]
         orden_final.extend(sorted(techs_familia))
 
-    techs_clasificadas = {t for fam in familias.values() for t in fam}
+    # Agregar tecnologías no clasificadas al final
+    techs_clasificadas = {t for fam in FAMILIAS_TEC.values() for t in fam}
     techs_no_clasificadas = [
         t for t in tecnologias_presentes if t not in techs_clasificadas
     ]
     orden_final.extend(sorted(techs_no_clasificadas))
 
-    colores = [color_map.get(t, "#CCCCCC") for t in orden_final]
+    # Generar lista de colores en el orden correcto
+    colores = [COLOR_MAP_PWR.get(t, "#CCCCCC") for t in orden_final]
+
     return colores, orden_final

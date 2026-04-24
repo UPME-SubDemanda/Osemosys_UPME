@@ -802,21 +802,17 @@ export const scenariosApi = {
     // Serializa listas como CSV; axios de otro modo emite `?k[]=a&k[]=b`.
     const { param_names, region_names, technology_names, fuel_names, emission_names, udc_names, ...rest } = params;
     const csv = (v?: string[]) => (v && v.length ? v.join(",") : undefined);
-    const builtParams = {
-      ...rest,
-      ...(csv(param_names) ? { param_names: csv(param_names) } : {}),
-      ...(csv(region_names) ? { region_names: csv(region_names) } : {}),
-      ...(csv(technology_names) ? { technology_names: csv(technology_names) } : {}),
-      ...(csv(fuel_names) ? { fuel_names: csv(fuel_names) } : {}),
-      ...(csv(emission_names) ? { emission_names: csv(emission_names) } : {}),
-      ...(csv(udc_names) ? { udc_names: csv(udc_names) } : {}),
-    };
-    // Debug temporal: verificar que year_rules se envía.
-    // eslint-disable-next-line no-console
-    console.debug("[wide] list params:", builtParams);
     return httpClient
       .get<OsemosysValuesWidePage>(`/scenarios/${scenarioId}/osemosys-values/wide`, {
-        params: builtParams,
+        params: {
+          ...rest,
+          ...(csv(param_names) ? { param_names: csv(param_names) } : {}),
+          ...(csv(region_names) ? { region_names: csv(region_names) } : {}),
+          ...(csv(technology_names) ? { technology_names: csv(technology_names) } : {}),
+          ...(csv(fuel_names) ? { fuel_names: csv(fuel_names) } : {}),
+          ...(csv(emission_names) ? { emission_names: csv(emission_names) } : {}),
+          ...(csv(udc_names) ? { udc_names: csv(udc_names) } : {}),
+        },
       })
       .then((r) => r.data);
   },

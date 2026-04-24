@@ -20,12 +20,15 @@ interface HighchartsChartProps {
   barOrientation?: 'vertical' | 'horizontal';
   /** Si se indica, PNG/SVG/CSV se generan en el servidor (no dependen del navegador). */
   serverExport?: { jobId: number; selection: ChartSelection };
+  /** 'column' (default) o 'area' para áreas apiladas. */
+  stackType?: 'column' | 'area';
 }
 
 export const HighchartsChart: React.FC<HighchartsChartProps> = ({
   data,
   barOrientation = 'vertical',
   serverExport,
+  stackType = 'column',
 }) => {
   const inverted = barOrientation === 'horizontal';
   const legendDblclickStateRef = useRef(createLegendDblclickState());
@@ -63,20 +66,24 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
       });
       return false;
     };
+    const isArea = stackType === 'area';
     const series = data.series.map((s) => ({
-      type: 'column' as const,
+      type: (isArea ? 'area' : 'column') as 'column' | 'area',
       name: s.name,
       data: s.data,
       color: s.color,
       stacking: 'normal' as const,
       stack: s.stack,
       borderWidth: 0,
+      fillOpacity: isArea ? 0.85 : undefined,
+      lineWidth: isArea ? 0.5 : undefined,
+      marker: isArea ? { enabled: false } : undefined,
       visible: !hiddenNames.has(s.name),
     }));
 
     return {
       chart: {
-        type: 'column',
+        type: isArea ? 'area' : 'column',
         height: inverted ? Math.min(640, 320 + data.categories.length * 16) : 500,
         inverted,
         style: { fontFamily: 'Verdana, sans-serif' },
@@ -131,6 +138,13 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
         column: {
           stacking: 'normal',
           borderWidth: 0,
+          dataLabels: { enabled: false },
+        },
+        area: {
+          stacking: 'normal',
+          lineWidth: 0.5,
+          fillOpacity: 0.85,
+          marker: { enabled: false },
           dataLabels: { enabled: false },
         },
       },

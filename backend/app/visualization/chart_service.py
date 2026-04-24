@@ -1621,14 +1621,182 @@ def render_chart_visualization_bytes(
     fmt: str,
     view_mode: str = "column",
 ) -> bytes:
-    """Genera PNG o SVG con Matplotlib (sin navegador). ``view_mode``: ``column`` | ``line``."""
+    """Genera PNG o SVG con Matplotlib. ``view_mode``: ``column`` | ``line`` | ``area``."""
     if fmt not in ("png", "svg"):
         raise ValueError("fmt debe ser 'png' o 'svg'")
     title = chart.title
     if view_mode == "line":
         buf = _render_line_chart(chart, title, fmt=fmt)
+    elif view_mode == "area":
+        buf = _render_stacked_area(chart, title, fmt=fmt)
     else:
         buf = _render_stacked_bar(chart, title, fmt=fmt)
+    return buf.getvalue()
+
+
+def _render_stacked_area(
+    chart: ChartDataResponse,
+    title: str,
+    fmt: str = "svg",
+) -> "io.BytesIO":
+    """Renderiza un ChartDataResponse como áreas apiladas."""
+    import io
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    categories = chart.categories
+    n_cats = len(categories)
+    x = np.arange(n_cats)
+
+    fig, ax = plt.subplots(figsize=(max(12, n_cats * 0.5), 7))
+
+    if chart.series:
+        ys = [np.array(s.data, dtype=float) for s in chart.series]
+        labels = [s.name for s in chart.series]
+        colors = [getattr(s, "color", None) for s in chart.series]
+        ax.stackplot(
+            x,
+            np.vstack(ys) if ys else np.zeros((0, n_cats)),
+            labels=labels,
+            colors=[c if c else None for c in colors],
+            alpha=0.9,
+            linewidth=0.5,
+            edgecolor="white",
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        categories,
+        rotation=45 if n_cats > 15 else 0,
+        ha="right" if n_cats > 15 else "center",
+        fontsize=8,
+    )
+    ax.set_ylabel(chart.yAxisLabel, fontsize=10)
+    ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.15),
+        ncol=min(len(chart.series), 5),
+        fontsize=7,
+        frameon=False,
+    )
+    ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.set_xlim(x.min() if n_cats > 0 else 0, x.max() if n_cats > 0 else 0)
+
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format=fmt, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def render_comparison_by_year_bytes(
+    data: CompareChartResponse,
+    fmt: str = "svg",
+) -> bytes:
+    """Renderiza una comparación por año (subplots, un panel por año).
+
+    Cada subplot muestra barras agrupadas (una barra por escenario).
+    """
+    if fmt not in ("png", "svg"):
+        raise ValueError("fmt debe ser 'png' o 'svg'")
+    import io
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    subplots = [sp for sp in data.subplots if sp.series]
+    if not subplots:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.text(0.5, 0.5, "Sin datos", ha="center", va="center")
+        ax.set_axis_off()
+        buf = io.BytesIO()
+        fig.savefig(buf, format=fmt, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        buf.seek(0)
+        return buf.getvalue()
+
+    n = len(subplots)
+    cols = min(3, n)
+    rows = (n + cols - 1) // cols
+    fig, axes = plt.subplots(
+        rows, cols, figsize=(max(6, cols * 5), max(4, rows * 4)), squeeze=False
+    )
+
+    # Paleta consistente por nombre de serie a través de subplots.
+    all_names: list[str] = []
+    for sp in subplots:
+        for s in sp.series:
+            if s.name not in all_names:
+                all_names.append(s.name)
+    name_to_color: dict[str, str] = {}
+    for sp in subplots:
+        for s in sp.series:
+            if s.name not in name_to_color and getattr(s, "color", None):
+                name_to_color[s.name] = s.color  # type: ignore[assignment]
+
+    for idx, sp in enumerate(subplots):
+        ax = axes[idx // cols][idx % cols]
+        categories = list(sp.categories)
+        nc = len(categories)
+        ns = len(sp.series)
+        if nc == 0 or ns == 0:
+            ax.set_axis_off()
+            continue
+        x = np.arange(nc)
+        width = 0.8 / ns
+        for si, s in enumerate(sp.series):
+            offset = (si - (ns - 1) / 2) * width
+            ax.bar(
+                x + offset,
+                s.data,
+                width=width,
+                label=s.name,
+                color=name_to_color.get(s.name) or getattr(s, "color", None),
+            )
+        ax.set_title(f"Año {sp.year}", fontsize=11, fontweight="bold")
+        ax.set_xticks(x)
+        ax.set_xticklabels(
+            categories,
+            rotation=45 if nc > 6 else 0,
+            ha="right" if nc > 6 else "center",
+            fontsize=8,
+        )
+        ax.set_ylabel(data.yAxisLabel, fontsize=9)
+        ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        if idx == 0:
+            ax.legend(
+                loc="upper center",
+                bbox_to_anchor=(0.5, -0.2),
+                ncol=min(ns, 4),
+                fontsize=7,
+                frameon=False,
+            )
+
+    # Ocultar axes sobrantes
+    for j in range(n, rows * cols):
+        axes[j // cols][j % cols].set_axis_off()
+
+    fig.suptitle(data.title, fontsize=13, fontweight="bold")
+    fig.tight_layout(rect=[0, 0.02, 1, 0.96])
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format=fmt, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
     return buf.getvalue()
 
 

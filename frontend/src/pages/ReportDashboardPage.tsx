@@ -666,6 +666,23 @@ export function ReportDashboardPage() {
       alert(err instanceof Error ? err.message : "No se pudo actualizar el título.");
     }
   };
+
+  /** Alterna columnas apiladas ↔ áreas apiladas para un chart. */
+  const toggleColumnAreaViewMode = async (tpl: SavedChartTemplate) => {
+    const next: "column" | "area" =
+      (tpl.view_mode ?? "column") === "area" ? "column" : "area";
+    try {
+      await savedChartsApi.update(tpl.id, { view_mode: next });
+      const rows = await savedChartsApi.list();
+      setTemplates(rows);
+    } catch (err) {
+      alert(
+        err instanceof Error
+          ? err.message
+          : "No se pudo cambiar el tipo de gráfico.",
+      );
+    }
+  };
   const addItemDraft = (
     chartId: number,
     target: { catId: string; subId?: string },
@@ -1201,6 +1218,7 @@ export function ReportDashboardPage() {
             onAddItem={addItemDraft}
             onReplaceItem={replaceItemDraft}
             onUpdateChartReportTitle={updateChartReportTitle}
+            onToggleColumnAreaViewMode={toggleColumnAreaViewMode}
             canEditChartReportTitle={canEditChartReportTitle}
             onMoveCategory={moveCategoryDraft}
             onMoveSub={moveSubDraft}
@@ -1678,6 +1696,7 @@ type EditorProps = {
   ) => void;
   onReplaceItem: (oldId: number, newId: number) => void;
   onUpdateChartReportTitle: (templateId: number, newTitle: string) => void;
+  onToggleColumnAreaViewMode: (tpl: SavedChartTemplate) => void;
   canEditChartReportTitle: (tpl: SavedChartTemplate) => boolean;
   onMoveCategory: (id: string, delta: -1 | 1) => void;
   onMoveSub: (catId: string, subId: string, delta: -1 | 1) => void;
@@ -1716,6 +1735,7 @@ function DashboardVisualEditor(props: EditorProps) {
     onAddItem,
     onReplaceItem,
     onUpdateChartReportTitle,
+    onToggleColumnAreaViewMode,
     canEditChartReportTitle,
     onMoveCategory,
     onMoveSub,
@@ -1861,6 +1881,24 @@ function DashboardVisualEditor(props: EditorProps) {
                 className="ml-1 inline-flex h-6 px-2 gap-1 items-center justify-center rounded border border-cyan-500/40 text-[10px] font-semibold text-cyan-300 hover:bg-cyan-500/10"
               >
                 <IconPencil size={11} /> Título
+              </button>
+            ) : null}
+            {(tpl.view_mode === "column" ||
+              tpl.view_mode === "area" ||
+              tpl.view_mode == null) &&
+            tpl.compare_mode === "off" &&
+            canEditChartReportTitle(tpl) ? (
+              <button
+                type="button"
+                onClick={() => onToggleColumnAreaViewMode(tpl)}
+                title={
+                  tpl.view_mode === "area"
+                    ? "Cambiar a columnas apiladas"
+                    : "Cambiar a áreas apiladas"
+                }
+                className="ml-1 inline-flex h-6 px-2 gap-1 items-center justify-center rounded border border-amber-500/40 text-[10px] font-semibold text-amber-300 hover:bg-amber-500/10"
+              >
+                {tpl.view_mode === "area" ? "▦ Columnas" : "▲ Áreas"}
               </button>
             ) : null}
             <button

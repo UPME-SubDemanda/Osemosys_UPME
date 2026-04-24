@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 CompareMode = Literal["off", "facet", "by-year", "line-total"]
-ViewMode = Literal["column", "line", "pareto"]
+ViewMode = Literal["column", "line", "area", "pareto"]
 BarOrientation = Literal["vertical", "horizontal"]
 FacetPlacement = Literal["inline", "stacked"]
 FacetLegendMode = Literal["shared", "perFacet"]
@@ -106,6 +106,10 @@ class SavedChartTemplateUpdate(BaseModel):
     is_public: bool | None = None
     #: Título al renderizar en reportes. Enviar "" o null limpia el override.
     report_title: str | None = Field(default=None, max_length=255)
+    #: Tipo de trazo (column / line / area / pareto). Cambiarlo desde el reporte
+    #: permite alternar entre columnas apiladas y áreas apiladas sin editar
+    #: toda la plantilla.
+    view_mode: ViewMode | None = None
 
     @model_validator(mode="after")
     def _any_field(self):
@@ -114,9 +118,10 @@ class SavedChartTemplateUpdate(BaseModel):
             and self.description is None
             and self.is_public is None
             and self.report_title is None
+            and self.view_mode is None
         ):
             raise ValueError(
-                "Debes enviar al menos name, description, is_public o report_title."
+                "Debes enviar al menos name, description, is_public, report_title o view_mode."
             )
         return self
 

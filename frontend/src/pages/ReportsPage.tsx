@@ -1380,6 +1380,22 @@ function ReportGeneratorTab({
     }
   };
 
+  /** Alterna el tipo de trazo entre columnas apiladas y áreas apiladas. */
+  const toggleColumnAreaViewMode = async (tpl: SavedChartTemplate) => {
+    const next: "column" | "area" =
+      (tpl.view_mode ?? "column") === "area" ? "column" : "area";
+    try {
+      await savedChartsApi.update(tpl.id, { view_mode: next });
+      onTemplatesRefresh();
+    } catch (err) {
+      alert(
+        err instanceof Error
+          ? err.message
+          : "No se pudo cambiar el tipo de gráfico.",
+      );
+    }
+  };
+
   const canEditChartReportTitle = (tpl: SavedChartTemplate): boolean =>
     Boolean(tpl.is_owner) || isAdminReports;
 
@@ -2271,6 +2287,24 @@ function ReportGeneratorTab({
                           >
                             ⧉ Duplicar
                           </button>
+                          {(tpl.view_mode === "column" ||
+                            tpl.view_mode === "area" ||
+                            tpl.view_mode == null) &&
+                          tpl.compare_mode === "off" &&
+                          canEditChartReportTitle(tpl) ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleColumnAreaViewMode(tpl)}
+                              title={
+                                tpl.view_mode === "area"
+                                  ? "Cambiar a columnas apiladas"
+                                  : "Cambiar a áreas apiladas"
+                              }
+                              className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-amber-500/40 px-2 text-[11px] font-semibold text-amber-300 hover:bg-amber-500/10"
+                            >
+                              {tpl.view_mode === "area" ? "▦ A columnas" : "▲ A áreas"}
+                            </button>
+                          ) : null}
                           {canEditChartReportTitle(tpl) ? (
                             <button
                               type="button"

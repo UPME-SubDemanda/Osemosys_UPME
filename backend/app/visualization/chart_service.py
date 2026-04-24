@@ -587,6 +587,7 @@ def build_comparison_data(
     agrupacion: str | None = None,
     sub_filtro: str | None = None,
     loc: str | None = None,
+    job_display_overrides: dict[int, str] | None = None,
 ) -> CompareChartResponse:
     """Construye la respuesta de comparación multi-escenario.
 
@@ -684,6 +685,10 @@ def build_comparison_data(
             scenario_names[jid] = disp if disp else base
         else:
             scenario_names[jid] = f"Job {jid}"
+        # Override por alias del reporte, si se proporcionó.
+        ov = (job_display_overrides or {}).get(jid)
+        if isinstance(ov, str) and ov.strip():
+            scenario_names[jid] = ov.strip()
 
     variable_name = cfg["variable_default"]
 
@@ -864,10 +869,15 @@ def build_comparison_facet_data(
         override = (
             (job_display_overrides or {}).get(jid) if job_display_overrides else None
         )
+        has_alias_override = isinstance(override, str) and bool(override.strip())
         job_display = (
-            override.strip() if isinstance(override, str) and override.strip()
+            override.strip() if has_alias_override
             else (getattr(job, "display_name", None) or None)
         )
+        # Cuando el alias reemplaza el nombre del escenario, no queremos
+        # concatenar la etiqueta al subtítulo (quedaría "Alias — Tag").
+        effective_tag_name = None if has_alias_override else tag_name
+        effective_scenario_name = override.strip() if has_alias_override else scenario_name
 
         chart = build_chart_data(
             db=db,
@@ -884,10 +894,10 @@ def build_comparison_facet_data(
             y_label = chart.yAxisLabel
         facets.append(
             FacetData(
-                scenario_name=scenario_name,
+                scenario_name=effective_scenario_name,
                 job_id=jid,
                 display_name=job_display,
-                scenario_tag_name=tag_name,
+                scenario_tag_name=effective_tag_name,
                 categories=chart.categories,
                 series=chart.series,
             )
@@ -1031,6 +1041,7 @@ def build_comparison_line_data(
     un: str = "PJ",
     sub_filtro: str | None = None,
     loc: str | None = None,
+    job_display_overrides: dict[int, str] | None = None,
 ) -> ChartDataResponse:
     """Construye líneas totales multi-escenario sobre el mismo eje.
 
@@ -1106,6 +1117,9 @@ def build_comparison_line_data(
             scenario_names[jid] = disp if disp else base
         else:
             scenario_names[jid] = f"Job {jid}"
+        ov = (job_display_overrides or {}).get(jid)
+        if isinstance(ov, str) and ov.strip():
+            scenario_names[jid] = ov.strip()
 
     # Agregar total por año para cada job
     all_years: set[int] = set()
@@ -1957,7 +1971,7 @@ def render_comparison_facet_figure_bytes(
         y=0.97,
     )
 
-    leg_title = (legend_title or "").strip() or "Qué representa cada color (serie)"
+    leg_title = (legend_title or "").strip() or " " ## Titulo de la leyenda
     handles = [
         Rectangle((0, 0), 1, 1, facecolor=c, edgecolor="#334155", linewidth=0.35)
         for _name, c in legend_order

@@ -11,21 +11,30 @@ import {
   dispatchLegendClick,
 } from './chartLegendInteractions';
 import HighchartsReact from 'highcharts-react-official';
-import type { ChartDataResponse } from '../../types/domain';
+import type { ChartDataResponse, SyntheticSeries } from '../../types/domain';
 import type { ChartSelection } from './ChartSelector';
 
 interface LineChartProps {
   data: ChartDataResponse;
   serverExport?: { jobId: number; selection: ChartSelection };
+  /**
+   * Series manuales overlay (año, valor). Se dibujan como línea punteada con
+   * markers para distinguirlas de las series simuladas.
+   */
+  syntheticSeries?: SyntheticSeries[] | undefined;
 }
 
-export const LineChart: React.FC<LineChartProps> = ({ data, serverExport }) => {
+export const LineChart: React.FC<LineChartProps> = ({ data, serverExport, syntheticSeries }) => {
   const legendDblclickStateRef = useRef(createLegendDblclickState());
   const [hiddenNames, setHiddenNames] = useState<Set<string>>(() => new Set());
 
   const dataSignature = useMemo(
-    () => data.series.map((s) => s.name).join('|'),
-    [data.series],
+    () =>
+      [
+        ...data.series.map((s) => s.name),
+        ...(syntheticSeries ?? []).map((s) => `@${s.name}`),
+      ].join('|'),
+    [data.series, syntheticSeries],
   );
   useEffect(() => {
     setHiddenNames(new Set());
@@ -62,6 +71,42 @@ export const LineChart: React.FC<LineChartProps> = ({ data, serverExport }) => {
       marker: { enabled: true, radius: 3 },
       visible: !hiddenNames.has(s.name),
     }));
+
+    // Overlay de series manuales. Se mapea cada (año, valor) al índice de la
+    // categoría que coincide con ese año. Puntos sin categoría coincidente se
+    // omiten silenciosamente. Estilo: línea punteada + markers más grandes.
+    if (syntheticSeries && syntheticSeries.length > 0) {
+      const yearIndex = new Map<number, number>();
+      data.categories.forEach((cat, idx) => {
+        const year = Number(cat);
+        if (Number.isFinite(year)) yearIndex.set(year, idx);
+      });
+      for (const s of syntheticSeries) {
+        const mapped: Array<[number, number]> = [];
+        for (const [year, value] of s.data) {
+          const idx = yearIndex.get(year);
+          if (idx != null) mapped.push([idx, value]);
+        }
+        if (mapped.length === 0) continue;
+        const markerSymbol = s.markerSymbol ?? 'diamond';
+        const markerRadius = s.markerRadius ?? 5;
+        const markerEnabled = markerSymbol !== 'none';
+        const dashStyle = (s.lineStyle ?? 'ShortDash') as Highcharts.DashStyleValue;
+        const lineWidth = s.lineWidth ?? 2;
+        series.push({
+          type: 'line' as const,
+          name: s.name,
+          data: mapped as unknown as number[],
+          color: s.color,
+          marker: markerEnabled
+            ? { enabled: true, radius: markerRadius, symbol: markerSymbol }
+            : { enabled: false, radius: 0 },
+          dashStyle,
+          lineWidth,
+          visible: !hiddenNames.has(s.name),
+        } as unknown as (typeof series)[number]);
+      }
+    }
 
     return {
       chart: {
@@ -144,7 +189,7 @@ export const LineChart: React.FC<LineChartProps> = ({ data, serverExport }) => {
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, serverExport, hiddenNames]);
+  }, [data, serverExport, hiddenNames, syntheticSeries]);
 
   return (
     <div style={{ width: '100%' }}>

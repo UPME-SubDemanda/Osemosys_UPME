@@ -212,6 +212,8 @@ def create_report(
             layout=(
                 payload.layout.model_dump() if payload.layout is not None else None
             ),
+            scenario_aliases=payload.scenario_aliases,
+            default_job_ids=payload.default_job_ids,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -258,11 +260,17 @@ def update_report(
     current_user: User = Depends(get_current_user),
 ) -> ReportSavedPublic:
     data = payload.model_dump(exclude_unset=True)
-    # ``layout`` es tri-valente: ausente = no tocar, ``None`` = resetear a auto,
-    # dict = override. Usamos ``...`` como sentinel interno del service.
+    # ``layout`` y ``scenario_aliases`` son tri-valentes: ausente = no tocar,
+    # ``None`` = resetear, valor = override. Usamos ``...`` como sentinel.
     layout_arg: object = ...
     if "layout" in data:
         layout_arg = data["layout"]
+    aliases_arg: object = ...
+    if "scenario_aliases" in data:
+        aliases_arg = data["scenario_aliases"]
+    defaults_arg: object = ...
+    if "default_job_ids" in data:
+        defaults_arg = data["default_job_ids"]
     try:
         row = ReportTemplateService.update(
             db,
@@ -275,6 +283,8 @@ def update_report(
             is_public=data.get("is_public"),
             is_official=data.get("is_official"),
             layout=layout_arg,
+            scenario_aliases=aliases_arg,
+            default_job_ids=defaults_arg,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

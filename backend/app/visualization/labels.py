@@ -822,9 +822,6 @@ def get_label(code: str) -> str:
     """
     Retorna el display_name para un código de tecnología OSeMOSYS.
 
-    Fuente: catálogo editable en BD (``catalog_meta_label``) con fallback
-    a ``DISPLAY_NAMES`` si la tabla no está poblada o la query falla.
-
     Parámetros
     ----------
     code : str
@@ -835,55 +832,40 @@ def get_label(code: str) -> str:
     str
         Nombre legible para mostrar en gráficas.
         Nunca lanza excepción: retorna el código original si no hay mapeo.
+
+    Ejemplos
+    --------
+    >>> get_label("DEMINDCOABOI_LOW")
+    'Ind. Carbón Caldera (Baja)'
+    >>> get_label("PWRSOLRTP_ZNI")
+    'Solar FV Techo ZNI'
+    >>> get_label("NGS")
+    'Gas Natural'
+    >>> get_label("CODIGO_DESCONOCIDO")
+    'CODIGO_DESCONOCIDO'
     """
     if not code:
         return code
 
-    # Lazy import para evitar circular al inicializar el módulo.
-    from app.visualization.catalog_reader import (
-        get_display_names,
-        get_nombres_combustibles,
-    )
-
-    # 1. Búsqueda exacta en labels de BD (con fallback a DISPLAY_NAMES).
-    labels = get_display_names()
-    label = labels.get(code)
+    # 1. Búsqueda exacta
+    label = DISPLAY_NAMES.get(code)
     if label:
         return label
 
-    # 2. Fuel-specific labels (NOMBRES_COMBUSTIBLES vive en otra tabla/prefijo).
-    fuel_labels = get_nombres_combustibles()
-    label = fuel_labels.get(code)
-    if label:
-        return label
-
-    # 3. Grupos legacy (_GRUPO).
+    # 2. Búsqueda en grupos de combustible (para agrupación COMBUSTIBLE)
     label = _GRUPO.get(code)
     if label:
         return label
 
-    # 4. Generación dinámica.
+    # 3. Generación dinámica
     return _dynamic_label(code)
 
 
 def get_labels_batch(codes: list[str]) -> dict[str, str]:
     """
     Versión batch de get_label para mayor eficiencia cuando se procesan
-    muchos códigos a la vez. Hace una sola llamada al reader de BD.
+    muchos códigos a la vez.
 
     Retorna un dict {codigo: display_name}.
     """
-    from app.visualization.catalog_reader import (
-        get_display_names,
-        get_nombres_combustibles,
-    )
-    labels = get_display_names()
-    fuel_labels = get_nombres_combustibles()
-    out: dict[str, str] = {}
-    for code in codes:
-        if not code:
-            out[code] = code
-            continue
-        label = labels.get(code) or fuel_labels.get(code) or _GRUPO.get(code)
-        out[code] = label if label else _dynamic_label(code)
-    return out
+    return {code: get_label(code) for code in codes}

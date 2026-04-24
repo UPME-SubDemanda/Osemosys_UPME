@@ -144,7 +144,6 @@ export function ColumnFilterPopover({
               role="dialog"
               aria-label={`Filtro ${columnLabel}`}
               style={{ top: pos.top, left: pos.left }}
-              onMouseDown={(e) => e.stopPropagation()}
             >
               <div className="col-filter-popover__head">
                 <input

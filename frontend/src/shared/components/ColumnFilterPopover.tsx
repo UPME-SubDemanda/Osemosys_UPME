@@ -20,16 +20,26 @@ type Props = {
   selected: string[];
   onChange: (next: string[]) => void;
   loading?: boolean;
+  /** Etiqueta visible personalizada para cada opción (p.ej. mapear id→nombre). */
+  renderOption?: (value: string) => string;
 };
 
-/** Etiqueta visible para una opción: el sentinel `__NULL__` se muestra como "(vacío)". */
-function optionLabel(value: string): string {
+/** Etiqueta por defecto: sentinel `__NULL__` se muestra como "(vacío)". */
+function defaultOptionLabel(value: string): string {
   return value === WIDE_NULL_SENTINEL ? "(vacío)" : value;
 }
 
 type Pos = { top: number; left: number };
 
-export function ColumnFilterPopover({ columnLabel, options, selected, onChange, loading }: Props) {
+export function ColumnFilterPopover({
+  columnLabel,
+  options,
+  selected,
+  onChange,
+  loading,
+  renderOption,
+}: Props) {
+  const optionLabel = (v: string) => (renderOption ? renderOption(v) : defaultOptionLabel(v));
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [pos, setPos] = useState<Pos | null>(null);

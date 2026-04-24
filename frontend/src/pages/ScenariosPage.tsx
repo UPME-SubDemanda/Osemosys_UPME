@@ -22,6 +22,7 @@ import { TextField } from "@/shared/components/TextField";
 import { SandExportVerificationPanel } from "@/shared/components/SandExportVerificationPanel";
 import { UploadProgress, type UploadPhase } from "@/shared/components/UploadProgress";
 import { paths } from "@/routes/paths";
+import { ColumnFilterPopover } from "@/shared/components/ColumnFilterPopover";
 import { ConfirmDialog } from "@/shared/components/ConfirmDialog";
 import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
 import { ScenarioTagsPanel } from "@/shared/components/ScenarioTagsPanel";
@@ -59,32 +60,6 @@ function canAssignScenarioTag(row: Scenario): boolean {
 }
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
-
-/** Colores predefinidos para etiquetas (legibles con texto blanco en el chip). */
-const SCENARIO_TAG_COLOR_PALETTE = [
-  "#3B82F6",
-  "#2563EB",
-  "#0EA5E9",
-  "#06B6D4",
-  "#14B8A6",
-  "#22C55E",
-  "#65A30D",
-  "#EAB308",
-  "#F59E0B",
-  "#EA580C",
-  "#DC2626",
-  "#EC4899",
-  "#A855F7",
-  "#7C3AED",
-  "#6366F1",
-  "#64748B",
-] as const;
-
-function normalizeTagHex(value: string): string {
-  const v = value.trim();
-  if (/^#[0-9A-Fa-f]{6}$/.test(v)) return v.toUpperCase();
-  return v;
-}
 
 const SAND_CONFLICT_KEY_DIMS = [
   "Parameter",
@@ -197,8 +172,28 @@ export function ScenariosPage() {
   const [pageSize, setPageSize] = useState<number>(25);
   const [loadingRows, setLoadingRows] = useState(false);
   const [search, setSearch] = useState("");
-  const [ownerFilter, setOwnerFilter] = useState("");
-  const [policyFilter, setPolicyFilter] = useState<ScenarioEditPolicy | "ALL">("ALL");
+  // Filtros multiselect inline en cabecera (patrón del detalle de escenario)
+  const [ownersFilter, setOwnersFilter] = useState<string[]>([]);
+  const [policiesFilter, setPoliciesFilter] = useState<string[]>([]);
+  const [simulationTypesFilter, setSimulationTypesFilter] = useState<string[]>(
+    [],
+  );
+  const [tagIdsFilter, setTagIdsFilter] = useState<number[]>([]);
+  const [includePrivate, setIncludePrivate] = useState(false);
+  const [scenarioFacets, setScenarioFacets] = useState<{
+    owners: string[];
+    edit_policies: string[];
+    simulation_types: string[];
+    tags: Array<{
+      id: number;
+      name: string;
+      color: string;
+      category_id: number;
+      category_name: string;
+      hierarchy_level: number;
+    }>;
+  }>({ owners: [], edit_policies: [], simulation_types: [], tags: [] });
+  const [facetsLoading, setFacetsLoading] = useState(false);
 
   const [openCreate, setOpenCreate] = useState(false);
   const [openExcel, setOpenExcel] = useState(false);
@@ -243,11 +238,8 @@ export function ScenariosPage() {
   const [tagSelectCreate, setTagSelectCreate] = useState("");
   const [tagSelectExcel, setTagSelectExcel] = useState("");
   const [includeUdcExcel, setIncludeUdcExcel] = useState(false);
-  const [openTagsCatalog, setOpenTagsCatalog] = useState(false);
-  const [tagCatName, setTagCatName] = useState("");
-  const [tagCatColor, setTagCatColor] = useState("#3B82F6");
-  const [tagCatSort, setTagCatSort] = useState("0");
-  const [savingCatalogTag, setSavingCatalogTag] = useState(false);
+  // Estado del modal "Etiquetas rápidas" eliminado — CRUD completo vive en
+  // /app/scenario-tags-admin.
 
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
@@ -285,8 +277,17 @@ export function ScenariosPage() {
     try {
       const res = await scenariosApi.listScenarios({
         ...(search.trim() ? { busqueda: search.trim() } : {}),
-        ...(ownerFilter.trim() ? { owner: ownerFilter.trim() } : {}),
-        ...(policyFilter === "ALL" ? {} : { edit_policy: policyFilter }),
+        ...(ownersFilter.length ? { owners: ownersFilter } : {}),
+        ...(policiesFilter.length
+          ? { edit_policies: policiesFilter as ScenarioEditPolicy[] }
+          : {}),
+        ...(simulationTypesFilter.length
+          ? { simulation_types: simulationTypesFilter as SimulationType[] }
+          : {}),
+        ...(tagIdsFilter.length ? { tag_ids: tagIdsFilter } : {}),
+        ...(includePrivate && user?.can_manage_scenarios
+          ? { include_private: true }
+          : {}),
         cantidad: pageSize,
         offset: page,
       });
@@ -297,7 +298,35 @@ export function ScenariosPage() {
     } finally {
       setLoadingRows(false);
     }
-  }, [ownerFilter, page, pageSize, policyFilter, push, search, user]);
+  }, [
+    includePrivate,
+    ownersFilter,
+    page,
+    pageSize,
+    policiesFilter,
+    push,
+    search,
+    simulationTypesFilter,
+    tagIdsFilter,
+    user,
+  ]);
+
+  const fetchScenarioFacets = useCallback(async () => {
+    if (!user) return;
+    setFacetsLoading(true);
+    try {
+      const wantPrivate = Boolean(includePrivate && user.can_manage_scenarios);
+      const facets = await scenariosApi.listScenarioFacets(
+        wantPrivate ? { include_private: true } : {},
+      );
+      setScenarioFacets(facets);
+    } catch {
+      // Silencioso: si fallan las facetas, solo quedan vacías — los filtros
+      // seguirán mostrándose pero sin opciones hasta el próximo refetch.
+    } finally {
+      setFacetsLoading(false);
+    }
+  }, [includePrivate, user]);
 
   const loadScenarioTags = useCallback(async () => {
     if (!user) return;
@@ -317,6 +346,10 @@ export function ScenariosPage() {
   useEffect(() => {
     void fetchScenarios();
   }, [fetchScenarios]);
+
+  useEffect(() => {
+    void fetchScenarioFacets();
+  }, [fetchScenarioFacets]);
 
   useEffect(() => {
     void loadScenarioTags();
@@ -545,62 +578,8 @@ export function ScenariosPage() {
     setTagSelectExcel("");
   }
 
-  async function handleAddCatalogTag() {
-    if (!tagCatName.trim()) {
-      push("El nombre de la etiqueta es obligatorio.", "error");
-      return;
-    }
-    const hex = normalizeTagHex(tagCatColor);
-    if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) {
-      push("Elige un color.", "error");
-      return;
-    }
-    // La UI antigua no permite elegir categoría; usamos la primera categoría
-    // disponible (típicamente "Escenario") como default. Para gestionar
-    // categorías/tags con control completo, el admin debe usar la página
-    // dedicada en /app/scenario-tags-admin.
-    const defaultCategoryId = scenarioTagCategories[0]?.id;
-    if (defaultCategoryId == null) {
-      push(
-        "No hay categorías de etiquetas. Crea una desde «Etiquetas y categorías».",
-        "error",
-      );
-      return;
-    }
-    setSavingCatalogTag(true);
-    try {
-      await scenariosApi.createScenarioTag({
-        category_id: defaultCategoryId,
-        name: tagCatName.trim(),
-        color: hex,
-        sort_order: Number(tagCatSort) || 0,
-      });
-      setTagCatName("");
-      setTagCatColor("#3B82F6");
-      setTagCatSort("0");
-      await loadScenarioTags();
-      void fetchScenarios();
-      push("Etiqueta creada.", "success");
-    } catch (err) {
-      push(err instanceof Error ? err.message : "No se pudo crear la etiqueta.", "error");
-    } finally {
-      setSavingCatalogTag(false);
-    }
-  }
-
-  async function handleDeleteCatalogTag(tagId: number) {
-    if (!window.confirm("¿Eliminar esta etiqueta? Los escenarios asociados quedarán sin etiqueta.")) return;
-    try {
-      await scenariosApi.deleteScenarioTag(tagId);
-      await loadScenarioTags();
-      void fetchScenarios();
-      if (tagSelectCreate === String(tagId)) setTagSelectCreate("");
-      if (tagSelectExcel === String(tagId)) setTagSelectExcel("");
-      push("Etiqueta eliminada.", "success");
-    } catch (err) {
-      push(err instanceof Error ? err.message : "No se pudo eliminar la etiqueta.", "error");
-    }
-  }
+  // handleAddCatalogTag / handleDeleteCatalogTag eliminados — CRUD en
+  // /app/scenario-tags-admin.
 
   function openScenarioTagModal(row: Scenario) {
     setTagModalScenario(row);
@@ -926,22 +905,13 @@ export function ScenariosPage() {
             Crear escenario
           </Button>
           {user?.can_manage_catalogs ? (
-            <>
-              <Button
-                variant="ghost"
-                onClick={() => setOpenTagsCatalog(true)}
-                className="scenariosPage__actionButton"
-              >
-                Etiquetas rápidas
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => navigate(paths.scenarioTagsAdmin)}
-                className="scenariosPage__actionButton"
-              >
-                Etiquetas y categorías
-              </Button>
-            </>
+            <Button
+              variant="ghost"
+              onClick={() => navigate(paths.scenarioTagsAdmin)}
+              className="scenariosPage__actionButton"
+            >
+              Etiquetas y categorías
+            </Button>
           ) : null}
           <Button variant="ghost" onClick={() => setOpenExcel(true)} className="scenariosPage__actionButton">
             Crear desde Excel
@@ -974,64 +944,172 @@ export function ScenariosPage() {
 
       <div className="scenariosPage__filters">
         <TextField
-          label="Buscar por nombre"
+          label="Búsqueda global"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Escenario, descripción o owner"
-        />
-        <TextField
-          label="Filtrar por propietario"
-          value={ownerFilter}
-          onChange={(e) => setOwnerFilter(e.target.value)}
-          placeholder="username"
-        />
-        <label className="field">
-          <span className="field__label">Política</span>
-          <select
-            className="field__input"
-            value={policyFilter}
-            onChange={(e) => setPolicyFilter(e.target.value as ScenarioEditPolicy | "ALL")}
-          >
-            <option value="ALL">Todas</option>
-            <option value="OWNER_ONLY">Solo propietario</option>
-            <option value="OPEN">Abierta</option>
-            <option value="RESTRICTED">Restringida</option>
-          </select>
-        </label>
-        <Button
-          variant="ghost"
-          className="scenariosPage__filterButton"
-          onClick={() => {
+          onChange={(e) => {
+            setSearch(e.target.value);
             setPage(1);
-            void fetchScenarios();
           }}
-          disabled={loadingRows}
-        >
-          Aplicar filtros
-        </Button>
+          placeholder="Nombre, descripción o propietario…"
+        />
+        {user?.can_manage_scenarios ? (
+          <label
+            className="field"
+            style={{ justifyContent: "flex-end", alignSelf: "flex-end" }}
+            title="Solo disponible con rol Admin Escenarios. Incluye los escenarios privados (OWNER_ONLY) de otros usuarios."
+          >
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 13,
+                userSelect: "none",
+                cursor: "pointer",
+                padding: "6px 2px",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={includePrivate}
+                onChange={(e) => {
+                  setIncludePrivate(e.target.checked);
+                  setPage(1);
+                }}
+              />
+              Incluir privados 🔒
+            </span>
+          </label>
+        ) : null}
+        {search ||
+        ownersFilter.length ||
+        policiesFilter.length ||
+        simulationTypesFilter.length ||
+        tagIdsFilter.length ? (
+          <Button
+            variant="ghost"
+            className="scenariosPage__filterButton"
+            onClick={() => {
+              setSearch("");
+              setOwnersFilter([]);
+              setPoliciesFilter([]);
+              setSimulationTypesFilter([]);
+              setTagIdsFilter([]);
+              setPage(1);
+            }}
+            disabled={loadingRows}
+            title="Limpiar todos los filtros aplicados"
+          >
+            Limpiar filtros
+          </Button>
+        ) : null}
       </div>
 
       <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead style={{ background: "rgba(255,255,255,0.03)" }}>
             <tr>
-              {["Escenario", "Etiqueta", "Descripción", "Política", "Propietario", "Creado", "Proceso", ""].map((header) => (
-                <th key={header} style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
-                  {header}
-                </th>
-              ))}
+              <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
+                Escenario
+              </th>
+              <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  Etiqueta
+                  <ColumnFilterPopover
+                    columnLabel="Etiqueta"
+                    options={scenarioFacets.tags.map((t) => String(t.id))}
+                    selected={tagIdsFilter.map(String)}
+                    loading={facetsLoading}
+                    onChange={(next) => {
+                      setTagIdsFilter(
+                        next
+                          .map((s) => Number.parseInt(s, 10))
+                          .filter((n) => Number.isFinite(n)),
+                      );
+                      setPage(1);
+                    }}
+                    renderOption={(value) => {
+                      const t = scenarioFacets.tags.find(
+                        (x) => String(x.id) === value,
+                      );
+                      return t ? `${t.category_name} · ${t.name}` : value;
+                    }}
+                  />
+                </span>
+              </th>
+              <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
+                Descripción
+              </th>
+              <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  Política
+                  <ColumnFilterPopover
+                    columnLabel="Política"
+                    options={scenarioFacets.edit_policies}
+                    selected={policiesFilter}
+                    loading={facetsLoading}
+                    onChange={(next) => {
+                      setPoliciesFilter(next);
+                      setPage(1);
+                    }}
+                    renderOption={(value) =>
+                      editPolicyLabel[value as ScenarioEditPolicy] ?? value
+                    }
+                  />
+                </span>
+              </th>
+              <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  Propietario
+                  <ColumnFilterPopover
+                    columnLabel="Propietario"
+                    options={scenarioFacets.owners}
+                    selected={ownersFilter}
+                    loading={facetsLoading}
+                    onChange={(next) => {
+                      setOwnersFilter(next);
+                      setPage(1);
+                    }}
+                  />
+                </span>
+              </th>
+              <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  Tipo
+                  <ColumnFilterPopover
+                    columnLabel="Tipo de simulación"
+                    options={scenarioFacets.simulation_types}
+                    selected={simulationTypesFilter}
+                    loading={facetsLoading}
+                    onChange={(next) => {
+                      setSimulationTypesFilter(next);
+                      setPage(1);
+                    }}
+                    renderOption={(value) =>
+                      simulationTypeLabel[value as SimulationType] ?? value
+                    }
+                  />
+                </span>
+              </th>
+              <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
+                Creado
+              </th>
+              <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
+                Proceso
+              </th>
+              <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }} />
             </tr>
           </thead>
           <tbody>
             {loadingRows ? (
               <tr>
-                <td colSpan={8} style={{ padding: 14, opacity: 0.75 }}>
+                <td colSpan={9} style={{ padding: 14, opacity: 0.75 }}>
                   Cargando escenarios...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ padding: 14, opacity: 0.75 }}>
+                <td colSpan={9} style={{ padding: 14, opacity: 0.75 }}>
                   Sin registros.
                 </td>
               </tr>
@@ -1059,6 +1137,29 @@ export function ScenariosPage() {
                     {row.base_scenario_id ? (
                       <div className="scenariosPage__nameMeta">
                         Hijo de {row.base_scenario_name ?? `#${row.base_scenario_id}`}
+                      </div>
+                    ) : null}
+                    {row.edit_policy === "OWNER_ONLY" &&
+                    row.owner !== user?.username ? (
+                      <div
+                        title={`Escenario privado (solo propietario). Visible porque tienes el rol Admin Escenarios.`}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          marginTop: 4,
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                          fontSize: 10,
+                          fontWeight: 600,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                          color: "rgba(148,163,184,0.95)",
+                          border: "1px solid rgba(148,163,184,0.35)",
+                          background: "rgba(148,163,184,0.08)",
+                        }}
+                      >
+                        🔒 Privado
                       </div>
                     ) : null}
                   </td>
@@ -1114,6 +1215,11 @@ export function ScenariosPage() {
                     </div>
                   </td>
                   <td style={{ padding: "10px 12px" }}>{row.owner}</td>
+                  <td style={{ padding: "10px 12px" }}>
+                    <Badge variant="neutral">
+                      {simulationTypeLabel[row.simulation_type] ?? row.simulation_type}
+                    </Badge>
+                  </td>
                   <td style={{ padding: "10px 12px" }}>{new Date(row.created_at).toLocaleString()}</td>
                   <td style={{ padding: "10px 12px" }}>
                     {cloneJob ? (
@@ -1177,7 +1283,7 @@ export function ScenariosPage() {
                           Etiquetas
                         </Button>
                       ) : null}
-                      {row.owner === user?.username || user?.is_admin ? (
+                      {row.owner === user?.username || user?.can_manage_scenarios ? (
                         <Button
                           variant="ghost"
                           type="button"
@@ -1555,135 +1661,8 @@ export function ScenariosPage() {
         </div>
       </Modal>
 
-      <Modal
-        open={openTagsCatalog}
-        title="Catálogo de etiquetas"
-        onClose={() => setOpenTagsCatalog(false)}
-        footer={
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <Button variant="ghost" onClick={() => setOpenTagsCatalog(false)}>
-              Cerrar
-            </Button>
-          </div>
-        }
-      >
-        <div style={{ display: "grid", gap: 14 }}>
-          <p style={{ margin: 0, fontSize: 13, opacity: 0.85 }}>
-            Las etiquetas definen prioridad en listados (menor número = más arriba) y color en la interfaz. Solo
-            administradores de catálogo pueden crear o eliminar etiquetas; cualquier usuario con permiso de edición
-            del escenario puede asignarlas.
-          </p>
-          <div style={{ display: "grid", gap: 8, padding: 12, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10 }}>
-            <strong style={{ fontSize: 13 }}>Nueva etiqueta</strong>
-            <TextField label="Nombre" value={tagCatName} onChange={(e) => setTagCatName(e.target.value)} />
-            <div className="field" style={{ margin: 0 }}>
-              <span className="field__label">Color</span>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(8, minmax(0, 1fr))",
-                  gap: 8,
-                  marginTop: 6,
-                }}
-              >
-                {SCENARIO_TAG_COLOR_PALETTE.map((hex) => {
-                  const selected = normalizeTagHex(tagCatColor) === hex;
-                  return (
-                    <button
-                      key={hex}
-                      type="button"
-                      title={hex}
-                      onClick={() => setTagCatColor(hex)}
-                      aria-label={`Color ${hex}`}
-                      aria-pressed={selected}
-                      style={{
-                        width: "100%",
-                        aspectRatio: "1",
-                        maxWidth: 36,
-                        borderRadius: 8,
-                        border: selected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.2)",
-                        boxShadow: selected ? "0 0 0 2px rgba(59,130,246,0.5)" : "none",
-                        backgroundColor: hex,
-                        cursor: "pointer",
-                        padding: 0,
-                      }}
-                    />
-                  );
-                })}
-              </div>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  marginTop: 12,
-                  fontSize: 13,
-                  opacity: 0.9,
-                }}
-              >
-                <span>Otro color</span>
-                <input
-                  type="color"
-                  aria-label="Elegir otro color"
-                  value={/^#[0-9A-Fa-f]{6}$/i.test(tagCatColor.trim()) ? tagCatColor.trim().slice(0, 7) : "#3B82F6"}
-                  onChange={(e) => setTagCatColor(e.target.value.toUpperCase())}
-                  style={{
-                    width: 44,
-                    height: 32,
-                    padding: 0,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    borderRadius: 8,
-                    cursor: "pointer",
-                    background: "transparent",
-                  }}
-                />
-              </label>
-            </div>
-            <TextField label="Orden (prioridad)" value={tagCatSort} onChange={(e) => setTagCatSort(e.target.value)} />
-            <Button variant="primary" onClick={() => void handleAddCatalogTag()} disabled={savingCatalogTag}>
-              {savingCatalogTag ? "Guardando..." : "Crear etiqueta"}
-            </Button>
-          </div>
-          <div style={{ display: "grid", gap: 6 }}>
-            <strong style={{ fontSize: 13 }}>Existentes</strong>
-            {scenarioTags.length === 0 ? (
-              <span style={{ opacity: 0.7 }}>No hay etiquetas.</span>
-            ) : (
-              <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 8 }}>
-                {scenarioTags.map((t) => (
-                  <li key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <ScenarioTagChip tag={t} />
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        fontSize: 12,
-                        opacity: 0.75,
-                      }}
-                    >
-                      orden {t.sort_order}
-                      <span
-                        title={t.color}
-                        style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: 4,
-                          backgroundColor: t.color,
-                          border: "1px solid rgba(255,255,255,0.25)",
-                        }}
-                      />
-                    </span>
-                    <Button variant="ghost" type="button" onClick={() => void handleDeleteCatalogTag(t.id)} style={{ padding: "2px 8px" }}>
-                      Eliminar
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      </Modal>
+      {/* Modal "Etiquetas rápidas" eliminado: todo el CRUD de etiquetas y
+          categorías vive ahora en /app/scenario-tags-admin. */}
 
       <Modal
         open={openClone}

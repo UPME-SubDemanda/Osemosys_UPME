@@ -24,6 +24,7 @@ from app.schemas.saved_chart_template import (
     SavedChartTemplateCreate,
     SavedChartTemplatePublic,
     SavedChartTemplateUpdate,
+    SavedFavoritePatch,
 )
 from app.services.saved_chart_template_service import (
     ReportTemplateService,
@@ -72,11 +73,18 @@ def get_template(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    from app.services.saved_chart_template_service import _chart_to_public_dict
+    from app.services.saved_chart_template_service import (
+        _chart_to_public_dict,
+        _load_chart_favorite_ids,
+    )
 
+    fav_ids = _load_chart_favorite_ids(db, user_id=current_user.id)
     return SavedChartTemplatePublic.model_validate(
         _chart_to_public_dict(
-            obj, current_user_id=current_user.id, owner_username=owner
+            obj,
+            current_user_id=current_user.id,
+            owner_username=owner,
+            is_favorite=int(obj.id) in fav_ids,
         )
     )
 
@@ -169,11 +177,14 @@ reports_router = APIRouter(prefix="/saved-reports")
 
 @reports_router.get("", response_model=list[ReportSavedPublic])
 def list_reports(
+    include_others_private: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ReportSavedPublic]:
     rows = ReportTemplateService.list_accessible(
-        db, user_id=current_user.id
+        db,
+        current_user=current_user,
+        include_others_private=include_others_private,
     )
     return [ReportSavedPublic.model_validate(r) for r in rows]
 
@@ -213,15 +224,22 @@ def get_report(
 ) -> ReportSavedPublic:
     try:
         obj, owner = ReportTemplateService.get_accessible(
-            db, user_id=current_user.id, report_id=report_id
+            db, current_user=current_user, report_id=report_id
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    from app.services.saved_chart_template_service import _report_to_public_dict
+    from app.services.saved_chart_template_service import (
+        _load_report_favorite_ids,
+        _report_to_public_dict,
+    )
 
+    fav_ids = _load_report_favorite_ids(db, user_id=current_user.id)
     return ReportSavedPublic.model_validate(
         _report_to_public_dict(
-            obj, current_user_id=current_user.id, owner_username=owner
+            obj,
+            current_user_id=current_user.id,
+            owner_username=owner,
+            is_favorite=int(obj.id) in fav_ids,
         )
     )
 
@@ -273,3 +291,71 @@ def delete_report(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(e)
+        ) from e
+
+
+# ─── Favoritos y Copy ───────────────────────────────────────────────────────
+
+
+@reports_router.patch("/{report_id}/favorite", response_model=ReportSavedPublic)
+def set_report_favorite(
+    report_id: int,
+    payload: SavedFavoritePatch,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ReportSavedPublic:
+    try:
+        row = ReportTemplateService.set_favorite(
+            db,
+            current_user=current_user,
+            report_id=report_id,
+            is_favorite=payload.is_favorite,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return ReportSavedPublic.model_validate(row)
+
+
+@reports_router.post(
+    "/{report_id}/copy", response_model=ReportSavedPublic, status_code=201
+)
+def copy_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ReportSavedPublic:
+    """Crea una copia privada del reporte para el usuario actual.
+
+    Para las plantillas de gráfica referenciadas que no sean accesibles al
+    usuario (p. ej. privadas de otro usuario), se clonan como plantillas
+    privadas del caller y se actualizan las referencias.
+    """
+    try:
+        row = ReportTemplateService.copy_report(
+            db, current_user=current_user, report_id=report_id
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return ReportSavedPublic.model_validate(row)
+
+
+@router.patch("/{template_id}/favorite", response_model=SavedChartTemplatePublic)
+def set_chart_favorite(
+    template_id: int,
+    payload: SavedFavoritePatch,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SavedChartTemplatePublic:
+    try:
+        row = SavedChartTemplateService.set_favorite(
+            db,
+            user_id=current_user.id,
+            template_id=template_id,
+            is_favorite=payload.is_favorite,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return SavedChartTemplatePublic.model_validate(row)

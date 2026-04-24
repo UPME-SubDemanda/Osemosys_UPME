@@ -15,6 +15,7 @@ export type OfficialImportResult = {
   warnings: string[];
   notebook_preprocess?: Record<string, number>;
   notebook_preprocess_error?: string | null;
+  collapse_timeslices?: boolean;
 };
 
 export type WorkbookSheetsResult = {
@@ -37,10 +38,12 @@ export const officialImportApi = {
     sheetName: string,
     onUploadProgress?: UploadProgressCallback,
     onUploadDone?: () => void,
+    collapseTimeslices: boolean = true,
   ): Promise<OfficialImportResult> {
     const form = new FormData();
     form.append("file", file);
     form.append("sheet_name", sheetName);
+    form.append("collapse_timeslices", collapseTimeslices ? "true" : "false");
 
     const { data } = await httpClient.post<OfficialImportResult>(
       "/official-import/xlsm",

@@ -10,9 +10,12 @@ import { useEffect, useMemo, useState } from "react";
 import { simulationApi } from "@/features/simulation/api/simulationApi";
 import { HighchartsChart } from "@/shared/charts/HighchartsChart";
 import { CompareChartFacet } from "@/shared/charts/CompareChartFacet";
+import { LineChart } from "@/shared/charts/LineChart";
+import { ParetoChart } from "@/shared/charts/ParetoChart";
 import type {
   ChartDataResponse,
   CompareChartFacetResponse,
+  ParetoChartResponse,
   SavedChartTemplate,
 } from "@/types/domain";
 import type { ChartSelection } from "@/shared/charts/ChartSelector";
@@ -41,6 +44,7 @@ export function DashboardChartCard({
 }: Props) {
   const [single, setSingle] = useState<ChartDataResponse | null>(null);
   const [facet, setFacet] = useState<CompareChartFacetResponse | null>(null);
+  const [pareto, setPareto] = useState<ParetoChartResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,12 +58,42 @@ export function DashboardChartCard({
     if (!ready) {
       setSingle(null);
       setFacet(null);
+      setPareto(null);
       setError(null);
       return;
     }
     let cancelled = false;
     setLoading(true);
     setError(null);
+
+    if (template.view_mode === "pareto" && template.compare_mode === "off") {
+      const params: Record<string, string> = {
+        tipo: template.tipo,
+        un: template.un,
+      };
+      if (template.sub_filtro) params.sub_filtro = template.sub_filtro;
+      if (template.loc) params.loc = template.loc;
+      const jobId = jobIds[0]!;
+      simulationApi
+        .getParetoData(
+          jobId,
+          params as Parameters<typeof simulationApi.getParetoData>[1],
+        )
+        .then((data) => {
+          if (cancelled) return;
+          setPareto(data);
+          setSingle(null);
+          setFacet(null);
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          setError(err instanceof Error ? err.message : "Error cargando gráfica.");
+        })
+        .finally(() => !cancelled && setLoading(false));
+      return () => {
+        cancelled = true;
+      };
+    }
 
     if (template.compare_mode === "facet") {
       const params: Record<string, string> = {
@@ -172,6 +206,16 @@ export function DashboardChartCard({
             }
             serverFacetExport={{ jobIds, selection }}
             compactToolbar={compactToolbar}
+          />
+        ) : template.view_mode === "pareto" && pareto ? (
+          <ParetoChart
+            data={pareto}
+            serverExport={{ jobId: jobIds[0]!, selection }}
+          />
+        ) : template.view_mode === "line" && single ? (
+          <LineChart
+            data={single}
+            serverExport={{ jobId: jobIds[0]!, selection }}
           />
         ) : single ? (
           <HighchartsChart

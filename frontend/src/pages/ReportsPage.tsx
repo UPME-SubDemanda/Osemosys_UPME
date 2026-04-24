@@ -8,8 +8,8 @@
  * La generación de reportes se apoya en `/saved-chart-templates/report`, que
  * renderiza cada gráfica con los mismos helpers que usa la página de resultados.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/shared/components/Button";
 import { JobSelect } from "@/shared/components/JobSelect";
 import { downloadBlob } from "@/shared/utils/downloadBlob";
@@ -26,6 +26,8 @@ import { PreviewChartModal } from "@/features/reports/components/PreviewChartMod
 import { CategoriesPanel } from "@/features/reports/components/CategoriesPanel";
 import { FavoriteStar } from "@/features/reports/components/FavoriteStar";
 import { ChartPickerModal } from "@/features/reports/components/ChartPickerModal";
+import { IconEye, IconPencil, IconSwap } from "@/features/reports/components/CardActionIcons";
+import { pickRepresentativeJob } from "@/features/reports/pickRepresentativeJob";
 import type {
   ReportLayout,
   ReportTemplateItem,
@@ -120,6 +122,86 @@ function OfficialChip({
     );
   }
   return <span className={cls} title="Reporte oficial">★ Oficial</span>;
+}
+
+/**
+ * Input numérico para reubicar una gráfica del reporte a una posición específica.
+ * Muestra el número de orden actual; al editarlo y hacer Enter/blur llama a
+ * `onSubmit(newIndex0Based)`.
+ */
+function PositionInput({
+  index,
+  total,
+  onSubmit,
+}: {
+  index: number;
+  total: number;
+  onSubmit: (newIndex: number) => void;
+}) {
+  const [draft, setDraft] = useState<string>(String(index + 1).padStart(2, "0"));
+  useEffect(() => {
+    setDraft(String(index + 1).padStart(2, "0"));
+  }, [index]);
+  const commit = () => {
+    const n = Number.parseInt(draft.trim(), 10);
+    if (Number.isFinite(n) && n >= 1 && n <= total) {
+      const newIdx = n - 1;
+      if (newIdx !== index) onSubmit(newIdx);
+    }
+    setDraft(String(index + 1).padStart(2, "0"));
+  };
+  return (
+    <input
+      type="number"
+      min={1}
+      max={total}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      onFocus={(e) => e.currentTarget.select()}
+      title={`Posición 1–${total}. Escribe un número y Enter para mover.`}
+      className="h-8 w-12 shrink-0 rounded-md border border-cyan-500/30 bg-cyan-500/10 text-center text-sm font-bold tabular-nums text-cyan-300 focus:outline-none focus:border-cyan-400 focus:bg-cyan-500/20"
+    />
+  );
+}
+
+/**
+ * Zona delgada entre filas del generador que al hover se expande y permite
+ * insertar una gráfica en esa posición. Minimiza el ruido visual cuando no
+ * se usa.
+ */
+function InsertChartHere({
+  onClick,
+  label,
+}: {
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <div className="group relative h-2.5 transition-all duration-150 hover:h-8">
+      <button
+        type="button"
+        onClick={onClick}
+        title={label}
+        aria-label={label}
+        className="absolute inset-x-0 top-1/2 -translate-y-1/2 mx-auto flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+      >
+        <span className="flex items-center gap-1 rounded-full border border-cyan-500/40 bg-slate-950/80 px-2 py-0.5 text-[10px] font-semibold text-cyan-300 hover:bg-cyan-500/20">
+          <span className="text-sm leading-none">＋</span> {label}
+        </span>
+      </button>
+      <div
+        aria-hidden="true"
+        className="absolute inset-x-4 top-1/2 h-px bg-transparent group-hover:bg-cyan-500/30 transition-colors"
+      />
+    </div>
+  );
 }
 
 function templateSummary(t: SavedChartTemplate): string {
@@ -686,11 +768,38 @@ function ReportGeneratorTab({
   /** Alias por job_id solo para el export (no muta display_name real). */
   const [renameOverrides, setRenameOverrides] = useState<Record<number, string>>({});
   const [renameOpen, setRenameOpen] = useState(false);
+  /**
+   * Compensación de scroll al mover una gráfica con ↑/↓: el click deja un
+   * anchor; al re-renderizar, ajustamos window.scrollY para que el mismo
+   * botón quede bajo el cursor.
+   */
+  const scrollAnchorRef = useRef<{ btn: HTMLElement; beforeTop: number } | null>(
+    null,
+  );
+  useLayoutEffect(() => {
+    const anchor = scrollAnchorRef.current;
+    if (!anchor) return;
+    scrollAnchorRef.current = null;
+    const rect = anchor.btn.getBoundingClientRect();
+    // rect puede ser 0x0 si la fila se desmontó (ej. remove). En ese caso no hacemos nada.
+    if (rect.width === 0 && rect.height === 0) return;
+    const delta = rect.top - anchor.beforeTop;
+    if (delta !== 0) window.scrollBy({ left: 0, top: delta });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order]);
+  const anchorAndRun = (e: React.MouseEvent<HTMLButtonElement>, run: () => void) => {
+    const btn = e.currentTarget;
+    scrollAnchorRef.current = { btn, beforeTop: btn.getBoundingClientRect().top };
+    run();
+  };
+
   /** Preview modal (visualiza una plantilla con escenarios seleccionados). */
   const [previewTemplateInline, setPreviewTemplateInline] =
     useState<SavedChartTemplate | null>(null);
   /** Modal para reemplazar un item del reporte por otra plantilla. */
   const [replaceTargetId, setReplaceTargetId] = useState<number | null>(null);
+  /** Índice 0-based después del cual insertar una nueva gráfica (picker). */
+  const [insertAfterIdx, setInsertAfterIdx] = useState<number | null>(null);
   /** Edición inline del report_title por plantilla. */
   const [titleEditingId, setTitleEditingId] = useState<number | null>(null);
   const [titleDraft, setTitleDraft] = useState<string>("");
@@ -929,6 +1038,69 @@ function ReportGeneratorTab({
       const tmp = next[i + 1]!;
       next[i + 1] = next[i]!;
       next[i] = tmp;
+      return next;
+    });
+  };
+
+  /** Inserta una plantilla en la posición `index` (0-based). Si ya está en
+   *  el orden, primero la saca para evitar duplicados. */
+  const insertAtIndex = (newTpl: SavedChartTemplate, index: number) => {
+    setOrder((prev) => {
+      const without = prev.filter((id) => id !== newTpl.id);
+      const clamped = Math.max(0, Math.min(without.length, index));
+      const next = [...without];
+      next.splice(clamped, 0, newTpl.id);
+      return next;
+    });
+    setSelectionData((prev) => {
+      if (prev[newTpl.id]) return prev;
+      return {
+        ...prev,
+        [newTpl.id]: {
+          job_ids: Array.from({ length: newTpl.num_scenarios }, () => null),
+        },
+      };
+    });
+  };
+
+  /**
+   * Navega a la página de resultados para crear una gráfica nueva, con el
+   * contexto necesario para que al guardar vuelva al Generador con la gráfica
+   * agregada automáticamente en la posición indicada.
+   */
+  const generatorNavigate = useNavigate();
+  const startCreateNewChart = (insertAfter: number | null) => {
+    if (currentReportId == null) {
+      alert(
+        "Guarda primero este reporte para poder agregar nuevas gráficas a él desde la página de resultados.",
+      );
+      return;
+    }
+    const preferred = globalScenarios.filter((j): j is number => j != null);
+    const job = pickRepresentativeJob(availableJobs, preferred);
+    if (!job) {
+      alert(
+        "No hay resultados disponibles para crear una gráfica. Lanza una simulación primero.",
+      );
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set("addToReport", String(currentReportId));
+    params.set("addMode", "generator");
+    if (insertAfter != null) params.set("addAfterIdx", String(insertAfter));
+    generatorNavigate(`${paths.resultsDetail(job.id)}?${params.toString()}`);
+  };
+
+  /** Mueve `tplId` a la posición `newIndex` (0-based), clampeada al rango. */
+  const moveTo = (tplId: number, newIndex: number) => {
+    setOrder((prev) => {
+      const i = prev.indexOf(tplId);
+      if (i < 0) return prev;
+      const target = Math.max(0, Math.min(prev.length - 1, newIndex));
+      if (target === i) return prev;
+      const next = [...prev];
+      next.splice(i, 1);
+      next.splice(target, 0, tplId);
       return next;
     });
   };
@@ -1524,19 +1696,25 @@ function ReportGeneratorTab({
             </div>
 
             {viewMode === "list" ? (
-              <ol className="grid gap-2 list-none p-0 m-0">
-                {orderedItems.map(({ tpl, data }, idx) => {
+              <ol className="list-none p-0 m-0">
+                {orderedItems.map(({ tpl }, idx) => {
                   const isFirst = idx === 0;
                   const isLast = idx === orderedItems.length - 1;
                   return (
-                    <li
-                      key={tpl.id}
-                      className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3"
-                    >
+                    <div key={`wrap-${tpl.id}`}>
+                      {idx === 0 ? (
+                        <InsertChartHere
+                          onClick={() => setInsertAfterIdx(-1)}
+                          label="Insertar gráfica al inicio"
+                        />
+                      ) : null}
+                    <li className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
                       <div className="flex flex-wrap items-start gap-3">
-                        <span className="inline-flex h-8 w-10 shrink-0 items-center justify-center rounded-md border border-cyan-500/30 bg-cyan-500/10 text-sm font-bold tabular-nums text-cyan-300">
-                          {String(idx + 1).padStart(2, "0")}
-                        </span>
+                        <PositionInput
+                          index={idx}
+                          total={orderedItems.length}
+                          onSubmit={(newIndex) => moveTo(tpl.id, newIndex)}
+                        />
                         <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             {tpl.is_favorite ? (
@@ -1560,17 +1738,17 @@ function ReportGeneratorTab({
                             type="button"
                             onClick={() => setPreviewTemplateInline(tpl)}
                             title="Visualizar con los escenarios seleccionados"
-                            className="inline-flex h-8 items-center justify-center rounded-md border border-emerald-500/40 px-2 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/10"
+                            className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-emerald-500/40 px-2 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/10"
                           >
-                            👁 Visualizar
+                            <IconEye /> Visualizar
                           </button>
                           <button
                             type="button"
                             onClick={() => setReplaceTargetId(tpl.id)}
                             title="Reemplazar por otra gráfica guardada"
-                            className="inline-flex h-8 items-center justify-center rounded-md border border-indigo-500/40 px-2 text-[11px] font-semibold text-indigo-300 hover:bg-indigo-500/10"
+                            className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-indigo-500/40 px-2 text-[11px] font-semibold text-indigo-300 hover:bg-indigo-500/10"
                           >
-                            ⇆ Reemplazar
+                            <IconSwap /> Reemplazar
                           </button>
                           {canEditChartReportTitle(tpl) ? (
                             <button
@@ -1580,14 +1758,14 @@ function ReportGeneratorTab({
                                 setTitleDraft(tpl.report_title ?? "");
                               }}
                               title="Editar título usado al renderizar en reportes"
-                              className="inline-flex h-8 items-center justify-center rounded-md border border-cyan-500/40 px-2 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-500/10"
+                              className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-cyan-500/40 px-2 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-500/10"
                             >
-                              ✎ Título
+                              <IconPencil /> Título
                             </button>
                           ) : null}
                           <button
                             type="button"
-                            onClick={() => moveUp(tpl.id)}
+                            onClick={(e) => anchorAndRun(e, () => moveUp(tpl.id))}
                             disabled={isFirst}
                             title="Subir"
                             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -1596,7 +1774,7 @@ function ReportGeneratorTab({
                           </button>
                           <button
                             type="button"
-                            onClick={() => moveDown(tpl.id)}
+                            onClick={(e) => anchorAndRun(e, () => moveDown(tpl.id))}
                             disabled={isLast}
                             title="Bajar"
                             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -1646,28 +1824,16 @@ function ReportGeneratorTab({
                           </div>
                         </div>
                       ) : null}
-                      <div
-                        className="grid gap-2"
-                        style={{
-                          gridTemplateColumns:
-                            "repeat(auto-fit, minmax(220px, 1fr))",
-                        }}
-                      >
-                        {data.job_ids.map((jobId, sIdx) => (
-                          <label key={sIdx} className="grid gap-1">
-                            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                              Escenario {sIdx + 1}
-                            </span>
-                            <JobSelect
-                              value={jobId}
-                              onChange={(next) => setJobAt(tpl.id, sIdx, next)}
-                              jobs={availableJobs}
-                              loading={loadingJobs}
-                            />
-                          </label>
-                        ))}
-                      </div>
                     </li>
+                      <InsertChartHere
+                        onClick={() => setInsertAfterIdx(idx)}
+                        label={
+                          isLast
+                            ? "Agregar gráfica al final"
+                            : "Insertar gráfica aquí"
+                        }
+                      />
+                    </div>
                   );
                 })}
               </ol>
@@ -1982,6 +2148,25 @@ function ReportGeneratorTab({
           if (replaceTargetId != null) replaceTemplate(replaceTargetId, tpl);
           setReplaceTargetId(null);
         }}
+      />
+
+      <ChartPickerModal
+        open={insertAfterIdx != null}
+        onClose={() => setInsertAfterIdx(null)}
+        title="Agregar gráfica"
+        templates={templates}
+        excludeIds={new Set(order)}
+        onPick={(tpl) => {
+          if (insertAfterIdx != null) {
+            insertAtIndex(tpl, insertAfterIdx + 1);
+          }
+          setInsertAfterIdx(null);
+        }}
+        onCreateNew={
+          currentReportId != null
+            ? () => startCreateNewChart(insertAfterIdx ?? null)
+            : undefined
+        }
       />
     </div>
   );

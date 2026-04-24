@@ -31,7 +31,7 @@ type Props = {
   accessibleTemplates: SavedChartTemplate[];
 };
 
-function moveItemInArray(arr: number[], index: number, delta: -1 | 1): number[] {
+function moveItemInArray<T>(arr: T[], index: number, delta: -1 | 1): T[] {
   const next = [...arr];
   const target = index + delta;
   if (target < 0 || target >= next.length) return arr;
@@ -169,6 +169,31 @@ export function CategoriesPanel({
     }
     onLayoutChange({ categories: remaining });
   };
+  const moveCategory = (id: string, delta: -1 | 1) => {
+    const idx = layout.categories.findIndex((c) => c.id === id);
+    if (idx < 0) return;
+    const target = idx + delta;
+    if (target < 0 || target >= layout.categories.length) return;
+    const next = [...layout.categories];
+    const tmp = next[idx]!;
+    next[idx] = next[target]!;
+    next[target] = tmp;
+    onLayoutChange({ ...layout, categories: next });
+  };
+  const moveSub = (catId: string, subId: string, delta: -1 | 1) => {
+    onLayoutChange({
+      ...layout,
+      categories: layout.categories.map((c) => {
+        if (c.id !== catId) return c;
+        const idx = c.subcategories.findIndex((s) => s.id === subId);
+        return {
+          ...c,
+          subcategories: moveItemInArray(c.subcategories, idx, delta),
+        };
+      }),
+    });
+  };
+
   const removeSub = (catId: string, subId: string) => {
     onLayoutChange({
       categories: layout.categories.map((c) => {
@@ -324,10 +349,12 @@ export function CategoriesPanel({
           </p>
         </div>
       </div>
-      {layout.categories.map((cat) => (
+      {layout.categories.map((cat, catIdx) => (
         <CategoryCard
           key={cat.id}
           cat={cat}
+          catIndex={catIdx}
+          totalCategories={layout.categories.length}
           allCategories={layout.categories}
           templatesById={templatesById}
           availableForPicker={availableForPicker}
@@ -345,6 +372,8 @@ export function CategoriesPanel({
           reorderInSub={reorderInSub}
           removeItem={removeItem}
           addItem={addItem}
+          moveCategory={moveCategory}
+          moveSub={moveSub}
         />
       ))}
       <button
@@ -362,6 +391,8 @@ export function CategoriesPanel({
 
 type CategoryCardProps = {
   cat: ReportLayoutCategory;
+  catIndex: number;
+  totalCategories: number;
   allCategories: ReportLayoutCategory[];
   templatesById: Map<number, SavedChartTemplate>;
   availableForPicker: SavedChartTemplate[];
@@ -387,10 +418,14 @@ type CategoryCardProps = {
   ) => void;
   removeItem: (id: number) => void;
   addItem: (chartId: number, target: { catId: string; subId?: string }) => void;
+  moveCategory: (id: string, delta: -1 | 1) => void;
+  moveSub: (catId: string, subId: string, delta: -1 | 1) => void;
 };
 
 function CategoryCard({
   cat,
+  catIndex,
+  totalCategories,
   allCategories,
   templatesById,
   availableForPicker,
@@ -408,6 +443,8 @@ function CategoryCard({
   reorderInSub,
   removeItem,
   addItem,
+  moveCategory,
+  moveSub,
 }: CategoryCardProps) {
   const totalItems =
     cat.items.length +
@@ -417,6 +454,26 @@ function CategoryCard({
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
       {/* Header categoría */}
       <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => moveCategory(cat.id, -1)}
+            disabled={catIndex === 0}
+            title="Subir categoría (mueve sus gráficas con ella)"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            onClick={() => moveCategory(cat.id, 1)}
+            disabled={catIndex >= totalCategories - 1}
+            title="Bajar categoría (mueve sus gráficas con ella)"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            ↓
+          </button>
+        </div>
         <input
           type="text"
           value={cat.label}
@@ -491,7 +548,7 @@ function CategoryCard({
       ) : null}
 
       {/* Subcategorías */}
-      {cat.subcategories.map((sub) => {
+      {cat.subcategories.map((sub, subIdx) => {
         const subPickerOpen =
           pickerOpenForSub != null &&
           pickerOpenForSub.catId === cat.id &&
@@ -502,6 +559,26 @@ function CategoryCard({
             className="rounded-md border border-slate-800/70 bg-slate-950/30 p-2 space-y-2"
           >
             <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => moveSub(cat.id, sub.id, -1)}
+                  disabled={subIdx === 0}
+                  title="Subir subcategoría"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveSub(cat.id, sub.id, 1)}
+                  disabled={subIdx >= cat.subcategories.length - 1}
+                  title="Bajar subcategoría"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  ↓
+                </button>
+              </div>
               <input
                 type="text"
                 value={sub.label}

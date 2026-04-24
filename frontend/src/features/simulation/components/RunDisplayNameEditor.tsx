@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Check, Pencil, X } from "lucide-react";
 import { useToast } from "@/app/providers/useToast";
 import { simulationApi } from "@/features/simulation/api/simulationApi";
@@ -10,6 +11,8 @@ type RunDisplayNameEditorProps = {
   onSaved: (jobId: number, next: string | null) => void;
   /** Fila de tabla: edición plegada con ícono. */
   compact?: boolean;
+  /** Si se provee, el nombre se renderiza como Link a esta ruta (solo en modo compact, no editando). */
+  linkTo?: string;
 };
 
 export function RunDisplayNameEditor({
@@ -17,6 +20,7 @@ export function RunDisplayNameEditor({
   value,
   onSaved,
   compact = false,
+  linkTo,
 }: RunDisplayNameEditorProps) {
   const { push } = useToast();
   const [editing, setEditing] = useState(false);
@@ -92,11 +96,22 @@ export function RunDisplayNameEditor({
   }
 
   if (!editing) {
+    const nameNode = linkTo && shown !== "—" ? (
+      <Link
+        to={linkTo}
+        className="min-w-0 truncate font-medium text-cyan-300 hover:text-cyan-200 hover:underline"
+        title={shown}
+      >
+        {shown}
+      </Link>
+    ) : (
+      <span className="min-w-0 truncate font-medium text-slate-200" title={shown === "—" ? undefined : shown}>
+        {shown}
+      </span>
+    );
     return (
       <div className="flex max-w-full items-center gap-2">
-        <span className="min-w-0 truncate font-medium text-slate-200" title={shown === "—" ? undefined : shown}>
-          {shown}
-        </span>
+        {nameNode}
         <button
           type="button"
           onClick={() => setEditing(true)}

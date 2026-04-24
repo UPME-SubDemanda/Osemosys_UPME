@@ -738,13 +738,10 @@ class ReportTemplateService:
         cleaned = [int(x) for x in items]
         if not cleaned:
             raise ValueError("El reporte debe tener al menos una gráfica.")
-        seen: set[int] = set()
-        ordered: list[int] = []
-        for tid in cleaned:
-            if tid in seen:
-                continue
-            seen.add(tid)
-            ordered.append(tid)
+        # Los reportes permiten duplicados (misma plantilla con distintos
+        # escenarios), así que NO deduplicamos. Sólo validamos accesibilidad
+        # sobre el conjunto de ids distintos.
+        unique_ids = list({int(t) for t in cleaned})
         visibility = [
             SavedChartTemplate.user_id == user_id,
             SavedChartTemplate.is_public.is_(True),
@@ -759,17 +756,17 @@ class ReportTemplateService:
                 visibility = [SavedChartTemplate.id == SavedChartTemplate.id]
         rows = db.execute(
             select(SavedChartTemplate).where(
-                SavedChartTemplate.id.in_(ordered),
+                SavedChartTemplate.id.in_(unique_ids),
                 or_(*visibility),
             )
         ).scalars().all()
         existing = {int(r.id) for r in rows}
-        missing = [tid for tid in ordered if tid not in existing]
+        missing = [tid for tid in unique_ids if tid not in existing]
         if missing:
             raise NotFoundError(
                 f"Plantillas no encontradas o sin acceso: {missing}"
             )
-        return ordered
+        return cleaned
 
     @staticmethod
     def list_accessible(

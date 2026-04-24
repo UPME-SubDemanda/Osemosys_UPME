@@ -20,7 +20,9 @@ from .parameter_value import ParameterValue
 from .region import Region
 from .relation_categorie import RelationCategorie
 from .report_template import ReportTemplate
+from .report_template_favorite import ReportTemplateFavorite
 from .saved_chart_template import SavedChartTemplate
+from .saved_chart_template_favorite import SavedChartTemplateFavorite
 from .scenario import Scenario
 from .scenario_tag import ScenarioTag
 from .scenario_tag_category import ScenarioTagCategory
@@ -81,7 +83,9 @@ __all__ = [
     "DocumentType",
     "User",
     "SavedChartTemplate",
+    "SavedChartTemplateFavorite",
     "ReportTemplate",
+    "ReportTemplateFavorite",
 ]
 
 

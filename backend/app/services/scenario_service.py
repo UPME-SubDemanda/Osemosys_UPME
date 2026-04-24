@@ -184,8 +184,15 @@ class ScenarioService:
         return permission
 
     @staticmethod
+    def _is_scenario_admin(current_user: User) -> bool:
+        """Usuario con el rol global de administración de escenarios."""
+        return bool(getattr(current_user, "can_manage_scenarios", False))
+
+    @staticmethod
     def _can_view_scenario(scenario: Scenario, *, current_user: User) -> bool:
         if scenario.owner == current_user.username:
+            return True
+        if ScenarioService._is_scenario_admin(current_user):
             return True
         return scenario.edit_policy in {"OPEN", "RESTRICTED"}
 
@@ -200,6 +207,16 @@ class ScenarioService:
             return {
                 "can_view": True,
                 "is_owner": True,
+                "can_edit_direct": True,
+                "can_propose": True,
+                "can_manage_values": True,
+            }
+
+        # Admin Escenarios: acceso pleno (menos is_owner).
+        if ScenarioService._is_scenario_admin(current_user):
+            return {
+                "can_view": True,
+                "is_owner": False,
                 "can_edit_direct": True,
                 "can_propose": True,
                 "can_manage_values": True,
@@ -434,6 +451,27 @@ class ScenarioService:
         return result.rowcount
 
     @staticmethod
+    def facets(
+        db: Session,
+        *,
+        current_user: User,
+        include_private: bool = False,
+    ) -> dict:
+        """Valores distintos para alimentar los filtros multiselect del listado.
+
+        Respeta la visibilidad del usuario. ``include_private`` solo se honra
+        si el usuario tiene ``can_manage_scenarios=True``.
+        """
+        honor_private = bool(
+            include_private and ScenarioService._is_scenario_admin(current_user)
+        )
+        return ScenarioRepository.get_facets(
+            db,
+            current_username=current_user.username,
+            include_private=honor_private,
+        )
+
+    @staticmethod
     def list(
         db: Session,
         *,
@@ -444,9 +482,22 @@ class ScenarioService:
         permission_scope: str | None,
         cantidad: int | None,
         offset: int | None,
+        include_private: bool = False,
+        owners: list[str] | None = None,
+        edit_policies: list[str] | None = None,
+        simulation_types: list[str] | None = None,
+        tag_ids: list[int] | None = None,
     ) -> dict:
-        """Lista escenarios accesibles para el usuario autenticado."""
+        """Lista escenarios accesibles para el usuario autenticado.
+
+        ``include_private`` solo se honra si el usuario tiene
+        ``can_manage_scenarios=True``; en caso contrario, se ignora y se aplica
+        el filtro de visibilidad estándar.
+        """
         page, page_size, row_offset = normalize_pagination(offset, cantidad)
+        honor_private = bool(
+            include_private and ScenarioService._is_scenario_admin(current_user)
+        )
         items, total = ScenarioRepository.get_paginated_accessible(
             db,
             current_username=current_user.username,
@@ -456,6 +507,11 @@ class ScenarioService:
             permission_scope=permission_scope,
             row_offset=row_offset,
             limit=page_size,
+            include_private=honor_private,
+            owners=owners,
+            edit_policies=edit_policies,
+            simulation_types=simulation_types,
+            tag_ids=tag_ids,
         )
         meta = build_meta(page, page_size, total, busqueda)
         # Batch lookup: tags por escenario en un solo query
@@ -694,6 +750,9 @@ class ScenarioService:
         if scenario.owner == current_user.username:
             return scenario
 
+        if ScenarioService._is_scenario_admin(current_user):
+            return scenario
+
         perm = ScenarioRepository.get_permission_for_user(db, scenario_id=scenario_id, user_id=current_user.id)
         if not perm or not perm.can_edit_direct:
             raise ForbiddenError("No tienes permisos para administrar este escenario.")
@@ -714,6 +773,8 @@ class ScenarioService:
         """Valida capacidad de edición de valores del escenario."""
         scenario = ScenarioService._require_access(db, scenario_id=scenario_id, current_user=current_user)
         if scenario.owner == current_user.username:
+            return scenario
+        if ScenarioService._is_scenario_admin(current_user):
             return scenario
         permission = ScenarioService._get_permission(
             db, scenario_id=scenario_id, current_user=current_user

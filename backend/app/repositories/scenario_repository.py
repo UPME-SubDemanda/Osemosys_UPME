@@ -20,6 +20,26 @@ class ScenarioRepository:
     """Consultas de persistencia para dominio de escenarios."""
 
     @staticmethod
+    def _build_visibility_clause(
+        *, current_username: str, include_private: bool
+    ):
+        """Clausula SQL de visibilidad de escenarios para el usuario actual."""
+        if include_private:
+            readable = None
+        else:
+            readable = or_(
+                Scenario.owner == current_username,
+                and_(
+                    Scenario.owner != current_username,
+                    Scenario.edit_policy.in_(("OPEN", "RESTRICTED")),
+                ),
+            )
+        clause = Scenario.is_template.is_(False)
+        if readable is not None:
+            clause = and_(readable, clause)
+        return clause
+
+    @staticmethod
     def get_paginated_accessible(
         db: Session,
         *,
@@ -30,24 +50,26 @@ class ScenarioRepository:
         permission_scope: str | None,
         row_offset: int,
         limit: int,
+        include_private: bool = False,
+        owners: list[str] | None = None,
+        edit_policies: list[str] | None = None,
+        simulation_types: list[str] | None = None,
+        tag_ids: list[int] | None = None,
     ) -> tuple[list[tuple[Scenario, str | None]], int]:
         """Retorna escenarios accesibles para un usuario.
 
         Regla de lectura:
         - el owner siempre ve sus escenarios;
         - usuarios ajenos solo ven escenarios `OPEN` o `RESTRICTED`;
+        - si ``include_private=True`` (reservado a `can_manage_scenarios`),
+          se muestran también escenarios `OWNER_ONLY` de otros usuarios;
         - escenarios plantilla no aparecen en el listado operativo.
         """
         base_scenario = aliased(Scenario)
 
-        readable_clause = or_(
-            Scenario.owner == current_username,
-            and_(
-                Scenario.owner != current_username,
-                Scenario.edit_policy.in_(("OPEN", "RESTRICTED")),
-            ),
+        where_clause = ScenarioRepository._build_visibility_clause(
+            current_username=current_username, include_private=include_private
         )
-        where_clause = and_(readable_clause, Scenario.is_template.is_(False))
         if busqueda:
             term = f"%{busqueda}%"
             where_clause = and_(
@@ -62,6 +84,27 @@ class ScenarioRepository:
             where_clause = and_(where_clause, Scenario.owner == owner)
         if edit_policy:
             where_clause = and_(where_clause, Scenario.edit_policy == edit_policy)
+        # Filtros multiselect (AND entre columnas, IN dentro de cada columna)
+        if owners:
+            where_clause = and_(where_clause, Scenario.owner.in_(owners))
+        if edit_policies:
+            where_clause = and_(
+                where_clause, Scenario.edit_policy.in_(edit_policies)
+            )
+        if simulation_types:
+            where_clause = and_(
+                where_clause, Scenario.simulation_type.in_(simulation_types)
+            )
+        if tag_ids:
+            # Escenarios que tengan al menos un tag en tag_ids (semántica: OR dentro del filtro)
+            where_clause = and_(
+                where_clause,
+                Scenario.id.in_(
+                    select(ScenarioTagLink.scenario_id).where(
+                        ScenarioTagLink.tag_id.in_(tag_ids)
+                    )
+                ),
+            )
         if permission_scope == "mine":
             where_clause = and_(where_clause, Scenario.owner == current_username)
         elif permission_scope == "editable":
@@ -114,6 +157,104 @@ class ScenarioRepository:
         )
         items = db.execute(items_stmt).all()
         return [(row[0], row.base_scenario_name) for row in items], total
+
+    @staticmethod
+    def get_facets(
+        db: Session,
+        *,
+        current_username: str,
+        include_private: bool = False,
+    ) -> dict:
+        """Valores distintos para construir filtros multiselect en el listado.
+
+        Respeta la visibilidad del usuario (con ``include_private`` reservado a
+        administradores). Devuelve owners, edit_policies, simulation_types y
+        tags accesibles. No narrowed por filtros activos — son facetas
+        completas para que el usuario vea todas las opciones posibles.
+        """
+        base_where = ScenarioRepository._build_visibility_clause(
+            current_username=current_username, include_private=include_private
+        )
+
+        owners = sorted(
+            {
+                str(v)
+                for v in db.execute(
+                    select(Scenario.owner).where(base_where).distinct()
+                ).scalars().all()
+                if v
+            }
+        )
+        edit_policies = sorted(
+            {
+                str(v)
+                for v in db.execute(
+                    select(Scenario.edit_policy).where(base_where).distinct()
+                ).scalars().all()
+                if v
+            }
+        )
+        simulation_types = sorted(
+            {
+                str(v)
+                for v in db.execute(
+                    select(Scenario.simulation_type).where(base_where).distinct()
+                ).scalars().all()
+                if v
+            }
+        )
+
+        # Tags: los que están asignados a escenarios visibles.
+        # Usamos subquery con DISTINCT de tag_id para evitar filas duplicadas
+        # por múltiples scenario_tag_link; luego join para traer metadatos.
+        visible_tag_ids_subq = (
+            select(ScenarioTagLink.tag_id)
+            .join(Scenario, Scenario.id == ScenarioTagLink.scenario_id)
+            .where(base_where)
+            .distinct()
+            .subquery()
+        )
+        tag_rows = db.execute(
+            select(
+                ScenarioTag.id,
+                ScenarioTag.name,
+                ScenarioTag.color,
+                ScenarioTag.category_id,
+                ScenarioTagCategory.name.label("category_name"),
+                ScenarioTagCategory.hierarchy_level.label("hierarchy_level"),
+            )
+            .join(
+                visible_tag_ids_subq,
+                visible_tag_ids_subq.c.tag_id == ScenarioTag.id,
+            )
+            .join(
+                ScenarioTagCategory,
+                ScenarioTagCategory.id == ScenarioTag.category_id,
+            )
+            .order_by(
+                ScenarioTagCategory.hierarchy_level.asc(),
+                ScenarioTag.sort_order.asc(),
+                ScenarioTag.name.asc(),
+            )
+        ).all()
+        tags = [
+            {
+                "id": int(r.id),
+                "name": r.name,
+                "color": r.color,
+                "category_id": int(r.category_id),
+                "category_name": r.category_name,
+                "hierarchy_level": int(r.hierarchy_level),
+            }
+            for r in tag_rows
+        ]
+
+        return {
+            "owners": owners,
+            "edit_policies": edit_policies,
+            "simulation_types": simulation_types,
+            "tags": tags,
+        }
 
     @staticmethod
     def get_by_id(db: Session, scenario_id: int) -> Scenario | None:

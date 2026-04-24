@@ -15,7 +15,8 @@ class UserPublic(BaseModel):
     can_manage_catalogs: bool
     can_import_official_data: bool
     can_manage_users: bool
-    is_admin: bool = False
+    can_manage_scenarios: bool = False
+    is_admin_reports: bool = False
 
 
 class UserCreate(BaseModel):
@@ -28,7 +29,8 @@ class UserCreate(BaseModel):
     can_manage_catalogs: bool = False
     can_import_official_data: bool = False
     can_manage_users: bool = False
-    is_admin: bool = False
+    can_manage_scenarios: bool = False
+    is_admin_reports: bool = False
 
 
 class UserCatalogPermissionUpdate(BaseModel):
@@ -50,7 +52,8 @@ class UserPermissionsUpdate(BaseModel):
     can_manage_catalogs: bool
     can_import_official_data: bool
     can_manage_users: bool
-    is_admin: bool = False
+    can_manage_scenarios: bool = False
+    is_admin_reports: bool = False
 
 
 class UserPasswordResetPayload(BaseModel):

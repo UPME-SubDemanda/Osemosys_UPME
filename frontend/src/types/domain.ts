@@ -27,8 +27,15 @@ export type User = {
   can_manage_catalogs: boolean;
   can_import_official_data: boolean;
   can_manage_users: boolean;
-  /** Administrador del sistema — puede borrar escenarios/simulaciones ajenas. */
-  is_admin: boolean;
+  /** Admin Escenarios — ve privados ajenos; edita metadatos, política,
+   * etiquetas y valores de cualquier escenario; administra permisos
+   * granulares; clona, exporta y revisa change requests; elimina escenarios
+   * y simulaciones/resultados ajenos. */
+  can_manage_scenarios: boolean;
+  /** Admin Reportes — puede editar reportes oficiales, cambiar nombre de
+   * reportes públicos ajenos, marcar/desmarcar oficiales y ver reportes
+   * privados ajenos. */
+  is_admin_reports?: boolean;
 };
 
 /** Categoría jerárquica de etiquetas de escenario. */
@@ -458,6 +465,8 @@ export type SavedChartTemplate = {
   owner_username?: string | null;
   /** True si el usuario actual es el dueño. */
   is_owner?: boolean;
+  /** True si el usuario actual marcó esta gráfica como favorita. */
+  is_favorite?: boolean;
 };
 
 export type SavedChartTemplateCreate = Omit<
@@ -533,6 +542,8 @@ export type SavedReport = {
   is_official?: boolean;
   owner_username?: string | null;
   is_owner?: boolean;
+  /** True si el usuario actual marcó este reporte como favorito. */
+  is_favorite?: boolean;
   /** null = modo automático (frontend computa por módulo); objeto = override manual. */
   layout?: ReportLayout | null;
 };

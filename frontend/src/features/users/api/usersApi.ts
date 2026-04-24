@@ -18,7 +18,8 @@ type UserPermissionsPayload = {
   can_manage_catalogs: boolean;
   can_import_official_data: boolean;
   can_manage_users: boolean;
-  is_admin: boolean;
+  can_manage_scenarios: boolean;
+  is_admin_reports?: boolean;
 };
 
 type UserCreatePayload = {
@@ -29,7 +30,8 @@ type UserCreatePayload = {
   can_manage_catalogs: boolean;
   can_import_official_data: boolean;
   can_manage_users: boolean;
-  is_admin?: boolean;
+  can_manage_scenarios?: boolean;
+  is_admin_reports?: boolean;
 };
 
 /** Obtiene el usuario autenticado actual (requiere token válido) */

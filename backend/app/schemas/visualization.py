@@ -23,9 +23,6 @@ class ChartSeries(BaseModel):
     data: list[float]
     color: str
     stack: str | None = None
-    #: Código subyacente (tech/fuel/emission/sector). Necesario para el
-    #: editor rápido de labels y colores desde la página de resultados.
-    code: str | None = None
 
 
 class ChartDataResponse(BaseModel):
@@ -92,15 +89,6 @@ class ParetoChartResponse(BaseModel):
     yAxisLabel: str
 
 
-class DataExplorerFilters(BaseModel):
-    """Filtros pre-cargables en el Data Explorer para reproducir una gráfica."""
-
-    variable_names: list[str] | None = None
-    technology_prefixes: list[str] | None = None
-    fuel_prefixes: list[str] | None = None
-    emission_names: list[str] | None = None
-
-
 class ChartCatalogItem(BaseModel):
     """Metadatos de un tipo de gráfica disponible en el sistema."""
 
@@ -112,7 +100,6 @@ class ChartCatalogItem(BaseModel):
     sub_filtros: list[str] | None = None
     es_capacidad: bool = False
     soporta_pareto: bool = False
-    data_explorer_filters: DataExplorerFilters | None = None
 
 
 # ---------------------------------------------------------------------------

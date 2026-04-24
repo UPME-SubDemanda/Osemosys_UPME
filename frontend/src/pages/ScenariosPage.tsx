@@ -270,6 +270,7 @@ export function ScenariosPage() {
   const [concatDoneConflictsExpanded, setConcatDoneConflictsExpanded] = useState(false);
   const [concatDoneConflictCount, setConcatDoneConflictCount] = useState(0);
   const [concatExportVerification, setConcatExportVerification] = useState<SandExportVerification | null>(null);
+  const [concatDurationSeconds, setConcatDurationSeconds] = useState<number | null>(null);
 
   const fetchScenarios = useCallback(async () => {
     if (!user) return;
@@ -685,6 +686,7 @@ export function ScenariosPage() {
     setConcatDoneConflictsExpanded(false);
     setConcatDoneConflictCount(0);
     setConcatExportVerification(null);
+    setConcatDurationSeconds(null);
   }
 
   async function handleCloseConcatSand() {
@@ -709,16 +711,18 @@ export function ScenariosPage() {
 
     const abortCtrl = new AbortController();
     concatAbortRef.current = abortCtrl;
+    const startedAt = Date.now();
     setConcatingSand(true);
     setConcatUploadPhase("uploading");
     setConcatUploadPercent(0);
-    setConcatUploadStartedAt(Date.now());
+    setConcatUploadStartedAt(startedAt);
     setConcatErrorDetail(null);
     setConcatErrorExpanded(false);
     setConcatDoneConflictsDetail(null);
     setConcatDoneConflictsExpanded(false);
     setConcatDoneConflictCount(0);
     setConcatExportVerification(null);
+    setConcatDurationSeconds(null);
 
     try {
       const { blob, filename, summary } = await scenariosApi.concatenateSand(
@@ -755,6 +759,7 @@ export function ScenariosPage() {
       }
 
       setConcatUploadPhase("done");
+      setConcatDurationSeconds((Date.now() - startedAt) / 1000);
       setConcatExportVerification(summary.export_verification ?? null);
 
       if (summary.conflictos_count > 0) {
@@ -1710,13 +1715,43 @@ export function ScenariosPage() {
         onClose={handleCloseConcatSand}
         disableBackdropClose
         footer={
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <Button variant="ghost" onClick={handleCloseConcatSand}>
-              Cancelar
-            </Button>
-            <Button variant="primary" onClick={handleConcatenateSand} disabled={concatingSand}>
-              {concatingSand ? "Integrando..." : "Integrar"}
-            </Button>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+            }}
+          >
+            {concatUploadPhase === "done" && concatDurationSeconds !== null ? (
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color:
+                    concatDoneConflictCount > 0
+                      ? "var(--color-warning, #d97706)"
+                      : "var(--color-success, #16a34a)",
+                }}
+              >
+                {concatDoneConflictCount > 0
+                  ? `Integración completada con ${concatDoneConflictCount} conflicto(s) en ${concatDurationSeconds.toFixed(1)} s.`
+                  : `✓ Integración completada con éxito en ${concatDurationSeconds.toFixed(1)} s.`}
+              </span>
+            ) : (
+              <span />
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button variant="ghost" onClick={handleCloseConcatSand}>
+                {concatUploadPhase === "done" ? "Cerrar" : "Cancelar"}
+              </Button>
+              {concatUploadPhase !== "done" ? (
+                <Button variant="primary" onClick={handleConcatenateSand} disabled={concatingSand}>
+                  {concatingSand ? "Integrando..." : "Integrar"}
+                </Button>
+              ) : null}
+            </div>
           </div>
         }
       >

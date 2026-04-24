@@ -34,7 +34,6 @@ const ReportsPage = lazy(() => import("@/pages/ReportsPage").then((m) => ({ defa
 const ReportDashboardPage = lazy(() => import("@/pages/ReportDashboardPage").then((m) => ({ default: m.ReportDashboardPage })));
 const HistoryPage = lazy(() => import("@/pages/HistoryPage").then((m) => ({ default: m.HistoryPage })));
 const ScenarioTagsAdminPage = lazy(() => import("@/pages/ScenarioTagsAdminPage").then((m) => ({ default: m.ScenarioTagsAdminPage })));
-const VisualizationCatalogAdminPage = lazy(() => import("@/pages/VisualizationCatalogAdminPage").then((m) => ({ default: m.VisualizationCatalogAdminPage })));
 
 /** Placeholder mínimo mientras se carga una página lazy (sin artefactos visuales). */
 function LazyFallback() {
@@ -109,7 +108,6 @@ export const router = createBrowserRouter([
                 children: [
                   { path: "catalogs", element: <SuspenseWrapper><CatalogsPage /></SuspenseWrapper> },
                   { path: "scenario-tags-admin", element: <SuspenseWrapper><ScenarioTagsAdminPage /></SuspenseWrapper> },
-                  { path: "admin/visualization-catalog", element: <SuspenseWrapper><VisualizationCatalogAdminPage /></SuspenseWrapper> },
                 ],
               },
               {

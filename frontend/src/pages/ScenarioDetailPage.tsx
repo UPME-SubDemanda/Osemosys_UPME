@@ -383,9 +383,6 @@ export function ScenarioDetailPage() {
     [],
   );
 
-  /** Debounce para agrupar toggles rápidos de checkboxes en un único roundtrip. */
-  const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   /** Aplica un cambio a un filtro de columna y relanza datos + facets narrowed. */
   const applyColumnFilter = useCallback(
     (column: keyof OsemosysWideFilters, values: string[]) => {
@@ -394,15 +391,10 @@ export function ScenarioDetailPage() {
         if (values.length === 0) delete next[column];
         else (next as Record<string, unknown>)[column] = values;
         if (scenario) {
-          // Debounce 250ms: si el usuario marca varios checkboxes seguidos,
-          // solo hacemos UN fetch al final.
-          if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
-          filterDebounceRef.current = setTimeout(() => {
-            const merged = buildFilters(next, yearRules);
-            setOsemosysPage(1);
-            void fetchOsemosysPage(scenario.id, 1, osemosysPageSize, osemosysSearch, filterParamName, filterYear, merged);
-            void fetchFacets(scenario.id, osemosysSearch, filterParamName, merged);
-          }, 250);
+          const merged = buildFilters(next, yearRules);
+          setOsemosysPage(1);
+          void fetchOsemosysPage(scenario.id, 1, osemosysPageSize, osemosysSearch, filterParamName, filterYear, merged);
+          void fetchFacets(scenario.id, osemosysSearch, filterParamName, merged);
         }
         return next;
       });
@@ -1198,26 +1190,10 @@ export function ScenarioDetailPage() {
             ) : null}
           </div>
 
-          {/* Mantenemos la tabla montada durante la carga (overlay en lugar de unmount)
-              para conservar el estado interno del popover de filtros (query, open…). */}
-          <div style={{ position: "relative" }}>
-            {osemosysLoading ? (
-              <div
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  right: 0,
-                  padding: "6px 12px",
-                  fontSize: 12,
-                  color: "var(--muted)",
-                  zIndex: 3,
-                  pointerEvents: "none",
-                }}
-              >
-                Cargando…
-              </div>
-            ) : null}
-            <div style={{ opacity: osemosysLoading ? 0.55 : 1, transition: "opacity 120ms" }}>
+          {osemosysLoading ? (
+            <div style={{ padding: 20, textAlign: "center", opacity: 0.7 }}>Cargando...</div>
+          ) : (
+            <>
               {(() => {
                 const selectedYearsSet = new Set(filterYears);
                 const yearsShown = filterYears.length > 0
@@ -1523,8 +1499,8 @@ export function ScenarioDetailPage() {
                   </div>
                 );
               })()}
-            </div>
-          </div>
+            </>
+          )}
         </div>
       ) : null}
 

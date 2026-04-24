@@ -154,7 +154,6 @@ export function YearRuleFilterPopover({ year, rule, onChange }: Props) {
               role="dialog"
               aria-label={`Filtro de valor ${year}`}
               style={{ top: pos.top, left: pos.left }}
-              onMouseDown={(e) => e.stopPropagation()}
             >
               <div style={{ fontSize: 12, opacity: 0.75, padding: "0 2px" }}>
                 Regla para año <strong>{year}</strong>

@@ -224,48 +224,49 @@ export function ReportDashboardPage() {
     return max;
   }, [report, templatesById, slotOverrides]);
 
-  // Pre-cargar escenarios pasados desde el Generador (sessionStorage) o, si no
-  // hay, los memorizados de la última visita a este reporte (localStorage).
+  // Prefill de escenarios al abrir el reporte. Prioridad:
+  //   1) sessionStorage (explícito, ej. desde "Ver en reporte" de Resultados);
+  //   2) default_job_ids del reporte (si existen, siempre aplican);
+  //   3) memoria client-side (última sesión en este navegador).
   const [pendingPrefill, setPendingPrefill] = useState<(number | null)[] | null>(null);
+  // 1) sessionStorage: se consume al montar.
   useEffect(() => {
     if (!numericReportId) return;
     const key = `dashboard-prefill-scenarios:${numericReportId}`;
     const raw = window.sessionStorage.getItem(key);
-    if (raw) {
-      try {
-        const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) {
-          setPendingPrefill(
-            arr.map((v) => (typeof v === "number" ? v : null)),
-          );
-        }
-      } catch {
-        /* ignore */
-      } finally {
-        window.sessionStorage.removeItem(key);
+    if (!raw) return;
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        setPendingPrefill(
+          arr.map((v) => (typeof v === "number" ? v : null)),
+        );
       }
-      return;
+    } catch {
+      /* ignore */
+    } finally {
+      window.sessionStorage.removeItem(key);
     }
-    // Fallback 1: memoria persistente client-side por reporte.
-    const remembered = loadReportScenarios(numericReportId);
-    if (remembered && remembered.length > 0) {
-      setPendingPrefill(remembered);
-      return;
-    }
-    // Fallback 2: default_job_ids del reporte — se aplica en un efecto aparte
-    // cuando `report` ya esté cargado.
   }, [numericReportId]);
 
-  // Aplica default_job_ids del reporte cuando llega y no hay prefill aún.
+  // 2) default_job_ids — siempre ganan sobre la memoria client-side cuando
+  //    no hay prefill explícito. Se aplica en cuanto `report` llega.
+  // 3) fallback a localStorage si no hay defaults.
   useEffect(() => {
     if (!report) return;
     if (pendingPrefill != null) return;
     if (globalScenarios.some((v) => v != null)) return;
-    if (
-      Array.isArray(report.default_job_ids) &&
-      report.default_job_ids.length > 0
-    ) {
-      setPendingPrefill([...report.default_job_ids]);
+    const savedDefaults = Array.isArray(report.default_job_ids)
+      ? report.default_job_ids
+      : null;
+    const hasDefaults = savedDefaults && savedDefaults.some((v) => v != null);
+    if (hasDefaults) {
+      setPendingPrefill([...(savedDefaults as (number | null)[])]);
+      return;
+    }
+    const remembered = loadReportScenarios(numericReportId);
+    if (remembered && remembered.length > 0) {
+      setPendingPrefill(remembered);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report]);
@@ -1391,6 +1392,7 @@ export function ReportDashboardPage() {
                             cardWidthById={cardWidthById}
                             setCardWidthById={setCardWidthById}
                             resolveAliasSuffix={resolveAliasSuffix}
+                            resolveScenarioNames={resolveScenarioNames}
                           />
                         );
                       })()}
@@ -1566,7 +1568,7 @@ function ChartGrid({
 }) {
   return (
     <div className="flex flex-wrap gap-3">
-      {chartIds.map((id) => {
+      {chartIds.map((id, occurrence) => {
         const tpl = templatesById.get(id);
         if (!tpl) return null;
         const jobIds = jobIdsForTemplate(tpl);
@@ -1576,7 +1578,7 @@ function ChartGrid({
         const isFull = isMulti || widthPref === "full";
         return (
           <div
-            key={id}
+            key={`${id}-${occurrence}`}
             className="space-y-2 min-w-0"
             style={{
               flex: isFull ? "0 0 100%" : "1 1 calc(50% - 0.375rem)",
@@ -1780,7 +1782,7 @@ function DashboardVisualEditor(props: EditorProps) {
     const isFull = isMulti || widthPref === "full";
     return (
       <div
-        key={id}
+        key={`${location.catId}-${location.subId ?? "_"}-${id}-${index}`}
         className="space-y-2 min-w-0"
         style={{
           flex: isFull ? "0 0 100%" : "1 1 calc(50% - 0.375rem)",

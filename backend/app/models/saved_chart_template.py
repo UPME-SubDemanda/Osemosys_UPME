@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 
@@ -54,6 +55,10 @@ class SavedChartTemplate(Base):
     #: Título personalizado usado cuando la gráfica se renderiza dentro de un
     #: reporte (export ZIP o dashboard). Si es null, se usa el título auto-generado.
     report_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Años a graficar cuando ``compare_mode == "by-year"``. Null en otros modos.
+    years_to_plot: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
+    #: Series manuales overlay (línea) — lista de dicts `{id, name, color, data: [[y, v], ...]}`.
+    synthetic_series: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
 
     #: Si ``True``, la gráfica es visible (solo lectura) para otros usuarios,
     #: que pueden usarla en sus propios reportes. Solo el dueño puede editar.

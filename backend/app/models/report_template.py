@@ -46,6 +46,14 @@ class ReportTemplate(Base):
     #: ``null`` = modo auto (derivado del MENU de ChartSelector en el frontend).
     #: Estructura JSONB: ``{ "categories": [ { id, label, items:[...], subcategories:[...] } ] }``.
     layout: Mapped[object | None] = mapped_column(JSONB, nullable=True)
+    #: Alias por escenario global del reporte (posicional 0-based). Cada entry
+    #: corresponde al slot i de ``globalScenarios`` en el UI. Null = sin aliases.
+    #: Se usa para renombrar escenarios en los títulos de las gráficas.
+    scenario_aliases: Mapped[object | None] = mapped_column(JSONB, nullable=True)
+    #: Job IDs por defecto por slot (posicional 0-based). Al abrir el reporte
+    #: se pre-rellenan los escenarios globales con estos valores. Null = sin
+    #: defaults. Entries ``null`` significan slot sin asignar.
+    default_job_ids: Mapped[object | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

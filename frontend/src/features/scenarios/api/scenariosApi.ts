@@ -535,6 +535,8 @@ export const scenariosApi = {
       simulation_type: SimulationType;
       tag_ids?: number[];
       include_udc_reserve_margin?: boolean;
+      /** Default true: colapsar/agregar timeslices como en importaciones anteriores. */
+      collapse_timeslices?: boolean;
     },
     onUploadProgress?: (percent: number) => void,
     onUploadDone?: () => void,
@@ -550,6 +552,10 @@ export const scenariosApi = {
     if (input.tag_ids && input.tag_ids.length)
       form.append("tag_ids", input.tag_ids.join(","));
     form.append("include_udc_reserve_margin", input.include_udc_reserve_margin ? "true" : "false");
+    form.append(
+      "collapse_timeslices",
+      input.collapse_timeslices !== false ? "true" : "false",
+    );
 
     const { data } = await httpClient.post<ScenarioExcelImportResponse>(
       "/scenarios/import-excel",
@@ -941,13 +947,17 @@ export const scenariosApi = {
 
   async updateScenarioFromExcel(
     scenarioId: number,
-    input: { file: File; sheet_name: string },
+    input: { file: File; sheet_name: string; collapse_timeslices?: boolean },
     onUploadProgress?: (percent: number) => void,
     signal?: AbortSignal,
   ): Promise<ScenarioExcelUpdateResponse> {
     const form = new FormData();
     form.append("file", input.file);
     form.append("sheet_name", input.sheet_name);
+    form.append(
+      "collapse_timeslices",
+      input.collapse_timeslices !== false ? "true" : "false",
+    );
     const { data } = await httpClient.post<ScenarioExcelUpdateResponse>(
       `/scenarios/${scenarioId}/update-from-excel`,
       form,
@@ -967,13 +977,17 @@ export const scenariosApi = {
 
   async previewScenarioFromExcel(
     scenarioId: number,
-    input: { file: File; sheet_name: string },
+    input: { file: File; sheet_name: string; collapse_timeslices?: boolean },
     onUploadProgress?: (percent: number) => void,
     signal?: AbortSignal,
   ): Promise<ScenarioExcelPreviewResponse> {
     const form = new FormData();
     form.append("file", input.file);
     form.append("sheet_name", input.sheet_name);
+    form.append(
+      "collapse_timeslices",
+      input.collapse_timeslices !== false ? "true" : "false",
+    );
     const { data } = await httpClient.post<ScenarioExcelPreviewResponse>(
       `/scenarios/${scenarioId}/preview-from-excel`,
       form,

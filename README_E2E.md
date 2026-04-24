@@ -202,6 +202,8 @@ Si el Excel está en otra ruta:
 
 El script copia el Excel al contenedor, importa la hoja Parameters, ejecuta la simulación (solver glpk) y copia el resultado al host en `backend/tmp/sand_04_02_2026_result.json`.
 
+**Timeslices:** en la aplicación web, la opción «Agregar/colapsar timeslices» viene activada por defecto (mismo criterio que antes). Si la desactivas al importar desde Excel, se conservan los timeslices del archivo; valida el escenario ejecutando una simulación. En CLI local, `backend/scripts/run_sand_excel_test.py` admite `--preserve-timeslices` para el mismo efecto.
+
 1. Comparar con el notebook: usar el mismo Excel, hoja Parameters y solver glpk en el notebook; luego comparar métricas (`objective_value`, `total_demand`, `total_dispatch`, `total_unmet`, `coverage_ratio`) o usar `compare_results.py` como se indica en `backend/docs/OSEMOSYS_PARIDAD.md`.
 
 ## 5) Checklist de prueba funcional desde UI

@@ -8,13 +8,47 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-CompareMode = Literal["off", "facet"]
+CompareMode = Literal["off", "facet", "by-year", "line-total"]
 ViewMode = Literal["column", "line", "pareto"]
 BarOrientation = Literal["vertical", "horizontal"]
 FacetPlacement = Literal["inline", "stacked"]
 FacetLegendMode = Literal["shared", "perFacet"]
 FilenameMode = Literal["result", "tags"]
 ReportFormat = Literal["png", "svg"]
+
+
+SyntheticLineStyle = Literal["Solid", "Dash", "Dot", "DashDot", "ShortDash"]
+SyntheticMarkerSymbol = Literal[
+    "circle", "diamond", "square", "triangle", "triangle-down", "none"
+]
+
+
+class SyntheticSeries(BaseModel):
+    """Serie manual de puntos (año, valor) anclada a una plantilla de gráfica.
+
+    Útil para overlays con datos externos (p.ej. resultados de otro estudio)
+    sobre gráficas de línea / líneas totales. La unidad/filtros son los mismos
+    de la plantilla que la contiene — el usuario es responsable de introducir
+    valores coherentes.
+    """
+
+    id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=120)
+    #: Nota descriptiva opcional (fuente de datos, supuestos…).
+    description: str | None = Field(default=None, max_length=1000)
+    #: Si ``False``, la serie está guardada pero no se dibuja. Default True.
+    active: bool | None = None
+    color: str = Field(min_length=4, max_length=9)
+    #: Lista de pares [año, valor]. El frontend los pasa como arrays de 2 elementos.
+    data: list[list[float]] = Field(default_factory=list, max_length=200)
+    #: Estilo de línea. Default ``ShortDash`` (señal visual de "manual").
+    lineStyle: SyntheticLineStyle | None = None
+    #: Símbolo del marker. Default ``diamond``.
+    markerSymbol: SyntheticMarkerSymbol | None = None
+    #: Radio del marker en px. Default 5.
+    markerRadius: float | None = Field(default=None, ge=0, le=20)
+    #: Grosor de línea en px. Default 2.
+    lineWidth: float | None = Field(default=None, ge=0, le=10)
 
 
 class SavedChartTemplateBase(BaseModel):
@@ -37,6 +71,13 @@ class SavedChartTemplateBase(BaseModel):
     legend_title: str | None = Field(default=None, max_length=255)
     filename_mode: FilenameMode | None = None
     report_title: str | None = Field(default=None, max_length=255)
+    #: Años a graficar cuando ``compare_mode == "by-year"``. Se ignora en otros modos.
+    years_to_plot: list[int] | None = Field(default=None, max_length=20)
+    #: Series manuales añadidas como overlay (línea). Se aplican cuando
+    #: ``view_mode == "line"`` o ``compare_mode == "line-total"``.
+    synthetic_series: list[SyntheticSeries] | None = Field(
+        default=None, max_length=20
+    )
 
 
 class SavedChartTemplateCreate(SavedChartTemplateBase):
@@ -44,8 +85,16 @@ class SavedChartTemplateCreate(SavedChartTemplateBase):
     def _check_scenarios_vs_mode(self):
         if self.compare_mode == "off" and self.num_scenarios != 1:
             raise ValueError("Con compare_mode='off' debe haber exactamente 1 escenario.")
-        if self.compare_mode == "facet" and self.num_scenarios < 2:
-            raise ValueError("Con compare_mode='facet' se requieren al menos 2 escenarios.")
+        if self.compare_mode in ("facet", "by-year", "line-total") and self.num_scenarios < 2:
+            raise ValueError(
+                f"Con compare_mode='{self.compare_mode}' se requieren al menos 2 escenarios."
+            )
+        if self.compare_mode == "by-year" and (
+            not self.years_to_plot or len(self.years_to_plot) == 0
+        ):
+            raise ValueError(
+                "Con compare_mode='by-year' debe incluirse al menos un año en years_to_plot."
+            )
         return self
 
 
@@ -93,6 +142,9 @@ class ReportTemplateItem(BaseModel):
 
     template_id: int
     job_ids: list[int] = Field(min_length=1, max_length=10)
+    #: Alias del escenario a agregar al título cuando la gráfica es single
+    #: y vive en un reporte multi-escenario (e.g. "Alto"). Ignorado si null.
+    scenario_alias_for_title: str | None = Field(default=None, max_length=120)
 
 
 class ReportCategoryExportSub(BaseModel):
@@ -179,6 +231,12 @@ class ReportSavedBase(BaseModel):
     )
     #: Override manual de categorías. ``None`` = usar auto-layout (frontend).
     layout: ReportLayout | None = None
+    #: Alias por escenario global (0-based). Cada string corresponde al slot i.
+    #: Null o lista vacía = sin aliases.
+    scenario_aliases: list[str] | None = Field(default=None, max_length=20)
+    #: Job IDs por defecto por slot (0-based). ``None`` en una posición = slot
+    #: sin asignar. Lista vacía o null = sin defaults.
+    default_job_ids: list[int | None] | None = Field(default=None, max_length=20)
 
 
 class ReportSavedCreate(ReportSavedBase):
@@ -198,6 +256,8 @@ class ReportSavedUpdate(BaseModel):
     #: Si quieres restaurar auto, envía ``{"layout": null}`` en JSON con ``exclude_none=False``
     #: (nuestro endpoint detecta la ausencia vs. ``null`` vía ``model_fields_set``).
     layout: ReportLayout | None = None
+    scenario_aliases: list[str] | None = Field(default=None, max_length=20)
+    default_job_ids: list[int | None] | None = Field(default=None, max_length=20)
 
 
 class ReportSavedPublic(ReportSavedBase):

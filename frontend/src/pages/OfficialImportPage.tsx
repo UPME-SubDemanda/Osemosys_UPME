@@ -31,6 +31,8 @@ export function OfficialImportPage() {
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>("idle");
   const [uploadPercent, setUploadPercent] = useState(0);
   const [uploadStartedAt, setUploadStartedAt] = useState<number | null>(null);
+  /** Marcado = agregar/colapsar timeslices (comportamiento histórico). Desmarcado = conservar timeslices del Excel. */
+  const [collapseTimeslices, setCollapseTimeslices] = useState(true);
 
   // Habilitar botón solo si hay archivo, hoja seleccionada y no está cargando
   const canSubmit = useMemo(
@@ -94,6 +96,7 @@ export function OfficialImportPage() {
         selectedSheet,
         handleUploadProgress,
         handleUploadDone,
+        collapseTimeslices,
       );
       setUploadPhase("done");
       setResult(res);
@@ -163,6 +166,17 @@ export function OfficialImportPage() {
               </option>
             ))}
           </select>
+        </label>
+        <label
+          style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", fontSize: 13 }}
+        >
+          <input
+            type="checkbox"
+            checked={collapseTimeslices}
+            onChange={(e) => setCollapseTimeslices(e.target.checked)}
+            disabled={loading || loadingSheets}
+          />
+          Agregar/colapsar timeslices (promedio CapacityFactor, suma del resto). Desmarcar para usar los timeslices del Excel tal cual.
         </label>
         <div className={styles.actionsRow}>
           <Button variant="primary" onClick={onImport} disabled={!canSubmit}>

@@ -9,7 +9,7 @@ from openpyxl import Workbook
 import app.simulation.core.data_processing as data_processing_module
 import app.services.scenario_service as scenario_service_module
 from app.core.exceptions import ForbiddenError
-from app.models import Emission, Fuel, OsemosysParamValue, Scenario, Technology
+from app.models import Emission, Fuel, OsemosysParamValue, Scenario, Technology, Timeslice
 from app.services.csv_scenario_import_service import CsvScenarioImportService
 from app.services.official_import_service import OfficialImportService
 from app.services.scenario_service import ScenarioService
@@ -536,6 +536,136 @@ def test_excel_new_rows_use_sand_processing_defaults_for_preview_and_apply(db_se
     )
     assert inserted_row is not None
     assert abs(float(inserted_row.value) - 0.000001) < 1e-12
+
+
+def test_preview_collapse_timeslices_on_aggregates_off_preserves_each_timeslice(db_session) -> None:
+    """collapse_timeslices=True agrupa por parámetro+índices (sin TS); False mantiene filas por TS."""
+    owner = create_user(db_session, username="excel-collapse-owner")
+    scenario = create_scenario(
+        db_session, name="Excel collapse TS", owner=owner.username, edit_policy="OWNER_ONLY"
+    )
+    region = create_region(db_session, name="R_COLL_TS")
+    db_session.add_all(
+        [
+            Technology(name="TECH_COLL_TS", is_active=True),
+            Fuel(name="FUEL_COLL_TS", is_active=True),
+            Emission(name="EMI_COLL_TS", is_active=True),
+            Timeslice(code="TS_A", description=None),
+            Timeslice(code="TS_B", description=None),
+        ]
+    )
+    db_session.commit()
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Parameters"
+    sheet.append(["Parameter", "Region", "Technology", "Fuel", "Emission", "TIMESLICE", 2026])
+    sheet.append(["FixedCost", region.name, "TECH_COLL_TS", "FUEL_COLL_TS", "EMI_COLL_TS", "TS_A", 10.0])
+    sheet.append(["FixedCost", region.name, "TECH_COLL_TS", "FUEL_COLL_TS", "EMI_COLL_TS", "TS_B", 20.0])
+    data = BytesIO()
+    workbook.save(data)
+    content = data.getvalue()
+
+    preview_on = OfficialImportService.preview_scenario_from_excel(
+        db_session,
+        scenario_id=scenario.id,
+        filename="collapse_on.xlsx",
+        content=content,
+        selected_sheet_name="Parameters",
+        collapse_timeslices=True,
+    )
+    preview_off = OfficialImportService.preview_scenario_from_excel(
+        db_session,
+        scenario_id=scenario.id,
+        filename="collapse_off.xlsx",
+        content=content,
+        selected_sheet_name="Parameters",
+        collapse_timeslices=False,
+    )
+
+    assert len(preview_on["changes"]) == 1
+    assert preview_on["changes"][0]["action"] == "insert"
+    assert abs(float(preview_on["changes"][0]["new_value"]) - 30.0) < 1e-9
+
+    assert len(preview_off["changes"]) == 2
+    codes = {str(c.get("timeslice_code") or "") for c in preview_off["changes"]}
+    assert codes == {"TS_A", "TS_B"}
+    vals_by_ts = {c["timeslice_code"]: float(c["new_value"]) for c in preview_off["changes"]}
+    assert vals_by_ts["TS_A"] == 10.0
+    assert vals_by_ts["TS_B"] == 20.0
+
+
+def test_import_xlsm_collapse_timeslices_off_inserts_two_rows(db_session) -> None:
+    owner = create_user(db_session, username="import-collapse-owner")
+    scenario = create_scenario(
+        db_session, name="Import collapse TS", owner=owner.username, edit_policy="OWNER_ONLY"
+    )
+    region = create_region(db_session, name="R_IMP_COLL")
+    db_session.add_all(
+        [
+            Technology(name="TECH_IMP_COLL", is_active=True),
+            Fuel(name="FUEL_IMP_COLL", is_active=True),
+            Emission(name="EMI_IMP_COLL", is_active=True),
+        ]
+    )
+    db_session.commit()
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Parameters"
+    sheet.append(["Parameter", "Region", "Technology", "Fuel", "Emission", "TIMESLICE", 2026])
+    sheet.append(["FixedCost", region.name, "TECH_IMP_COLL", "FUEL_IMP_COLL", "EMI_IMP_COLL", "TSX", 1.0])
+    sheet.append(["FixedCost", region.name, "TECH_IMP_COLL", "FUEL_IMP_COLL", "EMI_IMP_COLL", "TSY", 2.0])
+    data = BytesIO()
+    workbook.save(data)
+    content = data.getvalue()
+
+    OfficialImportService.import_xlsm(
+        db_session,
+        filename="imp_off.xlsx",
+        content=content,
+        imported_by=owner.username,
+        selected_sheet_name="Parameters",
+        scenario_id_override=scenario.id,
+        use_default_scenario=False,
+        collapse_timeslices=False,
+    )
+    rows_off = (
+        db_session.query(OsemosysParamValue)
+        .filter(
+            OsemosysParamValue.id_scenario == scenario.id,
+            OsemosysParamValue.param_name == "FixedCost",
+            OsemosysParamValue.year == 2026,
+        )
+        .all()
+    )
+    assert len(rows_off) == 2
+    assert len({r.id_timeslice for r in rows_off if r.id_timeslice is not None}) == 2
+
+    scenario2 = create_scenario(
+        db_session, name="Import collapse on", owner=owner.username, edit_policy="OWNER_ONLY"
+    )
+    OfficialImportService.import_xlsm(
+        db_session,
+        filename="imp_on.xlsx",
+        content=content,
+        imported_by=owner.username,
+        selected_sheet_name="Parameters",
+        scenario_id_override=scenario2.id,
+        use_default_scenario=False,
+        collapse_timeslices=True,
+    )
+    rows_on = (
+        db_session.query(OsemosysParamValue)
+        .filter(
+            OsemosysParamValue.id_scenario == scenario2.id,
+            OsemosysParamValue.param_name == "FixedCost",
+            OsemosysParamValue.year == 2026,
+        )
+        .all()
+    )
+    assert len(rows_on) == 1
+    assert abs(float(rows_on[0].value) - 3.0) < 1e-9
 
 
 def test_excel_new_rows_with_timeslice_all_zero_are_skipped_by_sand_aggregation(db_session) -> None:

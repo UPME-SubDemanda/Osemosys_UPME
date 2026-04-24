@@ -70,6 +70,8 @@ def _chart_to_public_dict(
         "legend_title": obj.legend_title,
         "filename_mode": obj.filename_mode,
         "report_title": obj.report_title,
+        "years_to_plot": obj.years_to_plot,
+        "synthetic_series": obj.synthetic_series,
         "created_at": obj.created_at,
         "is_public": bool(getattr(obj, "is_public", False)),
         "owner_username": owner_username,
@@ -357,6 +359,7 @@ class SavedChartTemplateService:
         job_ids: list[int],
         fmt: str,
         job_display_overrides: dict[int, str] | None = None,
+        scenario_alias_for_title: str | None = None,
     ) -> tuple[bytes, str]:
         """Renderiza una plantilla y devuelve (bytes, extensión-sin-punto)."""
         if template.compare_mode == "facet":
@@ -382,6 +385,9 @@ class SavedChartTemplateService:
             rt = (getattr(template, "report_title", None) or "").strip()
             if rt:
                 facet_payload.title = rt
+            sx = (scenario_alias_for_title or "").strip()
+            if sx:
+                facet_payload.title = f"{facet_payload.title} — {sx}"
             img_bytes = chart_service.render_comparison_facet_figure_bytes(
                 facet_payload,
                 fmt=fmt,
@@ -411,6 +417,9 @@ class SavedChartTemplateService:
             rt = (getattr(template, "report_title", None) or "").strip()
             if rt:
                 pareto.title = rt
+            sx = (scenario_alias_for_title or "").strip()
+            if sx:
+                pareto.title = f"{pareto.title} — {sx}"
             img_bytes = chart_service.render_pareto_chart_bytes(pareto, fmt=fmt)
             return img_bytes, fmt
 
@@ -431,6 +440,9 @@ class SavedChartTemplateService:
         rt = (getattr(template, "report_title", None) or "").strip()
         if rt:
             chart.title = rt
+        sx = (scenario_alias_for_title or "").strip()
+        if sx:
+            chart.title = f"{chart.title} — {sx}"
         img_bytes = chart_service.render_chart_visualization_bytes(
             chart,
             fmt=fmt,
@@ -516,6 +528,7 @@ class SavedChartTemplateService:
 
         # Validar todas las plantillas (incluyendo públicas) y accesos antes de renderizar.
         rendered_by_template: dict[int, tuple[SavedChartTemplate, list[int]]] = {}
+        alias_by_template: dict[int, str] = {}
         all_jobs: set[int] = set()
         for item in effective_items:
             template, _owner = SavedChartTemplateService.get_accessible(
@@ -527,10 +540,10 @@ class SavedChartTemplateService:
                     f"recibidos {len(item.job_ids)}."
                 )
             all_jobs.update(item.job_ids)
-            # En modo estructurado una misma plantilla puede aparecer en varias
-            # categorías; guardamos la última asignación (los job_ids deben
-            # coincidir por coherencia del frontend, pero no lo forzamos).
             rendered_by_template[item.template_id] = (template, list(item.job_ids))
+            alias = (getattr(item, "scenario_alias_for_title", None) or "").strip()
+            if alias:
+                alias_by_template[item.template_id] = alias
 
         SavedChartTemplateService._validate_access_jobs(
             db, current_user=current_user, job_ids=sorted(all_jobs)
@@ -565,6 +578,7 @@ class SavedChartTemplateService:
                     job_ids=job_ids,
                     fmt=fmt,
                     job_display_overrides=overrides_int,
+                    scenario_alias_for_title=alias_by_template.get(template.id),
                 )
             except ValueError as e:
                 logger.warning("Skip plantilla %s durante reporte: %s", template.id, e)
@@ -663,6 +677,8 @@ def _report_to_public_dict(
         "owner_username": owner_username,
         "is_owner": obj.user_id == current_user_id,
         "layout": getattr(obj, "layout", None),
+        "scenario_aliases": getattr(obj, "scenario_aliases", None),
+        "default_job_ids": getattr(obj, "default_job_ids", None),
         "is_favorite": bool(is_favorite),
     }
 
@@ -880,6 +896,8 @@ class ReportTemplateService:
         is_public: bool = False,
         is_official: bool = False,
         layout: dict | None = None,
+        scenario_aliases: list[str] | None = None,
+        default_job_ids: list[int | None] | None = None,
     ) -> dict:
         if is_official and not ReportTemplateService._is_admin_reports(current_user):
             raise ForbiddenError(
@@ -897,6 +915,8 @@ class ReportTemplateService:
             is_public=bool(is_public) or bool(is_official),
             is_official=bool(is_official),
             layout=layout,
+            scenario_aliases=(list(scenario_aliases) if scenario_aliases else None),
+            default_job_ids=(list(default_job_ids) if default_job_ids else None),
         )
         db.add(obj)
         # Si el reporte es compartido (público u oficial), promovemos las
@@ -931,6 +951,8 @@ class ReportTemplateService:
         is_public: bool | None = None,
         is_official: bool | None = None,
         layout: dict | None | object = ...,
+        scenario_aliases: list[str] | None | object = ...,
+        default_job_ids: list[int | None] | None | object = ...,
     ) -> dict:
         """Actualiza el reporte con reglas de acceso granulares.
 
@@ -982,6 +1004,8 @@ class ReportTemplateService:
                 (items is not None, "items"),
                 (is_public is not None, "is_public"),
                 (layout is not ..., "layout"),
+                (scenario_aliases is not ..., "scenario_aliases"),
+                (default_job_ids is not ..., "default_job_ids"),
             ]
             bad = [n for (flag, n) in disallowed if flag]
             if bad:
@@ -1008,6 +1032,14 @@ class ReportTemplateService:
                 obj.is_public = True  # un oficial siempre es público
         if layout is not ...:
             obj.layout = layout
+        if scenario_aliases is not ...:
+            obj.scenario_aliases = (
+                list(scenario_aliases) if scenario_aliases else None
+            )
+        if default_job_ids is not ...:
+            obj.default_job_ids = (
+                list(default_job_ids) if default_job_ids else None
+            )
         # Si el reporte quedó compartido (público u oficial), promovemos sus
         # plantillas a públicas.
         if obj.is_public or obj.is_official:

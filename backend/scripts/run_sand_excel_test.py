@@ -89,6 +89,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=PROJECT_ROOT / "tmp" / "local",
         help="Directorio de salida para artefactos (default: backend/tmp/local)",
     )
+    parser.add_argument(
+        "--preserve-timeslices",
+        action="store_true",
+        help="Importar sin colapsar timeslices (equivalente a desmarcar el checkbox en la UI).",
+    )
     return parser
 
 
@@ -161,6 +166,7 @@ def main() -> int:
             imported_by=user.username,
             selected_sheet_name=args.sheet_name,
             scenario_id_override=scenario.id,
+            collapse_timeslices=not args.preserve_timeslices,
         )
         print(f"  Import: {import_result.get('inserted', 0)} insertados, {import_result.get('updated', 0)} actualizados, {import_result.get('skipped', 0)} omitidos.")
         if import_result.get("warnings"):

@@ -31,6 +31,18 @@ export interface ChartSelection {
 interface Props {
   value: ChartSelection;
   onChange: (next: ChartSelection) => void;
+  /**
+   * Si true, oculta la sección "Agrupar por". Útil cuando la comparación es
+   * `line-total` (cada serie es un escenario y muestra totales, no hay
+   * agrupación por tecnología/combustible/sector).
+   */
+  hideGroupBy?: boolean;
+  /**
+   * Orientación actual de las barras apiladas. Se controla desde el mismo
+   * selector de "Tipo de vista" (botón "Barras horizontales").
+   */
+  barOrientation?: 'vertical' | 'horizontal';
+  onChangeBarOrientation?: (next: 'vertical' | 'horizontal') => void;
 }
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
@@ -381,7 +393,13 @@ function showsAgrupacion(item: ChartItem | undefined): boolean {
 
 // ─── Componente ──────────────────────────────────────────────────────────────
 
-export function ChartSelector({ value, onChange }: Props) {
+export function ChartSelector({
+  value,
+  onChange,
+  hideGroupBy = false,
+  barOrientation,
+  onChangeBarOrientation,
+}: Props) {
   const loc = findLocation(value.tipo);
   const activeModule = loc.moduleId;
   const activeSubsector = loc.subsectorId ?? '';
@@ -612,7 +630,7 @@ export function ChartSelector({ value, onChange }: Props) {
       )}
 
       {/* ── Agrupación (no caps, no porcentaje, no emisiones) ── */}
-      {canChangeAgrupacion && (() => {
+      {canChangeAgrupacion && !hideGroupBy && (() => {
         const allowedOptions = currentItem?.allowedGroupings
           ? AGRUPACION_OPTIONS.filter(o => currentItem.allowedGroupings!.includes(o.value))
           : AGRUPACION_OPTIONS;
@@ -698,29 +716,57 @@ export function ChartSelector({ value, onChange }: Props) {
 
         <div style={{ display: 'grid', gap: 6 }}>
           <p style={labelStyle}>Tipo de vista</p>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {(['column', 'line'] as const).map((vm) => {
-              const isActive = (value.viewMode ?? 'column') === vm;
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {(() => {
+              const currentVm = value.viewMode ?? 'column';
+              const isColumn = currentVm === 'column';
+              const currentOrientation = barOrientation ?? 'vertical';
+              const isVerticalBars = isColumn && currentOrientation === 'vertical';
+              const isHorizontalBars = isColumn && currentOrientation === 'horizontal';
+              const canPickOrientation = typeof onChangeBarOrientation === 'function';
               return (
-                <button
-                  key={vm}
-                  type="button"
-                  onClick={() => onChange({ ...value, viewMode: vm })}
-                  style={{ ...viewBtnStyle, ...(isActive ? viewBtnActiveStyle : viewBtnInactiveStyle) }}
-                >
-                  {vm === 'column' ? '▦ Barras' : '∿ Línea'}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange({ ...value, viewMode: 'column' });
+                      onChangeBarOrientation?.('vertical');
+                    }}
+                    style={{ ...viewBtnStyle, ...(isVerticalBars ? viewBtnActiveStyle : viewBtnInactiveStyle) }}
+                  >
+                    ▦ Columnas
+                  </button>
+                  {canPickOrientation && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onChange({ ...value, viewMode: 'column' });
+                        onChangeBarOrientation?.('horizontal');
+                      }}
+                      style={{ ...viewBtnStyle, ...(isHorizontalBars ? viewBtnActiveStyle : viewBtnInactiveStyle) }}
+                    >
+                      ☰ Barras horizontales
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...value, viewMode: 'line' })}
+                    style={{ ...viewBtnStyle, ...(currentVm === 'line' ? viewBtnActiveStyle : viewBtnInactiveStyle) }}
+                  >
+                    ∿ Línea
+                  </button>
+                  {currentItem?.soportaPareto === true && (
+                    <button
+                      type="button"
+                      onClick={() => onChange({ ...value, viewMode: 'pareto' })}
+                      style={{ ...viewBtnStyle, ...(currentVm === 'pareto' ? viewBtnActiveStyle : viewBtnInactiveStyle) }}
+                    >
+                      ▧ Pareto
+                    </button>
+                  )}
+                </>
               );
-            })}
-            {currentItem?.soportaPareto === true && (
-              <button
-                type="button"
-                onClick={() => onChange({ ...value, viewMode: 'pareto' })}
-                style={{ ...viewBtnStyle, ...(value.viewMode === 'pareto' ? viewBtnActiveStyle : viewBtnInactiveStyle) }}
-              >
-                ▧ Pareto
-              </button>
-            )}
+            })()}
           </div>
         </div>
 

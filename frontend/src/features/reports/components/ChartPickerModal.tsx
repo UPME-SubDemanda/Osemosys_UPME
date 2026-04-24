@@ -20,6 +20,9 @@ type Props = {
   excludeIds?: Set<number> | number[] | undefined;
   onPick: (tpl: SavedChartTemplate) => void;
   title?: string;
+  /** Si se pasa, renderiza un botón "+ Crear gráfica nueva" en el header que
+   *  ejecuta este callback (típicamente navega a la página de resultados). */
+  onCreateNew?: (() => void) | undefined;
 };
 
 export function ChartPickerModal({
@@ -30,6 +33,7 @@ export function ChartPickerModal({
   excludeIds,
   onPick,
   title = "Elegir gráfica guardada",
+  onCreateNew,
 }: Props) {
   const [query, setQuery] = useState("");
   const excludeSet = useMemo(() => {
@@ -83,7 +87,7 @@ export function ChartPickerModal({
             Cerrar
           </button>
         </header>
-        <div className="p-3 border-b border-slate-800">
+        <div className="p-3 border-b border-slate-800 space-y-2">
           <input
             type="text"
             value={query}
@@ -91,6 +95,19 @@ export function ChartPickerModal({
             placeholder="Buscar por nombre, tipo o dueño…"
             className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
           />
+          {onCreateNew ? (
+            <button
+              type="button"
+              onClick={() => {
+                onCreateNew();
+                onClose();
+              }}
+              className="w-full rounded-lg border border-dashed border-emerald-500/50 bg-emerald-500/5 px-3 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/15"
+              title="Crear una gráfica nueva desde la página de resultados y agregarla automáticamente al reporte"
+            >
+              ＋ Crear una gráfica nueva (no guardada) y agregarla al reporte
+            </button>
+          ) : null}
         </div>
         <div className="overflow-y-auto flex-1 p-3 space-y-2">
           {filtered.length === 0 ? (

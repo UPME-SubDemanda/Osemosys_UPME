@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 CompareMode = Literal["off", "facet"]
-ViewMode = Literal["column", "line"]
+ViewMode = Literal["column", "line", "pareto"]
 BarOrientation = Literal["vertical", "horizontal"]
 FacetPlacement = Literal["inline", "stacked"]
 FacetLegendMode = Literal["shared", "perFacet"]

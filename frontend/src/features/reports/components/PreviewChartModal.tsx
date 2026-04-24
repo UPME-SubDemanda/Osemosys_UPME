@@ -10,9 +10,12 @@ import { Button } from "@/shared/components/Button";
 import { simulationApi } from "@/features/simulation/api/simulationApi";
 import { HighchartsChart } from "@/shared/charts/HighchartsChart";
 import { CompareChartFacet } from "@/shared/charts/CompareChartFacet";
+import { LineChart } from "@/shared/charts/LineChart";
+import { ParetoChart } from "@/shared/charts/ParetoChart";
 import type {
   ChartDataResponse,
   CompareChartFacetResponse,
+  ParetoChartResponse,
   SavedChartTemplate,
   SimulationRun,
 } from "@/types/domain";
@@ -79,6 +82,7 @@ export function PreviewChartModal({
   const [jobIds, setJobIds] = useState<(number | null)[]>([]);
   const [single, setSingle] = useState<ChartDataResponse | null>(null);
   const [facet, setFacet] = useState<CompareChartFacetResponse | null>(null);
+  const [pareto, setPareto] = useState<ParetoChartResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -114,6 +118,31 @@ export function PreviewChartModal({
     const ids = jobIds.filter((j): j is number => j != null);
     setLoading(true);
     setError(null);
+
+    if (template.view_mode === "pareto" && template.compare_mode === "off") {
+      const params: Record<string, string> = {
+        tipo: template.tipo,
+        un: template.un,
+      };
+      if (template.sub_filtro) params.sub_filtro = template.sub_filtro;
+      if (template.loc) params.loc = template.loc;
+      const jobId = ids[0]!;
+      simulationApi
+        .getParetoData(
+          jobId,
+          params as Parameters<typeof simulationApi.getParetoData>[1],
+        )
+        .then((data) => {
+          setPareto(data);
+          setSingle(null);
+          setFacet(null);
+        })
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Error cargando gráfica.");
+        })
+        .finally(() => setLoading(false));
+      return;
+    }
 
     if (template.compare_mode === "facet") {
       const params: Record<string, string> = {
@@ -278,6 +307,23 @@ export function PreviewChartModal({
               }
               serverFacetExport={{
                 jobIds: jobIds.filter((j): j is number => j != null),
+                selection: selection!,
+              }}
+              compactToolbar
+            />
+          ) : template.view_mode === "pareto" && pareto ? (
+            <ParetoChart
+              data={pareto}
+              serverExport={{
+                jobId: jobIds[0] as number,
+                selection: selection!,
+              }}
+            />
+          ) : template.view_mode === "line" && single ? (
+            <LineChart
+              data={single}
+              serverExport={{
+                jobId: jobIds[0] as number,
                 selection: selection!,
               }}
             />

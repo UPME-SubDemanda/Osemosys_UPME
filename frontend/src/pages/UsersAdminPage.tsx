@@ -26,7 +26,8 @@ type PermKey =
   | "can_manage_catalogs"
   | "can_import_official_data"
   | "can_manage_users"
-  | "is_admin";
+  | "can_manage_scenarios"
+  | "is_admin_reports";
 
 type PermState = Record<PermKey, boolean>;
 
@@ -44,11 +45,11 @@ const PERMS: {
       "El usuario puede iniciar sesión. Si lo desactivas no podrá entrar a la app.",
   },
   {
-    key: "is_admin",
-    label: "Administrador",
-    badge: "Admin",
+    key: "can_manage_scenarios",
+    label: "Admin Escenarios",
+    badge: "Admin escenarios",
     description:
-      "Administrador del sistema: puede eliminar escenarios y simulaciones de otros usuarios. Úsalo con cuidado — las eliminaciones son permanentes (quedan registradas en Historial).",
+      "Administra integralmente escenarios de otros usuarios: ve privados, edita metadatos, política, etiquetas y valores; administra permisos granulares; clona, exporta y revisa change requests; elimina escenarios y simulaciones/resultados ajenos. Úsalo con cuidado — las eliminaciones son permanentes (quedan registradas en Historial).",
   },
   {
     key: "can_manage_users",
@@ -58,11 +59,18 @@ const PERMS: {
       "Puede ver esta página, crear usuarios y otorgar/revocar permisos (incluido el de administrador).",
   },
   {
+    key: "is_admin_reports",
+    label: "Admin Reportes",
+    badge: "Admin Reportes",
+    description:
+      "Puede marcar/desmarcar reportes como oficiales, editar reportes oficiales, cambiar el nombre de reportes públicos ajenos y ver reportes privados de otros usuarios (solo lectura).",
+  },
+  {
     key: "can_manage_catalogs",
     label: "Gestionar catálogos",
     badge: "Catálogos",
     description:
-      "Puede editar parámetros, tecnologías y etiquetas. Es el permiso necesario para marcar reportes como Oficiales en la sección Reportes.",
+      "Puede editar parámetros, tecnologías y etiquetas del modelo.",
   },
   {
     key: "can_import_official_data",
@@ -79,7 +87,8 @@ function permStateFrom(u: User): PermState {
     can_manage_catalogs: u.can_manage_catalogs,
     can_import_official_data: u.can_import_official_data,
     can_manage_users: u.can_manage_users,
-    is_admin: u.is_admin ?? false,
+    can_manage_scenarios: u.can_manage_scenarios ?? false,
+    is_admin_reports: u.is_admin_reports ?? false,
   };
 }
 
@@ -112,7 +121,8 @@ export function UsersAdminPage() {
     can_manage_catalogs: false,
     can_import_official_data: false,
     can_manage_users: false,
-    is_admin: false,
+    can_manage_scenarios: false,
+    is_admin_reports: false,
   });
 
   const refresh = useCallback(async () => {
@@ -144,7 +154,8 @@ export function UsersAdminPage() {
         can_manage_catalogs: form.can_manage_catalogs,
         can_import_official_data: form.can_import_official_data,
         can_manage_users: form.can_manage_users,
-        is_admin: form.is_admin,
+        can_manage_scenarios: form.can_manage_scenarios,
+        is_admin_reports: form.is_admin_reports,
       });
       setOpenCreate(false);
       setForm({
@@ -155,7 +166,8 @@ export function UsersAdminPage() {
         can_manage_catalogs: false,
         can_import_official_data: false,
         can_manage_users: false,
-        is_admin: false,
+        can_manage_scenarios: false,
+        is_admin_reports: false,
       });
       await refresh();
       push("Usuario creado.", "success");

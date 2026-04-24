@@ -19,7 +19,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ForbiddenError, NotFoundError
-from app.models import ReportTemplate, SavedChartTemplate, User
+from app.models import (
+    ReportTemplate,
+    ReportTemplateFavorite,
+    SavedChartTemplate,
+    SavedChartTemplateFavorite,
+    User,
+)
 from app.schemas.saved_chart_template import (
     ReportCategoryExport,
     ReportTemplateItem,
@@ -42,6 +48,7 @@ def _chart_to_public_dict(
     *,
     current_user_id: uuid.UUID,
     owner_username: str | None,
+    is_favorite: bool = False,
 ) -> dict:
     """Convierte ORM → dict para ``SavedChartTemplatePublic``, con is_owner."""
     return {
@@ -66,7 +73,30 @@ def _chart_to_public_dict(
         "is_public": bool(getattr(obj, "is_public", False)),
         "owner_username": owner_username,
         "is_owner": obj.user_id == current_user_id,
+        "is_favorite": bool(is_favorite),
     }
+
+
+def _load_chart_favorite_ids(
+    db: Session, *, user_id: uuid.UUID
+) -> set[int]:
+    rows = db.execute(
+        select(SavedChartTemplateFavorite.template_id).where(
+            SavedChartTemplateFavorite.user_id == user_id,
+        )
+    ).scalars().all()
+    return {int(r) for r in rows}
+
+
+def _load_report_favorite_ids(
+    db: Session, *, user_id: uuid.UUID
+) -> set[int]:
+    rows = db.execute(
+        select(ReportTemplateFavorite.report_id).where(
+            ReportTemplateFavorite.user_id == user_id,
+        )
+    ).scalars().all()
+    return {int(r) for r in rows}
 
 
 class SavedChartTemplateService:
@@ -76,7 +106,11 @@ class SavedChartTemplateService:
     def list_accessible(
         db: Session, *, user_id: uuid.UUID
     ) -> list[dict]:
-        """Propias + públicas de otros usuarios; se anota is_owner y owner_username."""
+        """Propias + públicas de otros usuarios; anota is_owner/owner/is_favorite.
+
+        Orden: **favoritos primero**, luego propios, luego por fecha desc.
+        """
+        fav_ids = _load_chart_favorite_ids(db, user_id=user_id)
         stmt = (
             select(SavedChartTemplate, User.username)
             .join(User, User.id == SavedChartTemplate.user_id)
@@ -92,12 +126,18 @@ class SavedChartTemplateService:
             )
         )
         rows = db.execute(stmt).all()
-        return [
+        out = [
             _chart_to_public_dict(
-                obj, current_user_id=user_id, owner_username=username
+                obj,
+                current_user_id=user_id,
+                owner_username=username,
+                is_favorite=int(obj.id) in fav_ids,
             )
             for obj, username in rows
         ]
+        # Favoritos al tope manteniendo el orden relativo (stable sort).
+        out.sort(key=lambda d: 0 if d.get("is_favorite") else 1)
+        return out
 
     @staticmethod
     def get_accessible(
@@ -147,7 +187,10 @@ class SavedChartTemplateService:
             db, user_id=user_id
         )
         return _chart_to_public_dict(
-            obj, current_user_id=user_id, owner_username=username
+            obj,
+            current_user_id=user_id,
+            owner_username=username,
+            is_favorite=False,
         )
 
     @staticmethod
@@ -174,8 +217,17 @@ class SavedChartTemplateService:
         username = SavedChartTemplateService._resolve_owner_username(
             db, user_id=obj.user_id
         )
+        fav = db.execute(
+            select(SavedChartTemplateFavorite).where(
+                SavedChartTemplateFavorite.user_id == user_id,
+                SavedChartTemplateFavorite.template_id == template_id,
+            )
+        ).scalar_one_or_none()
         return _chart_to_public_dict(
-            obj, current_user_id=user_id, owner_username=username
+            obj,
+            current_user_id=user_id,
+            owner_username=username,
+            is_favorite=fav is not None,
         )
 
     @staticmethod
@@ -185,6 +237,43 @@ class SavedChartTemplateService:
         )
         db.delete(obj)
         db.commit()
+
+    # ---------------- Favoritos ----------------
+
+    @staticmethod
+    def set_favorite(
+        db: Session,
+        *,
+        user_id: uuid.UUID,
+        template_id: int,
+        is_favorite: bool,
+    ) -> dict:
+        # Verifica accesibilidad (propia o pública).
+        obj, username = SavedChartTemplateService.get_accessible(
+            db, user_id=user_id, template_id=template_id
+        )
+        existing = db.execute(
+            select(SavedChartTemplateFavorite).where(
+                SavedChartTemplateFavorite.user_id == user_id,
+                SavedChartTemplateFavorite.template_id == template_id,
+            )
+        ).scalar_one_or_none()
+        if is_favorite and existing is None:
+            db.add(
+                SavedChartTemplateFavorite(
+                    user_id=user_id, template_id=template_id,
+                )
+            )
+            db.commit()
+        elif not is_favorite and existing is not None:
+            db.delete(existing)
+            db.commit()
+        return _chart_to_public_dict(
+            obj,
+            current_user_id=user_id,
+            owner_username=username,
+            is_favorite=bool(is_favorite),
+        )
 
     # ---------------- Report generation ----------------
 
@@ -439,6 +528,7 @@ def _report_to_public_dict(
     *,
     current_user_id: uuid.UUID,
     owner_username: str | None,
+    is_favorite: bool = False,
 ) -> dict:
     return {
         "id": obj.id,
@@ -453,6 +543,7 @@ def _report_to_public_dict(
         "owner_username": owner_username,
         "is_owner": obj.user_id == current_user_id,
         "layout": getattr(obj, "layout", None),
+        "is_favorite": bool(is_favorite),
     }
 
 
@@ -526,36 +617,72 @@ class ReportTemplateService:
 
     @staticmethod
     def list_accessible(
-        db: Session, *, user_id: uuid.UUID
+        db: Session,
+        *,
+        current_user: User,
+        include_others_private: bool = False,
     ) -> list[dict]:
-        """Lista propios + públicos + oficiales. Ordena: oficiales → propios → públicos."""
+        """Lista reportes accesibles con orden: oficiales → favoritos → resto.
+
+        Si ``include_others_private=True`` y el usuario tiene ``is_admin_reports``
+        (o ``is_admin`` como superconjunto), también se incluyen reportes
+        privados de otros usuarios (solo lectura).
+        """
+        user_id = current_user.id
+        is_admin_reports = bool(
+            getattr(current_user, "is_admin_reports", False)
+            or getattr(current_user, "can_manage_scenarios", False)
+        )
+        fav_ids = _load_report_favorite_ids(db, user_id=user_id)
+
+        visibility_clause = or_(
+            ReportTemplate.user_id == user_id,
+            ReportTemplate.is_public.is_(True),
+            ReportTemplate.is_official.is_(True),
+        )
+        # Admin reports con opt-in: amplía para cubrir privados ajenos.
+        if include_others_private and is_admin_reports:
+            visibility_clause = None  # ver todos los reportes
+
         stmt = (
             select(ReportTemplate, User.username)
             .join(User, User.id == ReportTemplate.user_id)
-            .where(
-                or_(
-                    ReportTemplate.user_id == user_id,
-                    ReportTemplate.is_public.is_(True),
-                    ReportTemplate.is_official.is_(True),
-                )
-            )
-            .order_by(
-                ReportTemplate.is_official.desc(),
-                (ReportTemplate.user_id == user_id).desc(),
-                ReportTemplate.updated_at.desc(),
-            )
+        )
+        if visibility_clause is not None:
+            stmt = stmt.where(visibility_clause)
+        stmt = stmt.order_by(
+            ReportTemplate.is_official.desc(),
+            (ReportTemplate.user_id == user_id).desc(),
+            ReportTemplate.updated_at.desc(),
         )
         rows = db.execute(stmt).all()
-        return [
+        out = [
             _report_to_public_dict(
-                obj, current_user_id=user_id, owner_username=username
+                obj,
+                current_user_id=user_id,
+                owner_username=username,
+                is_favorite=int(obj.id) in fav_ids,
             )
             for obj, username in rows
         ]
+        # Orden final: oficiales primero, luego favoritos, luego el resto
+        # (stable: mantiene el orden previo dentro de cada grupo).
+        def _rank(d: dict) -> int:
+            if d.get("is_official"):
+                return 0
+            if d.get("is_favorite"):
+                return 1
+            return 2
+
+        out.sort(key=_rank)
+        return out
 
     @staticmethod
     def get_accessible(
-        db: Session, *, user_id: uuid.UUID, report_id: int
+        db: Session,
+        *,
+        current_user: User,
+        report_id: int,
     ) -> tuple[ReportTemplate, str | None]:
         row = db.execute(
             select(ReportTemplate, User.username)
@@ -565,10 +692,15 @@ class ReportTemplateService:
         if row is None:
             raise NotFoundError("Reporte no encontrado.")
         obj, username = row
+        is_admin_reports = bool(
+            getattr(current_user, "is_admin_reports", False)
+            or getattr(current_user, "can_manage_scenarios", False)
+        )
         if (
-            obj.user_id != user_id
+            obj.user_id != current_user.id
             and not bool(getattr(obj, "is_public", False))
             and not bool(getattr(obj, "is_official", False))
+            and not is_admin_reports
         ):
             raise NotFoundError("Reporte no encontrado.")
         return obj, username
@@ -590,6 +722,13 @@ class ReportTemplateService:
         return db.scalar(select(User.username).where(User.id == user_id))
 
     @staticmethod
+    def _is_admin_reports(user: User) -> bool:
+        return bool(
+            getattr(user, "is_admin_reports", False)
+            or getattr(user, "can_manage_scenarios", False)
+        )
+
+    @staticmethod
     def create(
         db: Session,
         *,
@@ -602,9 +741,9 @@ class ReportTemplateService:
         is_official: bool = False,
         layout: dict | None = None,
     ) -> dict:
-        if is_official and not bool(getattr(current_user, "can_manage_catalogs", False)):
+        if is_official and not ReportTemplateService._is_admin_reports(current_user):
             raise ForbiddenError(
-                "Se requiere permiso 'can_manage_catalogs' para marcar un reporte como oficial."
+                "Se requiere permiso 'Admin Reportes' para marcar un reporte como oficial."
             )
         ordered = ReportTemplateService._normalize_items(
             db, user_id=current_user.id, items=items
@@ -633,7 +772,10 @@ class ReportTemplateService:
             db, user_id=current_user.id
         )
         return _report_to_public_dict(
-            obj, current_user_id=current_user.id, owner_username=username
+            obj,
+            current_user_id=current_user.id,
+            owner_username=username,
+            is_favorite=False,
         )
 
     @staticmethod
@@ -650,20 +792,63 @@ class ReportTemplateService:
         is_official: bool | None = None,
         layout: dict | None | object = ...,
     ) -> dict:
-        """Actualiza el reporte. El dueño edita todo excepto ``is_official``;
-        los administradores con ``can_manage_catalogs`` pueden editar cualquier
-        reporte (para marcar/desmarcar oficial o corregir oficiales).
+        """Actualiza el reporte con reglas de acceso granulares.
+
+        Reglas:
+          - Dueño: edita todo excepto ``is_official`` (requiere Admin Reportes).
+          - Admin Reportes (no dueño):
+            * Reportes oficiales → edita todo.
+            * Reportes públicos no oficiales → puede renombrar + toggle oficial.
+            * Reportes privados → lectura (no edita).
+          - Otros usuarios: no pueden editar reportes que no son suyos.
         """
-        is_admin = bool(getattr(current_user, "can_manage_catalogs", False))
+        is_admin_reports = ReportTemplateService._is_admin_reports(current_user)
         obj = db.get(ReportTemplate, report_id)
         if obj is None:
             raise NotFoundError("Reporte no encontrado.")
-        if obj.user_id != current_user.id and not is_admin:
+
+        is_owner = obj.user_id == current_user.id
+        is_official_current = bool(getattr(obj, "is_official", False))
+        is_public_current = bool(getattr(obj, "is_public", False))
+
+        if not is_owner and not is_admin_reports:
             raise NotFoundError("Reporte no encontrado.")
-        if is_official is not None and not is_admin:
+
+        # Ámbito de mutaciones permitidas según combinación de rol + visibilidad.
+        full_edit = is_owner or (is_admin_reports and is_official_current)
+        rename_and_official_only = (
+            is_admin_reports
+            and not is_owner
+            and is_public_current
+            and not is_official_current
+        )
+
+        # Cambiar is_official requiere Admin Reportes.
+        if is_official is not None and not is_admin_reports:
             raise ForbiddenError(
-                "Solo administradores pueden cambiar el estado 'oficial'."
+                "Solo Admin Reportes puede cambiar el estado 'oficial'."
             )
+
+        # Si NO se tiene edit full, validar que solo vengan cambios permitidos.
+        if not full_edit:
+            if not rename_and_official_only:
+                raise ForbiddenError(
+                    "No tienes permiso para editar este reporte."
+                )
+            # En modo rename/official-only, permitir solo `name` e `is_official`.
+            disallowed = [
+                (description is not ..., "description"),
+                (fmt is not None, "fmt"),
+                (items is not None, "items"),
+                (is_public is not None, "is_public"),
+                (layout is not ..., "layout"),
+            ]
+            bad = [n for (flag, n) in disallowed if flag]
+            if bad:
+                raise ForbiddenError(
+                    "En reportes públicos ajenos solo puedes cambiar 'name' "
+                    "y 'is_official'. Campos no permitidos: " + ", ".join(bad)
+                )
 
         if name is not None:
             obj.name = name.strip()[:255]
@@ -682,12 +867,9 @@ class ReportTemplateService:
             if obj.is_official:
                 obj.is_public = True  # un oficial siempre es público
         if layout is not ...:
-            # ``None`` restaura modo auto, dict reemplaza el layout.
             obj.layout = layout
         # Si el reporte quedó compartido (público u oficial), promovemos sus
-        # plantillas a públicas. Cubre todos los casos: recién marcado como
-        # público/oficial, items modificados, o re-guardado sin cambios
-        # relevantes (idempotente).
+        # plantillas a públicas.
         if obj.is_public or obj.is_official:
             ReportTemplateService._promote_items_to_public(
                 db, item_ids=list(obj.items or [])
@@ -697,19 +879,192 @@ class ReportTemplateService:
         username = ReportTemplateService._resolve_owner_username(
             db, user_id=obj.user_id
         )
+        fav = db.execute(
+            select(ReportTemplateFavorite).where(
+                ReportTemplateFavorite.user_id == current_user.id,
+                ReportTemplateFavorite.report_id == obj.id,
+            )
+        ).scalar_one_or_none()
         return _report_to_public_dict(
-            obj, current_user_id=current_user.id, owner_username=username
+            obj,
+            current_user_id=current_user.id,
+            owner_username=username,
+            is_favorite=fav is not None,
         )
 
     @staticmethod
     def delete(
         db: Session, *, current_user: User, report_id: int
     ) -> None:
-        is_admin = bool(getattr(current_user, "can_manage_catalogs", False))
+        """Borra el reporte. Dueño puede borrar el suyo; Admin Reportes puede
+        borrar oficiales. No puede borrar reportes públicos no oficiales ajenos
+        ni privados ajenos.
+        """
+        is_admin_reports = ReportTemplateService._is_admin_reports(current_user)
         obj = db.get(ReportTemplate, report_id)
         if obj is None:
             raise NotFoundError("Reporte no encontrado.")
-        if obj.user_id != current_user.id and not is_admin:
-            raise NotFoundError("Reporte no encontrado.")
+        is_owner = obj.user_id == current_user.id
+        is_official = bool(getattr(obj, "is_official", False))
+        if not is_owner and not (is_admin_reports and is_official):
+            raise ForbiddenError("No tienes permiso para borrar este reporte.")
         db.delete(obj)
         db.commit()
+
+    # ---------------- Favoritos ----------------
+
+    @staticmethod
+    def set_favorite(
+        db: Session,
+        *,
+        current_user: User,
+        report_id: int,
+        is_favorite: bool,
+    ) -> dict:
+        obj, username = ReportTemplateService.get_accessible(
+            db, current_user=current_user, report_id=report_id
+        )
+        existing = db.execute(
+            select(ReportTemplateFavorite).where(
+                ReportTemplateFavorite.user_id == current_user.id,
+                ReportTemplateFavorite.report_id == report_id,
+            )
+        ).scalar_one_or_none()
+        if is_favorite and existing is None:
+            db.add(
+                ReportTemplateFavorite(
+                    user_id=current_user.id, report_id=report_id,
+                )
+            )
+            db.commit()
+        elif not is_favorite and existing is not None:
+            db.delete(existing)
+            db.commit()
+        return _report_to_public_dict(
+            obj,
+            current_user_id=current_user.id,
+            owner_username=username,
+            is_favorite=bool(is_favorite),
+        )
+
+    # ---------------- Copy ----------------
+
+    @staticmethod
+    def copy_report(
+        db: Session,
+        *,
+        current_user: User,
+        report_id: int,
+        new_name: str | None = None,
+    ) -> dict:
+        """Crea una copia del reporte para el usuario actual.
+
+        Para las plantillas de gráfica referenciadas:
+          - Si la plantilla es accesible (propia o pública), se reutiliza.
+          - Si NO es accesible (privada ajena — solo visible porque el caller
+            es Admin Reportes mirando reportes privados), se clona una copia
+            privada para el usuario y se referencia esa.
+        La copia del reporte nace como PRIVADA y no oficial, dueño = caller.
+        El layout se clona tal cual, reemplazando referencias a IDs clonados.
+        """
+        src, _ = ReportTemplateService.get_accessible(
+            db, current_user=current_user, report_id=report_id
+        )
+        original_ids = list(src.items or [])
+
+        # Resolver accesibilidad de cada plantilla.
+        accessible_rows = db.execute(
+            select(SavedChartTemplate).where(
+                SavedChartTemplate.id.in_(original_ids),
+                or_(
+                    SavedChartTemplate.user_id == current_user.id,
+                    SavedChartTemplate.is_public.is_(True),
+                ),
+            )
+        ).scalars().all()
+        accessible_set = {int(r.id) for r in accessible_rows}
+
+        # Mapa oldId -> nuevoId (solo para los clonados).
+        id_map: dict[int, int] = {}
+        # Clonar las que no son accesibles.
+        inaccessible_ids = [i for i in original_ids if i not in accessible_set]
+        if inaccessible_ids:
+            originals = db.execute(
+                select(SavedChartTemplate).where(
+                    SavedChartTemplate.id.in_(inaccessible_ids),
+                )
+            ).scalars().all()
+            for orig in originals:
+                clone = SavedChartTemplate(
+                    user_id=current_user.id,
+                    name=orig.name,
+                    description=orig.description,
+                    tipo=orig.tipo,
+                    un=orig.un,
+                    sub_filtro=orig.sub_filtro,
+                    loc=orig.loc,
+                    variable=orig.variable,
+                    agrupar_por=orig.agrupar_por,
+                    view_mode=orig.view_mode,
+                    compare_mode=orig.compare_mode,
+                    bar_orientation=orig.bar_orientation,
+                    facet_placement=orig.facet_placement,
+                    facet_legend_mode=orig.facet_legend_mode,
+                    num_scenarios=orig.num_scenarios,
+                    legend_title=orig.legend_title,
+                    filename_mode=orig.filename_mode,
+                    is_public=False,  # privadas en la copia
+                )
+                db.add(clone)
+                db.flush()
+                id_map[int(orig.id)] = int(clone.id)
+
+        # Construir la nueva lista de items.
+        new_items = [id_map.get(i, i) for i in original_ids]
+
+        # Reescribir el layout reemplazando las referencias a ids antiguos.
+        def _remap_layout(layout: dict | None) -> dict | None:
+            if not isinstance(layout, dict):
+                return layout
+            cats = layout.get("categories") or []
+            new_cats = []
+            for c in cats:
+                new_c = {
+                    **c,
+                    "items": [id_map.get(int(i), int(i)) for i in c.get("items", [])],
+                    "subcategories": [
+                        {
+                            **s,
+                            "items": [
+                                id_map.get(int(i), int(i)) for i in s.get("items", [])
+                            ],
+                        }
+                        for s in c.get("subcategories", [])
+                    ],
+                }
+                new_cats.append(new_c)
+            return {**layout, "categories": new_cats}
+
+        copy_name = (new_name or f"{src.name} (copia)").strip()[:255]
+        copy = ReportTemplate(
+            user_id=current_user.id,
+            name=copy_name,
+            description=src.description,
+            fmt=src.fmt,
+            items=new_items,
+            is_public=False,
+            is_official=False,
+            layout=_remap_layout(src.layout),
+        )
+        db.add(copy)
+        db.commit()
+        db.refresh(copy)
+        username = ReportTemplateService._resolve_owner_username(
+            db, user_id=current_user.id
+        )
+        return _report_to_public_dict(
+            copy,
+            current_user_id=current_user.id,
+            owner_username=username,
+            is_favorite=False,
+        )

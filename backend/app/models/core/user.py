@@ -34,7 +34,19 @@ class User(Base):
     can_manage_catalogs: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     can_import_official_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     can_manage_users: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: "Admin Escenarios" — administra integralmente escenarios ajenos:
+    #: ver privados, editar metadatos/política/etiquetas/valores, administrar
+    #: permisos granulares, clonar, exportar, revisar change requests y
+    #: eliminar escenarios y simulaciones ajenas.
+    can_manage_scenarios: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    #: "Admin Reportes" — puede cambiar nombre de reportes públicos ajenos,
+    #: marcar/desmarcar oficiales, editar reportes oficiales, y ver reportes
+    #: privados de otros usuarios (read-only).
+    is_admin_reports: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[object] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

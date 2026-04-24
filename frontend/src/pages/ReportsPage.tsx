@@ -24,6 +24,7 @@ import { paths } from "@/routes/paths";
 import { useCurrentUser } from "@/app/providers/useCurrentUser";
 import { PreviewChartModal } from "@/features/reports/components/PreviewChartModal";
 import { CategoriesPanel } from "@/features/reports/components/CategoriesPanel";
+import { FavoriteStar } from "@/features/reports/components/FavoriteStar";
 import type {
   ReportLayout,
   ReportTemplateItem,
@@ -141,7 +142,10 @@ function templateSummary(t: SavedChartTemplate): string {
 
 export function ReportsPage() {
   const { user } = useCurrentUser();
-  const canManageOfficial = Boolean(user?.can_manage_catalogs);
+  const isAdminReports = Boolean(
+    user?.is_admin_reports ?? user?.can_manage_scenarios,
+  );
+  const canManageOfficial = isAdminReports;
   const [tab, setTab] = useState<TabId>("reports");
   const [templates, setTemplates] = useState<SavedChartTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -151,6 +155,7 @@ export function ReportsPage() {
 
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [loadingReports, setLoadingReports] = useState(true);
+  const [includeOthersPrivate, setIncludeOthersPrivate] = useState(false);
   /** Cuando se activa, el generador pre-carga un reporte guardado. */
   const [loadReportRequest, setLoadReportRequest] = useState<SavedReport | null>(
     null,
@@ -174,14 +179,18 @@ export function ReportsPage() {
   const refreshReports = useCallback(async () => {
     setLoadingReports(true);
     try {
-      const rows = await savedChartsApi.listReports();
+      const rows = await savedChartsApi.listReports(
+        isAdminReports && includeOthersPrivate
+          ? { includeOthersPrivate: true }
+          : undefined,
+      );
       setReports(rows);
     } catch (err) {
       console.error("Error cargando reportes guardados", err);
     } finally {
       setLoadingReports(false);
     }
-  }, []);
+  }, [isAdminReports, includeOthersPrivate]);
 
   useEffect(() => {
     refresh();
@@ -291,7 +300,11 @@ export function ReportsPage() {
           onRefresh={refreshReports}
           onLoadReport={handleLoadReport}
           templates={templates}
+          onTemplatesRefresh={refresh}
           canManageOfficial={canManageOfficial}
+          isAdminReports={isAdminReports}
+          includeOthersPrivate={includeOthersPrivate}
+          onToggleIncludeOthersPrivate={(v) => setIncludeOthersPrivate(v)}
           onGoToGenerator={() => setTab("generator")}
         />
       ) : (
@@ -331,6 +344,16 @@ function SavedChartsTab({
   const [saving, setSaving] = useState(false);
   const [previewTemplate, setPreviewTemplate] =
     useState<SavedChartTemplate | null>(null);
+  const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
+
+  const toggleChartFavorite = async (tpl: SavedChartTemplate, next: boolean) => {
+    try {
+      await savedChartsApi.setChartFavorite(tpl.id, next);
+      onRefresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "No se pudo cambiar favorito.");
+    }
+  };
 
   const startEdit = (tpl: SavedChartTemplate) => {
     setEditingId(tpl.id);
@@ -456,17 +479,41 @@ function SavedChartsTab({
     );
   }
 
+  const visibleTemplates = showOnlyFavorites
+    ? templates.filter((t) => t.is_favorite === true)
+    : templates;
+
   return (
     <>
     <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-      <p className="m-0 text-xs text-slate-500">
-        {templates.length} gráfica{templates.length === 1 ? "" : "s"} accesible
-        {templates.length === 1 ? "" : "s"} (propias + públicas + oficiales).
-      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="m-0 text-xs text-slate-500">
+          {templates.length} gráfica{templates.length === 1 ? "" : "s"} accesible
+          {templates.length === 1 ? "" : "s"} (propias + públicas + oficiales).
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowOnlyFavorites((v) => !v)}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${
+            showOnlyFavorites
+              ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
+              : "border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200"
+          }`}
+          title="Mostrar solo gráficas marcadas como favoritas"
+        >
+          <span style={{ color: showOnlyFavorites ? "#fbbf24" : undefined }}>★</span>
+          Solo favoritas
+        </button>
+      </div>
       {generateChartsButton}
     </div>
+    {showOnlyFavorites && visibleTemplates.length === 0 ? (
+      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-6 text-center text-sm text-slate-500">
+        No tienes gráficas marcadas como favoritas todavía.
+      </div>
+    ) : null}
     <div className="grid gap-3">
-      {templates.map((tpl) => {
+      {visibleTemplates.map((tpl) => {
         const editing = editingId === tpl.id;
         return (
           <div
@@ -510,6 +557,10 @@ function SavedChartsTab({
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
+                    <FavoriteStar
+                      isFavorite={tpl.is_favorite ?? false}
+                      onToggle={(next) => toggleChartFavorite(tpl, next)}
+                    />
                     <h3 className="m-0 text-base font-semibold text-white break-words">
                       {tpl.name}
                     </h3>
@@ -722,16 +773,27 @@ function ReportGeneratorTab({
       byModule.set(mod.id, list);
     }
     // Respetar el orden de allModules; al final, módulos no conocidos.
+    // Dentro de cada grupo: favoritos primero (sort estable).
+    const sortFavFirst = (list: SavedChartTemplate[]): SavedChartTemplate[] => {
+      const withIdx = list.map((tpl, idx) => ({ tpl, idx }));
+      withIdx.sort((a, b) => {
+        const af = a.tpl.is_favorite ? 1 : 0;
+        const bf = b.tpl.is_favorite ? 1 : 0;
+        if (af !== bf) return bf - af;
+        return a.idx - b.idx;
+      });
+      return withIdx.map((x) => x.tpl);
+    };
     const result: { module: ChartModuleInfo; templates: SavedChartTemplate[] }[] = [];
     const knownIds = new Set(allModules.map((m) => m.id));
     for (const m of allModules) {
       const items = byModule.get(m.id);
-      if (items && items.length > 0) result.push({ module: m, templates: items });
+      if (items && items.length > 0) result.push({ module: m, templates: sortFavFirst(items) });
     }
     for (const [id, items] of byModule.entries()) {
       if (knownIds.has(id)) continue;
       const meta = moduleMeta.get(id) ?? UNGROUPED_MODULE;
-      result.push({ module: meta, templates: items });
+      result.push({ module: meta, templates: sortFavFirst(items) });
     }
     return result;
   }, [templates]);
@@ -1205,6 +1267,16 @@ function ReportGeneratorTab({
                               {checked ? (
                                 <span className="shrink-0 rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] font-bold tabular-nums text-cyan-300">
                                   #{orderIdx + 1}
+                                </span>
+                              ) : null}
+                              {tpl.is_favorite ? (
+                                <span
+                                  className="shrink-0 text-[13px] leading-none"
+                                  style={{ color: "#fbbf24" }}
+                                  title="Favorita"
+                                  aria-label="Favorita"
+                                >
+                                  ★
                                 </span>
                               ) : null}
                               <p className="m-0 text-sm font-semibold text-white break-words">
@@ -1970,7 +2042,11 @@ function SavedReportsTab({
   onRefresh,
   onLoadReport,
   templates,
+  onTemplatesRefresh,
   canManageOfficial,
+  isAdminReports,
+  includeOthersPrivate,
+  onToggleIncludeOthersPrivate,
   onGoToGenerator,
 }: {
   reports: SavedReport[];
@@ -1978,13 +2054,40 @@ function SavedReportsTab({
   onRefresh: () => void;
   onLoadReport: (r: SavedReport) => void;
   templates: SavedChartTemplate[];
+  onTemplatesRefresh: () => void;
   canManageOfficial: boolean;
+  isAdminReports: boolean;
+  includeOthersPrivate: boolean;
+  onToggleIncludeOthersPrivate: (v: boolean) => void;
   onGoToGenerator: () => void;
 }) {
   const templatesById = useMemo(
     () => new Map(templates.map((t) => [t.id, t])),
     [templates],
   );
+  const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
+  const [copyingId, setCopyingId] = useState<number | null>(null);
+
+  /**
+   * Reglas de edición en el frontend (el backend es la autoridad):
+   * - full edit (nombre, descripción, visibilidad, items, layout): owner, o admin_reports si es oficial.
+   * - admin_reports sobre reporte público NO oficial: solo puede renombrar y marcar/desmarcar oficial.
+   * - admin_reports sobre reporte privado de otros: solo lectura + copia.
+   */
+  const canFullEdit = (r: SavedReport): boolean => {
+    if (r.is_owner ?? true) return true;
+    if (isAdminReports && (r.is_official ?? false)) return true;
+    return false;
+  };
+  const canRenameOnly = (r: SavedReport): boolean => {
+    if (canFullEdit(r)) return false;
+    return isAdminReports && (r.is_public ?? false) && !(r.is_official ?? false);
+  };
+  const canDelete = (r: SavedReport): boolean => {
+    if (r.is_owner ?? true) return true;
+    if (isAdminReports && (r.is_official ?? false)) return true;
+    return false;
+  };
 
   const handleDelete = async (r: SavedReport) => {
     if (!confirm(`¿Eliminar el reporte "${r.name}"?`)) return;
@@ -2011,6 +2114,32 @@ function SavedReportsTab({
       onRefresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "No se pudo cambiar el estado oficial.");
+    }
+  };
+
+  const toggleFavorite = async (r: SavedReport, next: boolean) => {
+    try {
+      await savedChartsApi.setReportFavorite(r.id, next);
+      onRefresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "No se pudo cambiar favorito.");
+    }
+  };
+
+  const handleCopy = async (r: SavedReport) => {
+    if (copyingId != null) return;
+    setCopyingId(r.id);
+    try {
+      const copy = await savedChartsApi.copyReport(r.id);
+      onRefresh();
+      onTemplatesRefresh();
+      alert(
+        `Se creó la copia "${copy.name}" (privada) en tus reportes guardados. Las gráficas que no tenías fueron copiadas también.`,
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "No se pudo copiar el reporte.");
+    } finally {
+      setCopyingId(null);
     }
   };
 
@@ -2042,10 +2171,58 @@ function SavedReportsTab({
     );
   }
 
+  const visibleReports = showOnlyFavorites
+    ? reports.filter((r) => r.is_favorite === true)
+    : reports;
+
   return (
+    <>
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="m-0 text-xs text-slate-500">
+          {reports.length} reporte{reports.length === 1 ? "" : "s"} accesible
+          {reports.length === 1 ? "" : "s"}.
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowOnlyFavorites((v) => !v)}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${
+            showOnlyFavorites
+              ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
+              : "border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200"
+          }`}
+          title="Mostrar solo reportes marcados como favoritos"
+        >
+          <span style={{ color: showOnlyFavorites ? "#fbbf24" : undefined }}>★</span>
+          Solo favoritos
+        </button>
+        {isAdminReports ? (
+          <label className="inline-flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={includeOthersPrivate}
+              onChange={(e) => onToggleIncludeOthersPrivate(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900"
+            />
+            Ver reportes privados de otros usuarios
+          </label>
+        ) : null}
+      </div>
+    </div>
+    {showOnlyFavorites && visibleReports.length === 0 ? (
+      <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-6 text-center text-sm text-slate-500">
+        No tienes reportes marcados como favoritos todavía.
+      </div>
+    ) : null}
     <div className="grid gap-3">
-      {reports.map((r) => {
+      {visibleReports.map((r) => {
         const missing = r.items.filter((id) => !templatesById.has(id));
+        const fullEdit = canFullEdit(r);
+        const renameOnly = canRenameOnly(r);
+        const officialToggleEnabled = fullEdit || renameOnly;
+        const visibilityToggleEnabled = fullEdit;
+        const deleteEnabled = canDelete(r);
+        const isOwner = r.is_owner ?? true;
         return (
           <div
             key={r.id}
@@ -2054,22 +2231,31 @@ function SavedReportsTab({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
+                  <FavoriteStar
+                    isFavorite={r.is_favorite ?? false}
+                    onToggle={(next) => toggleFavorite(r, next)}
+                  />
                   <h3 className="m-0 text-base font-semibold text-white break-words">
                     {r.name}
                   </h3>
                   <VisibilityChip
                     isPublic={r.is_public ?? false}
-                    canEdit={(r.is_owner ?? true) || canManageOfficial}
+                    canEdit={visibilityToggleEnabled}
                     onToggle={() => toggleVisibility(r)}
                   />
                   <OfficialChip
                     isOfficial={r.is_official ?? false}
-                    canEdit={canManageOfficial}
+                    canEdit={officialToggleEnabled && canManageOfficial}
                     onToggle={() => toggleOfficial(r)}
                   />
-                  {!r.is_owner ? (
+                  {!isOwner ? (
                     <span className="rounded-full border border-slate-700 bg-slate-800/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                       de {r.owner_username ?? "otro"}
+                    </span>
+                  ) : null}
+                  {!isOwner && !fullEdit ? (
+                    <span className="rounded-full border border-slate-700 bg-slate-800/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                      solo lectura
                     </span>
                   ) : null}
                 </div>
@@ -2099,15 +2285,26 @@ function SavedReportsTab({
                 >
                   Ver dashboard
                 </Link>
+                {fullEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => onLoadReport(r)}
+                    className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20"
+                    title="Cargar en el generador"
+                  >
+                    Cargar → Generador
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  onClick={() => onLoadReport(r)}
-                  className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20"
-                  title="Cargar en el generador"
+                  onClick={() => handleCopy(r)}
+                  disabled={copyingId === r.id}
+                  className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-300 hover:bg-indigo-500/20 disabled:opacity-60"
+                  title="Crear una copia privada en tu cuenta"
                 >
-                  Cargar → Generador
+                  {copyingId === r.id ? "Copiando…" : "Copiar"}
                 </button>
-                {(r.is_owner ?? true) || canManageOfficial ? (
+                {deleteEnabled ? (
                   <button
                     type="button"
                     onClick={() => handleDelete(r)}
@@ -2122,5 +2319,19 @@ function SavedReportsTab({
         );
       })}
     </div>
+    {visibleReports.length > 0 ? (
+      <div className="mt-5 flex justify-center">
+        <button
+          type="button"
+          onClick={onGoToGenerator}
+          className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-200 hover:bg-cyan-500/20 transition-colors"
+          title="Abrir el Generador de reporte para crear un reporte nuevo"
+        >
+          <span className="text-base leading-none">＋</span>
+          Crear un nuevo reporte
+        </button>
+      </div>
+    ) : null}
+    </>
   );
 }

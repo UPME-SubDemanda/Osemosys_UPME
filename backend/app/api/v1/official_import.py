@@ -18,6 +18,13 @@ from app.services.official_import_service import OfficialImportService
 router = APIRouter(prefix="/official-import")
 
 
+def _collapse_timeslices_from_form(value: str | None) -> bool:
+    """Default True (compatibilidad): colapsar/agregar timeslices como hasta ahora."""
+    if value is None or str(value).strip() == "":
+        return True
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 @router.post("/xlsm/sheets", response_model=OfficialWorkbookSheets)
 def inspect_official_xlsm_sheets(
     file: UploadFile = File(...),
@@ -51,13 +58,15 @@ def inspect_official_xlsm_sheets(
 def import_official_xlsm(
     file: UploadFile = File(...),
     sheet_name: str = Form(...),
+    collapse_timeslices: str | None = Form(default="true"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_official_data_import_manager),
 ) -> dict:
     """Importa datos oficiales desde Excel (sincrónico, devuelve JSON).
 
-    Los timeslices del SAND se agregan automáticamente a 1 solo
-    (promedio para CapacityFactor, suma para los demás).
+    Con ``collapse_timeslices`` en true (default), los timeslices del SAND se agregan
+    en un solo valor por grupo (promedio para CapacityFactor, suma para el resto).
+    Con false, se conservan los timeslices del Excel.
     """
     filename = file.filename or "archivo.xlsm"
     lowered = filename.lower()
@@ -81,6 +90,7 @@ def import_official_xlsm(
         selected_sheet_name=sheet_name,
         use_default_scenario=True,
         replace_scenario_data=True,
+        collapse_timeslices=_collapse_timeslices_from_form(collapse_timeslices),
     )
 
     if result["inserted"] + result["updated"] == 0:

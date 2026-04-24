@@ -22,7 +22,12 @@ import { DashboardChartCard } from "@/features/reports/components/DashboardChart
 import { ChartPicker } from "@/features/reports/components/CategoriesPanel";
 import { ChartPickerModal } from "@/features/reports/components/ChartPickerModal";
 import { IconPencil, IconSwap } from "@/features/reports/components/CardActionIcons";
+import { RowScenarioPicker } from "@/features/reports/components/RowScenarioPicker";
 import { pickRepresentativeJob } from "@/features/reports/pickRepresentativeJob";
+import {
+  loadReportScenarios,
+  saveReportScenarios,
+} from "@/features/reports/scenarioMemory";
 import { useCurrentUser } from "@/app/providers/useCurrentUser";
 import {
   effectiveLayout,
@@ -57,6 +62,10 @@ export function ReportDashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [globalScenarios, setGlobalScenarios] = useState<(number | null)[]>([]);
+  /** Alias por escenario global (persistido en el reporte). */
+  const [scenarioAliases, setScenarioAliases] = useState<string[]>([]);
+  /** Copia de aliases en modo edición para poder descartar cambios. */
+  const [draftAliases, setDraftAliases] = useState<string[] | null>(null);
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [activeSubcatId, setActiveSubcatId] = useState<string | null>(null);
 
@@ -65,6 +74,12 @@ export function ReportDashboardPage() {
   const [draftLayout, setDraftLayout] = useState<ReportLayout | null>(null);
   /** Lista de items en edición; permite agregar/quitar gráficas. */
   const [draftItems, setDraftItems] = useState<number[] | null>(null);
+  /**
+   * Overrides de escenarios por template (solo modo edición).
+   * Key: templateId → índices 0-based en globalScenarios que usa esa plantilla.
+   * Null/ausente = default (primeros num_scenarios slots).
+   */
+  const [slotOverrides, setSlotOverrides] = useState<Record<number, number[]>>({});
   const [savingLayout, setSavingLayout] = useState(false);
 
   // Exportación (popover en header)
@@ -89,6 +104,9 @@ export function ReportDashboardPage() {
     try {
       const r = await savedChartsApi.getReport(numericReportId);
       setReport(r);
+      setScenarioAliases(
+        Array.isArray(r.scenario_aliases) ? [...r.scenario_aliases] : [],
+      );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "No se pudo cargar el reporte.");
       setReport(null);
@@ -159,13 +177,33 @@ export function ReportDashboardPage() {
       layout.categories.find((c) => c.id === activeCategoryId) ?? null,
     [layout, activeCategoryId],
   );
+  /**
+   * Id virtual para el tab "General": representa los items directos de una
+   * categoría (los que no están en ninguna subcategoría). No se persiste en
+   * el layout: es solo UI.
+   */
+  const GENERAL_SUBCAT_ID = "__general__";
   useEffect(() => {
     if (!activeCategory) return;
-    if (
-      activeSubcatId &&
-      !activeCategory.subcategories.some((s) => s.id === activeSubcatId)
-    ) {
-      setActiveSubcatId(null);
+    const validSubIds = new Set(activeCategory.subcategories.map((s) => s.id));
+    const hasDirectItems = activeCategory.items.length > 0;
+    // Si la subcat actual ya no existe (o es null pero hay subcats):
+    //   - preferir "General" si hay items directos,
+    //   - si no, caer a la primera subcat,
+    //   - si no hay nada, quedar en null.
+    const current = activeSubcatId;
+    const isValid =
+      current === GENERAL_SUBCAT_ID
+        ? hasDirectItems
+        : current != null && validSubIds.has(current);
+    if (!isValid) {
+      if (hasDirectItems) {
+        setActiveSubcatId(GENERAL_SUBCAT_ID);
+      } else if (activeCategory.subcategories.length > 0) {
+        setActiveSubcatId(activeCategory.subcategories[0]!.id);
+      } else {
+        setActiveSubcatId(null);
+      }
     }
   }, [activeCategory, activeSubcatId]);
 
@@ -175,33 +213,68 @@ export function ReportDashboardPage() {
     let max = 0;
     for (const id of report.items ?? []) {
       const tpl = templatesById.get(id);
-      if (tpl && tpl.num_scenarios > max) max = tpl.num_scenarios;
+      if (!tpl) continue;
+      if (tpl.num_scenarios > max) max = tpl.num_scenarios;
+      const override = slotOverrides[tpl.id];
+      if (override && override.length > 0) {
+        const rowMax = Math.max(...override) + 1;
+        if (rowMax > max) max = rowMax;
+      }
     }
     return max;
-  }, [report, templatesById]);
+  }, [report, templatesById, slotOverrides]);
 
-  // Pre-cargar escenarios pasados desde el Generador (sessionStorage).
-  // Los guardamos como "pendiente" y los aplicamos cuando ya conocemos
-  // maxScenariosNeeded (después de que cargan reporte + plantillas).
-  const [pendingPrefill, setPendingPrefill] = useState<number[] | null>(null);
+  // Pre-cargar escenarios pasados desde el Generador (sessionStorage) o, si no
+  // hay, los memorizados de la última visita a este reporte (localStorage).
+  const [pendingPrefill, setPendingPrefill] = useState<(number | null)[] | null>(null);
   useEffect(() => {
     if (!numericReportId) return;
     const key = `dashboard-prefill-scenarios:${numericReportId}`;
     const raw = window.sessionStorage.getItem(key);
-    if (!raw) return;
-    try {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        setPendingPrefill(
-          arr.filter((x): x is number => typeof x === "number"),
-        );
+    if (raw) {
+      try {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          setPendingPrefill(
+            arr.map((v) => (typeof v === "number" ? v : null)),
+          );
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        window.sessionStorage.removeItem(key);
       }
-    } catch {
-      /* ignore */
-    } finally {
-      window.sessionStorage.removeItem(key);
+      return;
     }
+    // Fallback 1: memoria persistente client-side por reporte.
+    const remembered = loadReportScenarios(numericReportId);
+    if (remembered && remembered.length > 0) {
+      setPendingPrefill(remembered);
+      return;
+    }
+    // Fallback 2: default_job_ids del reporte — se aplica en un efecto aparte
+    // cuando `report` ya esté cargado.
   }, [numericReportId]);
+
+  // Aplica default_job_ids del reporte cuando llega y no hay prefill aún.
+  useEffect(() => {
+    if (!report) return;
+    if (pendingPrefill != null) return;
+    if (globalScenarios.some((v) => v != null)) return;
+    if (
+      Array.isArray(report.default_job_ids) &&
+      report.default_job_ids.length > 0
+    ) {
+      setPendingPrefill([...report.default_job_ids]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report]);
+
+  // Persiste los escenarios elegidos para este reporte.
+  useEffect(() => {
+    if (!numericReportId) return;
+    saveReportScenarios(numericReportId, globalScenarios);
+  }, [numericReportId, globalScenarios]);
 
   // Redimensiona globalScenarios cuando cambia maxScenariosNeeded; si hay
   // prefill pendiente, lo aplica una sola vez en cuanto sabemos cuántos
@@ -234,17 +307,63 @@ export function ReportDashboardPage() {
     });
   };
 
+  /**
+   * Cuando una gráfica de 1 solo escenario vive en un reporte con múltiples,
+   * devuelve el alias del escenario al que corresponde para agregarlo al
+   * título. Para charts multi-escenario no se agrega nada.
+   */
+  const resolveAliasSuffix = useCallback(
+    (tpl: SavedChartTemplate): string | undefined => {
+      if (tpl.num_scenarios !== 1) return undefined;
+      const totalSlots = Math.max(
+        (scenarioAliases ?? []).length,
+        globalScenarios.length,
+      );
+      if (totalSlots <= 1) return undefined;
+      const override = slotOverrides[tpl.id];
+      const slotIdx = override && override.length > 0 ? override[0] : 0;
+      const alias = scenarioAliases[slotIdx as number]?.trim();
+      return alias && alias.length > 0 ? alias : `Escenario ${(slotIdx as number) + 1}`;
+    },
+    [slotOverrides, scenarioAliases, globalScenarios],
+  );
+
+  /**
+   * Para cada slot usado por el template, devuelve el alias (o "Escenario N").
+   * Se aplica como override al nombre de series/facets en el render.
+   */
+  const resolveScenarioNames = useCallback(
+    (tpl: SavedChartTemplate): string[] => {
+      const override = slotOverrides[tpl.id];
+      const slots =
+        override && override.length > 0
+          ? override.slice(0, tpl.num_scenarios)
+          : Array.from({ length: tpl.num_scenarios }, (_, i) => i);
+      return slots.map((s) => {
+        const a = scenarioAliases[s]?.trim();
+        return a && a.length > 0 ? a : `Escenario ${s + 1}`;
+      });
+    },
+    [slotOverrides, scenarioAliases],
+  );
+
   const jobIdsForTemplate = useCallback(
     (tpl: SavedChartTemplate): number[] => {
+      const override = slotOverrides[tpl.id];
+      const slots =
+        override && override.length > 0
+          ? override.slice(0, tpl.num_scenarios)
+          : Array.from({ length: tpl.num_scenarios }, (_, i) => i);
       const out: number[] = [];
-      for (let i = 0; i < tpl.num_scenarios; i += 1) {
-        const j = globalScenarios[i];
+      for (const slotIdx of slots) {
+        const j = globalScenarios[slotIdx];
         if (j == null) return [];
         out.push(j);
       }
+      if (out.length < tpl.num_scenarios) return [];
       return out;
     },
-    [globalScenarios],
+    [globalScenarios, slotOverrides],
   );
 
   // ── Permisos / capacidad de edición ──
@@ -263,12 +382,14 @@ export function ReportDashboardPage() {
   const startEditing = () => {
     setDraftLayout(JSON.parse(JSON.stringify(baseLayout)) as ReportLayout);
     setDraftItems([...(report?.items ?? [])]);
+    setDraftAliases([...scenarioAliases]);
     setEditing(true);
   };
   const cancelEditing = () => {
     setEditing(false);
     setDraftLayout(null);
     setDraftItems(null);
+    setDraftAliases(null);
   };
 
   // ── Mutaciones del draftLayout (modo edición) ──────────────────────────
@@ -585,11 +706,15 @@ export function ReportDashboardPage() {
       await savedChartsApi.updateReport(report.id, {
         layout: draftLayout,
         ...(draftItems ? { items: draftItems } : {}),
+        ...(draftAliases
+          ? { scenario_aliases: draftAliases.map((s) => s ?? "") }
+          : {}),
       });
       await refreshReport();
       setEditing(false);
       setDraftLayout(null);
       setDraftItems(null);
+      setDraftAliases(null);
     } catch (err) {
       alert(err instanceof Error ? err.message : "No se pudo guardar.");
     } finally {
@@ -640,17 +765,48 @@ export function ReportDashboardPage() {
     setGenerating(true);
     setGenerateError(null);
     try {
+      const reportHasMultiScenarios = maxScenariosNeeded > 1;
       const flatItems = (report.items ?? [])
         .map((id) => {
           const tpl = templatesById.get(id);
           if (!tpl) return null;
           const job_ids = jobIdsForTemplate(tpl);
           if (job_ids.length === 0) return null;
-          return { template_id: id, job_ids };
+          const base: {
+            template_id: number;
+            job_ids: number[];
+            scenario_alias_for_title?: string;
+          } = { template_id: id, job_ids };
+          if (tpl.num_scenarios === 1 && reportHasMultiScenarios) {
+            const override = slotOverrides[tpl.id];
+            const slotIdx =
+              override && override.length > 0 ? (override[0] as number) : 0;
+            const alias = scenarioAliases[slotIdx]?.trim();
+            base.scenario_alias_for_title =
+              alias && alias.length > 0 ? alias : `Escenario ${slotIdx + 1}`;
+          }
+          return base;
         })
-        .filter((x): x is { template_id: number; job_ids: number[] } => x !== null);
+        .filter(
+          (
+            x,
+          ): x is {
+            template_id: number;
+            job_ids: number[];
+            scenario_alias_for_title?: string;
+          } => x !== null,
+        );
 
       const overridesForPayload: Record<string, string> = {};
+      // Aliases por slot → job_id.
+      for (let i = 0; i < globalScenarios.length; i += 1) {
+        const jid = globalScenarios[i];
+        const alias = scenarioAliases[i]?.trim();
+        if (jid != null && alias && alias.length > 0) {
+          overridesForPayload[String(jid)] = alias;
+        }
+      }
+      // Renombres explícitos (modal export) sobreescriben aliases.
       for (const jid of globalScenarios) {
         if (jid == null) continue;
         const v = (renameOverrides[jid] ?? "").trim();
@@ -952,21 +1108,68 @@ export function ReportDashboardPage() {
               gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
             }}
           >
-            {Array.from({ length: maxScenariosNeeded }).map((_, idx) => (
-              <label key={idx} className="grid gap-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300/80">
-                  Escenario {idx + 1}
-                </span>
-                <JobSelect
-                  value={globalScenarios[idx] ?? null}
-                  onChange={(next) => setGlobalScenarioAt(idx, next)}
-                  jobs={availableJobs}
-                  loading={loadingJobs}
-                />
-              </label>
-            ))}
+            {Array.from({ length: maxScenariosNeeded }).map((_, idx) => {
+              const aliasSource = editing
+                ? draftAliases ?? scenarioAliases
+                : scenarioAliases;
+              const alias = aliasSource[idx]?.trim() || "";
+              const label = alias || `Escenario ${idx + 1}`;
+              return (
+                <div key={idx} className="grid gap-1">
+                  <label className="grid gap-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300/80">
+                      {label}
+                    </span>
+                    <JobSelect
+                      value={globalScenarios[idx] ?? null}
+                      onChange={(next) => setGlobalScenarioAt(idx, next)}
+                      jobs={availableJobs}
+                      loading={loadingJobs}
+                    />
+                  </label>
+                  {editing ? (
+                    <input
+                      type="text"
+                      value={(draftAliases ?? [])[idx] ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setDraftAliases((prev) => {
+                          const base = prev ?? [...scenarioAliases];
+                          const next = [...base];
+                          while (next.length <= idx) next.push("");
+                          next[idx] = v;
+                          return next;
+                        });
+                      }}
+                      placeholder={`Alias (opcional) · Escenario ${idx + 1}`}
+                      className="rounded border border-emerald-500/30 bg-emerald-500/5 px-2 py-1 text-[11px] text-emerald-100 placeholder:text-emerald-300/40"
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         ) : null}
+
+        <DashboardDefaultScenariosPanel
+          reportId={report?.id ?? null}
+          current={globalScenarios}
+          savedDefaults={
+            Array.isArray(report?.default_job_ids)
+              ? (report!.default_job_ids as (number | null)[])
+              : null
+          }
+          scenarioAliases={scenarioAliases}
+          availableJobs={availableJobs}
+          onSaved={async (nextDefaults) => {
+            await refreshReport();
+            window.alert(
+              nextDefaults
+                ? "Escenarios predeterminados del reporte actualizados."
+                : "Predeterminados eliminados.",
+            );
+          }}
+        />
       </section>
 
       <div>
@@ -1001,6 +1204,23 @@ export function ReportDashboardPage() {
             onMoveCategory={moveCategoryDraft}
             onMoveSub={moveSubDraft}
             onStartCreateNew={startCreateNewChart}
+            slotOverrides={slotOverrides}
+            onChangeSlotOverride={(templateId, slots) =>
+              setSlotOverrides((prev) => {
+                const next = { ...prev };
+                if (slots == null || slots.length === 0) {
+                  delete next[templateId];
+                } else {
+                  next[templateId] = slots;
+                }
+                return next;
+              })
+            }
+            globalScenariosLen={Math.max(
+              maxScenariosNeeded,
+              globalScenarios.length,
+            )}
+            scenarioAliases={draftAliases ?? scenarioAliases}
           />
         ) : (
           // ── Modo lectura: tabs + tarjetas con gráficas renderizadas ──
@@ -1061,6 +1281,8 @@ export function ReportDashboardPage() {
                               jobIdsForTemplate={jobIdsForTemplate}
                               cardWidthById={cardWidthById}
                               setCardWidthById={setCardWidthById}
+                              resolveAliasSuffix={resolveAliasSuffix}
+                              resolveScenarioNames={resolveScenarioNames}
                             />
                           </div>
                         ) : null}
@@ -1088,6 +1310,8 @@ export function ReportDashboardPage() {
                                   jobIdsForTemplate={jobIdsForTemplate}
                                   cardWidthById={cardWidthById}
                                   setCardWidthById={setCardWidthById}
+                                  resolveAliasSuffix={resolveAliasSuffix}
+                                  resolveScenarioNames={resolveScenarioNames}
                                 />
                               )}
                             </div>
@@ -1098,21 +1322,24 @@ export function ReportDashboardPage() {
                   }
 
                   // ── Modo Pestañas (default): sub-tabs + grid ──
+                  const hasDirectItems = activeCategory.items.length > 0;
                   return (
                     <>
                       {hasSubcats ? (
                         <div className="flex flex-wrap gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setActiveSubcatId(null)}
-                            className={`rounded-md px-3 py-1 text-[11px] font-semibold ${
-                              activeSubcatId == null
-                                ? "bg-slate-700/60 text-white"
-                                : "text-slate-500 hover:text-slate-300"
-                            }`}
-                          >
-                            Todas ({activeCategory.items.length})
-                          </button>
+                          {hasDirectItems ? (
+                            <button
+                              type="button"
+                              onClick={() => setActiveSubcatId(GENERAL_SUBCAT_ID)}
+                              className={`rounded-md px-3 py-1 text-[11px] font-semibold ${
+                                activeSubcatId === GENERAL_SUBCAT_ID
+                                  ? "bg-slate-700/60 text-white"
+                                  : "text-slate-500 hover:text-slate-300"
+                              }`}
+                            >
+                              General ({activeCategory.items.length})
+                            </button>
+                          ) : null}
                           {activeCategory.subcategories.map((s) => {
                             const active = s.id === activeSubcatId;
                             return (
@@ -1137,18 +1364,17 @@ export function ReportDashboardPage() {
                       ) : null}
                       {(() => {
                         let chartIds: number[];
-                        if (activeSubcatId) {
+                        if (
+                          activeSubcatId &&
+                          activeSubcatId !== GENERAL_SUBCAT_ID
+                        ) {
                           const sub = activeCategory.subcategories.find(
                             (s) => s.id === activeSubcatId,
                           );
                           chartIds = sub?.items ?? [];
                         } else {
-                          chartIds = [
-                            ...activeCategory.items,
-                            ...activeCategory.subcategories.flatMap(
-                              (s) => s.items,
-                            ),
-                          ];
+                          // "General" o sin subcategorías: items directos.
+                          chartIds = [...activeCategory.items];
                         }
                         if (chartIds.length === 0) {
                           return (
@@ -1164,6 +1390,7 @@ export function ReportDashboardPage() {
                             jobIdsForTemplate={jobIdsForTemplate}
                             cardWidthById={cardWidthById}
                             setCardWidthById={setCardWidthById}
+                            resolveAliasSuffix={resolveAliasSuffix}
                           />
                         );
                       })()}
@@ -1182,18 +1409,160 @@ export function ReportDashboardPage() {
 
 // ─── Subcomponente: grid de tarjetas (compartido entre tabs y accordions) ───
 
+/**
+ * Panel explícito para configurar los escenarios predeterminados del reporte
+ * desde el dashboard. Muestra los persistidos y permite actualizarlos o quitarlos.
+ */
+function DashboardDefaultScenariosPanel({
+  reportId,
+  current,
+  savedDefaults,
+  scenarioAliases,
+  availableJobs,
+  onSaved,
+}: {
+  reportId: number | null;
+  current: (number | null)[];
+  savedDefaults: (number | null)[] | null;
+  scenarioAliases: string[];
+  availableJobs: SimulationRun[];
+  onSaved: (nextDefaults: (number | null)[] | null) => void | Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const jobLabel = (jid: number | null | undefined): string => {
+    if (jid == null) return "—";
+    const j = availableJobs.find((r) => r.id === jid);
+    return (
+      j?.display_name?.trim() ||
+      j?.scenario_name ||
+      j?.input_name ||
+      `Job ${jid}`
+    );
+  };
+  const aliasLabel = (idx: number): string => {
+    const a = scenarioAliases[idx]?.trim();
+    return a && a.length > 0 ? a : `Escenario ${idx + 1}`;
+  };
+  const hasDefaults =
+    Array.isArray(savedDefaults) && savedDefaults.some((v) => v != null);
+  const sameAsSaved =
+    hasDefaults &&
+    savedDefaults!.length === current.length &&
+    savedDefaults!.every((v, i) => (v ?? null) === (current[i] ?? null));
+
+  const persist = async (next: (number | null)[] | null) => {
+    if (!reportId) return;
+    setSaving(true);
+    try {
+      await savedChartsApi.updateReport(reportId, { default_job_ids: next });
+      await onSaved(next);
+    } catch (err) {
+      alert(
+        err instanceof Error
+          ? err.message
+          : "No se pudieron guardar los predeterminados.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!reportId) return null;
+
+  return (
+    <div className="mt-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 space-y-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="m-0 text-[11px] font-semibold uppercase tracking-wider text-emerald-200">
+          Escenarios predeterminados del reporte
+          {hasDefaults ? (
+            sameAsSaved ? (
+              <span className="ml-2 rounded-full bg-emerald-500/15 border border-emerald-500/40 px-1.5 py-0.5 text-[10px] text-emerald-200 normal-case">
+                ✓ usando los predeterminados
+              </span>
+            ) : (
+              <span className="ml-2 rounded-full bg-amber-500/10 border border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-200 normal-case">
+                cambios no guardados
+              </span>
+            )
+          ) : (
+            <span className="ml-2 rounded-full bg-slate-800/70 border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400 normal-case">
+              sin predeterminados
+            </span>
+          )}
+        </p>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => {
+              if (
+                !confirm(
+                  "¿Guardar los escenarios seleccionados como predeterminados del reporte?\n\nLa próxima vez que se abra, cargará con estos.",
+                )
+              )
+                return;
+              void persist(current);
+            }}
+            className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+          >
+            Guardar como predeterminados
+          </button>
+          {hasDefaults ? (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                if (!confirm("¿Quitar los escenarios predeterminados del reporte?"))
+                  return;
+                void persist(null);
+              }}
+              className="rounded border border-slate-700 px-2 py-0.5 text-[10px] font-semibold text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+            >
+              Quitar predeterminados
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {hasDefaults ? (
+        <div className="flex flex-wrap gap-1.5 text-[11px]">
+          {savedDefaults!.map((jid, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1 rounded border border-emerald-500/20 bg-emerald-500/5 px-1.5 py-0.5 text-emerald-200"
+            >
+              <span className="text-emerald-300/70 text-[10px] uppercase tracking-wider">
+                {aliasLabel(i)}:
+              </span>
+              <span>{jobLabel(jid)}</span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="m-0 text-[11px] text-slate-400">
+          Este reporte no tiene escenarios predeterminados. Guarda los
+          seleccionados para que la próxima vez se abran así.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ChartGrid({
   chartIds,
   templatesById,
   jobIdsForTemplate,
   cardWidthById,
   setCardWidthById,
+  resolveAliasSuffix,
+  resolveScenarioNames,
 }: {
   chartIds: number[];
   templatesById: Map<number, SavedChartTemplate>;
   jobIdsForTemplate: (tpl: SavedChartTemplate) => number[];
   cardWidthById: Record<number, "half" | "full">;
   setCardWidthById: Dispatch<SetStateAction<Record<number, "half" | "full">>>;
+  resolveAliasSuffix?: (tpl: SavedChartTemplate) => string | undefined;
+  resolveScenarioNames?: (tpl: SavedChartTemplate) => string[] | undefined;
 }) {
   return (
     <div className="flex flex-wrap gap-3">
@@ -1256,7 +1625,13 @@ function ChartGrid({
                 </div>
               )}
             </div>
-            <DashboardChartCard template={tpl} jobIds={jobIds} compactToolbar />
+            <DashboardChartCard
+              template={tpl}
+              jobIds={jobIds}
+              compactToolbar
+              scenarioAliasSuffix={resolveAliasSuffix?.(tpl)}
+              scenarioNames={resolveScenarioNames?.(tpl)}
+            />
           </div>
         );
       })}
@@ -1307,6 +1682,10 @@ type EditorProps = {
   onStartCreateNew?:
     | ((target: { catId: string; subId?: string } | null) => void)
     | undefined;
+  slotOverrides: Record<number, number[]>;
+  onChangeSlotOverride: (templateId: number, slots: number[] | null) => void;
+  globalScenariosLen: number;
+  scenarioAliases: string[];
 };
 
 function DashboardVisualEditor(props: EditorProps) {
@@ -1339,7 +1718,16 @@ function DashboardVisualEditor(props: EditorProps) {
     onMoveCategory,
     onMoveSub,
     onStartCreateNew,
+    slotOverrides,
+    onChangeSlotOverride,
+    globalScenariosLen,
+    scenarioAliases,
   } = props;
+  const scenarioLabel = (idx: number): string => {
+    const a = scenarioAliases[idx]?.trim();
+    return a && a.length > 0 ? a : `Escenario ${idx + 1}`;
+  };
+  const [editingSlotsId, setEditingSlotsId] = useState<number | null>(null);
 
   const [replaceTargetId, setReplaceTargetId] = useState<number | null>(null);
   const [titleEditingId, setTitleEditingId] = useState<number | null>(null);
@@ -1561,7 +1949,95 @@ function DashboardVisualEditor(props: EditorProps) {
             </div>
           )}
         </div>
-        <DashboardChartCard template={tpl} jobIds={jobIds} compactToolbar />
+        {/* Asignación de escenarios (chip siempre visible + picker colapsable) */}
+        {(() => {
+          const override = slotOverrides[tpl.id];
+          const defaultSlots = Array.from(
+            { length: tpl.num_scenarios },
+            (_, i) => i,
+          );
+          const effectiveSlots =
+            override && override.length > 0 ? override : defaultSlots;
+          return (
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/60 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
+                  <span className="text-slate-500 uppercase tracking-wider">
+                    Escenario{effectiveSlots.length === 1 ? "" : "s"}:
+                  </span>
+                  {effectiveSlots
+                    .map((s, i) => (
+                      <span key={i} className="text-cyan-300">
+                        {scenarioLabel(s)}
+                      </span>
+                    ))
+                    .reduce<React.ReactNode[]>((acc, el, i) => {
+                      if (i > 0)
+                        acc.push(
+                          <span key={`sep-${i}`} className="text-slate-600">
+                            ·
+                          </span>,
+                        );
+                      acc.push(el);
+                      return acc;
+                    }, [])}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEditingSlotsId((cur) => (cur === id ? null : id))
+                  }
+                  className="inline-flex h-6 items-center justify-center gap-1 rounded-md border border-slate-700 px-2 text-[10px] font-semibold text-slate-300 hover:bg-slate-800"
+                >
+                  {editingSlotsId === id
+                    ? "Ocultar asignación"
+                    : "Asignar escenarios"}
+                </button>
+              </div>
+              {editingSlotsId === id ? (
+                <RowScenarioPicker
+                  tpl={tpl}
+                  effectiveSlots={effectiveSlots}
+                  globalScenariosLen={Math.max(
+                    globalScenariosLen,
+                    tpl.num_scenarios,
+                  )}
+                  isOverride={Boolean(override)}
+                  onChange={(slots) => onChangeSlotOverride(tpl.id, slots)}
+                />
+              ) : null}
+            </div>
+          );
+        })()}
+        <DashboardChartCard
+          template={tpl}
+          jobIds={jobIds}
+          compactToolbar
+          scenarioAliasSuffix={(() => {
+            if (tpl.num_scenarios !== 1) return undefined;
+            const totalSlots = Math.max(
+              scenarioAliases.length,
+              globalScenariosLen,
+            );
+            if (totalSlots <= 1) return undefined;
+            const override = slotOverrides[tpl.id];
+            const slotIdx =
+              override && override.length > 0 ? (override[0] as number) : 0;
+            const alias = scenarioAliases[slotIdx]?.trim();
+            return alias && alias.length > 0 ? alias : `Escenario ${slotIdx + 1}`;
+          })()}
+          scenarioNames={(() => {
+            const override = slotOverrides[tpl.id];
+            const slots =
+              override && override.length > 0
+                ? override.slice(0, tpl.num_scenarios)
+                : Array.from({ length: tpl.num_scenarios }, (_, i) => i);
+            return slots.map((s) => {
+              const a = scenarioAliases[s]?.trim();
+              return a && a.length > 0 ? a : `Escenario ${s + 1}`;
+            });
+          })()}
+        />
       </div>
     );
   };

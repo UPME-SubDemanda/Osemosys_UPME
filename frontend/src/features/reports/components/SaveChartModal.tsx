@@ -13,15 +13,22 @@ import { savedChartsApi } from "../api/savedChartsApi";
 import type {
   SavedChartTemplate,
   SavedChartTemplateCreate,
+  SyntheticSeries,
 } from "@/types/domain";
 import type { ChartSelection } from "@/shared/charts/ChartSelector";
+
+export type SaveCompareMode = "off" | "facet" | "by-year" | "line-total";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   selection: ChartSelection;
-  compareMode: "off" | "facet";
+  compareMode: SaveCompareMode;
   numScenarios: number;
+  /** Años a guardar cuando compareMode==="by-year". Ignorado en otros modos. */
+  yearsToPlot?: number[] | null | undefined;
+  /** Series manuales overlay a guardar con la plantilla (solo line/line-total). */
+  syntheticSeries?: SyntheticSeries[] | null | undefined;
   barOrientation: "vertical" | "horizontal";
   facetPlacement: "inline" | "stacked";
   facetLegendMode: "shared" | "perFacet";
@@ -31,9 +38,16 @@ type Props = {
   saveButtonLabel?: string | undefined;
 };
 
+function compareModeLabel(mode: SaveCompareMode, numScenarios: number): string {
+  if (mode === "facet") return `facet × ${numScenarios}`;
+  if (mode === "by-year") return `por año × ${numScenarios}`;
+  if (mode === "line-total") return `líneas totales × ${numScenarios}`;
+  return `1 escenario`;
+}
+
 function buildDefaultName(params: {
   selection: ChartSelection;
-  compareMode: "off" | "facet";
+  compareMode: SaveCompareMode;
   numScenarios: number;
   chartLabel?: string | null | undefined;
 }): string {
@@ -43,20 +57,20 @@ function buildDefaultName(params: {
   if (params.selection.loc) parts.push(`(${params.selection.loc})`);
   parts.push(`· ${params.selection.un}`);
   if (params.selection.variable) parts.push(`· ${params.selection.variable}`);
-  if (params.selection.agrupar_por) parts.push(`· ${params.selection.agrupar_por}`);
+  // En line-total no hay agrupación (se muestran totales por escenario).
+  if (params.selection.agrupar_por && params.compareMode !== "line-total") {
+    parts.push(`· ${params.selection.agrupar_por}`);
+  }
   parts.push(`· ${params.selection.viewMode ?? "column"}`);
-  parts.push(
-    params.compareMode === "facet"
-      ? `· facet × ${params.numScenarios}`
-      : `· 1 escenario`,
-  );
+  parts.push(`· ${compareModeLabel(params.compareMode, params.numScenarios)}`);
   return parts.join(" ").slice(0, 240);
 }
 
 function buildDescription(params: {
   selection: ChartSelection;
-  compareMode: "off" | "facet";
+  compareMode: SaveCompareMode;
   numScenarios: number;
+  yearsToPlot?: number[] | null | undefined;
   barOrientation: "vertical" | "horizontal";
   facetPlacement: "inline" | "stacked";
   facetLegendMode: "shared" | "perFacet";
@@ -68,14 +82,28 @@ function buildDescription(params: {
   lines.push(`Unidad: ${params.selection.un}`);
   lines.push(`Sub-filtro: ${params.selection.sub_filtro || "—"}`);
   lines.push(`Localización: ${params.selection.loc || "—"}`);
-  lines.push(`Agrupación: ${params.selection.agrupar_por || "—"}`);
+  // line-total muestra totales por escenario: no tiene agrupación.
+  if (params.compareMode !== "line-total") {
+    lines.push(`Agrupación: ${params.selection.agrupar_por || "—"}`);
+  }
   lines.push(`Tipo de trazo: ${params.selection.viewMode ?? "column"}`);
   lines.push(`Orientación de barras: ${params.barOrientation}`);
-  lines.push(
-    params.compareMode === "facet"
-      ? `Modo: comparación por escenario (faceta) · ${params.numScenarios} escenarios · placement=${params.facetPlacement} · leyenda=${params.facetLegendMode}`
-      : `Modo: un solo escenario`,
-  );
+  if (params.compareMode === "facet") {
+    lines.push(
+      `Modo: comparación por escenario (faceta) · ${params.numScenarios} escenarios · placement=${params.facetPlacement} · leyenda=${params.facetLegendMode}`,
+    );
+  } else if (params.compareMode === "by-year") {
+    const years = params.yearsToPlot?.join(", ") || "—";
+    lines.push(
+      `Modo: comparación por años (${years}) · ${params.numScenarios} escenarios`,
+    );
+  } else if (params.compareMode === "line-total") {
+    lines.push(
+      `Modo: líneas totales (una línea por escenario) · ${params.numScenarios} escenarios`,
+    );
+  } else {
+    lines.push(`Modo: un solo escenario`);
+  }
   return lines.join("\n");
 }
 
@@ -87,38 +115,48 @@ function signatureFromTemplate(t: SavedChartTemplate): string {
     t.sub_filtro ?? "",
     t.loc ?? "",
     t.variable ?? "",
-    t.agrupar_por ?? "",
+    // En line-total la agrupación no se guarda.
+    t.compare_mode === "line-total" ? "" : t.agrupar_por ?? "",
     t.view_mode ?? "",
     t.compare_mode,
     String(t.num_scenarios),
     t.bar_orientation ?? "",
     t.facet_placement ?? "",
     t.facet_legend_mode ?? "",
+    (t.years_to_plot ?? []).slice().sort((a, b) => a - b).join(","),
   ].join("|");
 }
 
 function signatureFromCandidate(params: {
   selection: ChartSelection;
-  compareMode: "off" | "facet";
+  compareMode: SaveCompareMode;
   numScenarios: number;
+  yearsToPlot?: number[] | null | undefined;
   barOrientation: "vertical" | "horizontal";
   facetPlacement: "inline" | "stacked";
   facetLegendMode: "shared" | "perFacet";
 }): string {
   const { selection: s } = params;
+  const agrupacion =
+    params.compareMode === "line-total" ? "" : s.agrupar_por ?? "";
+  const years =
+    params.compareMode === "by-year"
+      ? (params.yearsToPlot ?? []).slice().sort((a, b) => a - b).join(",")
+      : "";
   return [
     s.tipo,
     s.un,
     s.sub_filtro ?? "",
     s.loc ?? "",
     s.variable ?? "",
-    s.agrupar_por ?? "",
+    agrupacion,
     s.viewMode ?? "",
     params.compareMode,
     String(params.numScenarios),
     params.barOrientation,
     params.compareMode === "facet" ? params.facetPlacement : "",
     params.compareMode === "facet" ? params.facetLegendMode : "",
+    years,
   ].join("|");
 }
 
@@ -128,6 +166,8 @@ export function SaveChartModal({
   selection,
   compareMode,
   numScenarios,
+  yearsToPlot,
+  syntheticSeries,
   barOrientation,
   facetPlacement,
   facetLegendMode,
@@ -146,6 +186,7 @@ export function SaveChartModal({
         selection,
         compareMode,
         numScenarios,
+        yearsToPlot,
         barOrientation,
         facetPlacement,
         facetLegendMode,
@@ -155,6 +196,7 @@ export function SaveChartModal({
       selection,
       compareMode,
       numScenarios,
+      yearsToPlot,
       barOrientation,
       facetPlacement,
       facetLegendMode,
@@ -195,6 +237,7 @@ export function SaveChartModal({
         selection,
         compareMode,
         numScenarios,
+        yearsToPlot,
         barOrientation,
         facetPlacement,
         facetLegendMode,
@@ -203,6 +246,7 @@ export function SaveChartModal({
       selection,
       compareMode,
       numScenarios,
+      yearsToPlot,
       barOrientation,
       facetPlacement,
       facetLegendMode,
@@ -242,7 +286,9 @@ export function SaveChartModal({
         sub_filtro: selection.sub_filtro || null,
         loc: selection.loc || null,
         variable: selection.variable || null,
-        agrupar_por: selection.agrupar_por || null,
+        // En line-total cada serie es un escenario y muestra totales; no se guarda agrupación.
+        agrupar_por:
+          compareMode === "line-total" ? null : selection.agrupar_por || null,
         view_mode: selection.viewMode ?? null,
         compare_mode: compareMode,
         bar_orientation: barOrientation,
@@ -251,6 +297,17 @@ export function SaveChartModal({
         num_scenarios: numScenarios,
         legend_title: null,
         filename_mode: compareMode === "facet" ? "result" : null,
+        years_to_plot:
+          compareMode === "by-year" && yearsToPlot && yearsToPlot.length > 0
+            ? yearsToPlot
+            : null,
+        // Solo line / line-total tienen sentido para overlays manuales.
+        synthetic_series:
+          (selection.viewMode === "line" || compareMode === "line-total") &&
+          syntheticSeries &&
+          syntheticSeries.length > 0
+            ? syntheticSeries
+            : null,
       };
       const created = await savedChartsApi.create(payload);
       onSaved?.(created);
@@ -417,7 +474,22 @@ export function SaveChartModal({
         ) : null}
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
-          <Button variant="ghost" onClick={onClose} disabled={submitting}>
+          <Button
+            variant="ghost"
+            disabled={submitting}
+            onClick={() => {
+              if (hasDuplicate && !forceDuplicate) {
+                // Reutilizar la plantilla existente: delega al flujo normal de
+                // guardado (onSaved) para que, si el caller está en "agregar al
+                // reporte", inserte la existente en la posición solicitada.
+                const existingTpl = duplicates[0];
+                if (existingTpl) {
+                  onSaved?.(existingTpl);
+                }
+              }
+              onClose();
+            }}
+          >
             {hasDuplicate && !forceDuplicate ? "Usar la existente" : "Cancelar"}
           </Button>
           <Button

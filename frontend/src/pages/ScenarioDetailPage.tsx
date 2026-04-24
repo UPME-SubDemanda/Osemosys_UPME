@@ -156,6 +156,7 @@ export function ScenarioDetailPage() {
   const [excelPreviewUploadPhase, setExcelPreviewUploadPhase] = useState<UploadPhase>("idle");
   const [excelPreviewUploadPercent, setExcelPreviewUploadPercent] = useState(0);
   const [excelPreviewUploadStartedAt, setExcelPreviewUploadStartedAt] = useState<number | null>(null);
+  const [excelCollapseTimeslices, setExcelCollapseTimeslices] = useState(true);
   const [excelDownloading, setExcelDownloading] = useState(false);
   const [openPermModal, setOpenPermModal] = useState(false);
   const [openMetaModal, setOpenMetaModal] = useState(false);
@@ -715,6 +716,7 @@ export function ScenarioDetailPage() {
     setExcelPreviewUploadPhase("idle");
     setExcelPreviewUploadPercent(0);
     setExcelPreviewUploadStartedAt(null);
+    setExcelCollapseTimeslices(true);
   }
 
   function handleExcelUpdateFileChange(file: File | null) {
@@ -777,7 +779,11 @@ export function ScenarioDetailPage() {
     try {
       const result = await scenariosApi.previewScenarioFromExcel(
         scenario.id,
-        { file: excelUpdateFile, sheet_name: excelUpdateSelectedSheet },
+        {
+          file: excelUpdateFile,
+          sheet_name: excelUpdateSelectedSheet,
+          collapse_timeslices: excelCollapseTimeslices,
+        },
         (percent) => {
           setExcelPreviewUploadPercent(percent);
           if (percent >= 100) setExcelPreviewUploadPhase("processing");
@@ -2333,6 +2339,25 @@ export function ScenarioDetailPage() {
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
+              </label>
+
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  cursor: "pointer",
+                  userSelect: "none",
+                  fontSize: 13,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={excelCollapseTimeslices}
+                  onChange={(e) => setExcelCollapseTimeslices(e.target.checked)}
+                  disabled={excelPreviewLoading}
+                />
+                Agregar/colapsar timeslices al comparar con el escenario (desmarcar para usar timeslices del Excel)
               </label>
 
               <small style={{ opacity: 0.65 }}>

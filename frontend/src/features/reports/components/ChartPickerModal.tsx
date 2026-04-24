@@ -152,6 +152,10 @@ export function ChartPickerModal({
                   {t.tipo} · {t.un}
                   {t.compare_mode === "facet"
                     ? ` · facet ${t.num_scenarios} esc.`
+                    : t.compare_mode === "by-year"
+                    ? ` · por año ${t.num_scenarios} esc.`
+                    : t.compare_mode === "line-total"
+                    ? ` · líneas tot. ${t.num_scenarios} esc.`
                     : " · 1 esc."}
                 </p>
               </button>

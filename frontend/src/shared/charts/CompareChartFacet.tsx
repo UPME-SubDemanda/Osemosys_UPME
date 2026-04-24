@@ -16,7 +16,7 @@ import {
   extractSvgRootInnerXml,
   remapSvgFragmentIds,
 } from "./mergeFacetChartsSvg";
-import { buildStackedTooltipOptions } from "./chartTooltips";
+import { buildLineTooltipOptions, buildStackedTooltipOptions } from "./chartTooltips";
 import {
   createLegendDblclickState,
   dispatchLegendClick,
@@ -74,8 +74,29 @@ function stackLabelFormatter(this: Highcharts.StackItemObject): string {
   return Highcharts.numberFormat(this.total, 2, ".", ",");
 }
 
-/** Tamaño de fuente de categorías en eje X (barras verticales). */
-const FACET_X_LABEL_FONT_PX = 16;
+/**
+ * Tamaño de fuente para etiquetas del eje X (años) según cuántos subplots.
+ * Menos facetas = más ancho disponible = fuente más grande.
+ */
+function facetXLabelFontPx(facetCount: number): number {
+  if (facetCount <= 1) return 15;
+  if (facetCount === 2) return 14;
+  if (facetCount === 3) return 13;
+  return 12;
+}
+
+/**
+ * Paso entre etiquetas visibles del eje X (saltarse N categorías).
+ * Con más facetas → menos ancho por subplot → mostrar menos etiquetas.
+ * Ajusta también según la cantidad total de años para que nunca choquen.
+ */
+function facetXLabelStep(facetCount: number, categoryCount: number): number {
+  // Densidad aproximada: más años y más facetas → paso mayor.
+  const base = facetCount <= 1 ? 1 : facetCount === 2 ? 2 : facetCount === 3 ? 3 : 4;
+  if (categoryCount <= 6) return 1;
+  if (categoryCount <= 10) return Math.max(1, base - 1);
+  return base;
+}
 /** Etiquetas del eje Y (valores) en pantalla. */
 const FACET_Y_LABEL_FONT_PX = 14;
 
@@ -86,6 +107,7 @@ function maxCategoryCharLength(categories: string[]): number {
 
 /**
  * Margen inferior para etiquetas en vertical: escala con la etiqueta más larga y el tamaño de fuente.
+ * Incluye un buffer extra para el offset `y` de la etiqueta y separación respecto al eje.
  */
 function facetMarginBottomForVerticalCategoryLabels(
   categories: string[],
@@ -93,7 +115,8 @@ function facetMarginBottomForVerticalCategoryLabels(
 ): number {
   const len = maxCategoryCharLength(categories);
   const perChar = fontPx * 0.62;
-  return Math.round(Math.min(32 + len * perChar, 300));
+  // 28px de buffer cubre el offset y: 16 de la etiqueta + padding inferior.
+  return Math.round(Math.min(28 + 28 + len * perChar, 300));
 }
 
 function useMediaMinWidth(px: number): boolean {
@@ -195,6 +218,13 @@ interface CompareChartFacetProps {
   facetPlacement?: ChartFacetPlacement;
   /** Predeterminado: leyenda compartida (panel React). */
   legendMode?: ChartFacetLegendMode;
+  /**
+   * Tipo de visualización por subplot:
+   *   - `column` (default): barras apiladas (stacking normal).
+   *   - `line`: una línea por serie; sin stacking. Útil para ver la evolución
+   *     por año de cada serie dentro de cada escenario.
+   */
+  viewMode?: 'column' | 'line';
   /** Si se define, permite descargar PNG (y parámetros) desde el backend sin Highcharts. */
   serverFacetExport?: {
     jobIds: number[];
@@ -244,6 +274,8 @@ function FacetChart({
   inverted,
   chartHeight,
   showHighchartsLegend,
+  viewMode,
+  facetCount,
   hoveredSeriesName = null,
   facetExportInstanceId,
 }: {
@@ -258,6 +290,9 @@ function FacetChart({
   inverted: boolean;
   chartHeight: number;
   showHighchartsLegend: boolean;
+  viewMode: 'column' | 'line';
+  /** Cantidad de facetas en el grupo. Define responsive de font y step del eje X. */
+  facetCount: number;
   /** Resaltado sincronizado con leyenda compartida (hover). */
   hoveredSeriesName?: string | null;
   /** Id estable del bloque CompareChartFacet (marcado en cada Chart en `load`). */
@@ -294,19 +329,34 @@ function FacetChart({
   }, [hoveredSeriesName, facet, hiddenSeriesNames, chartGeneration]);
 
   const options = useMemo<Highcharts.Options>(() => {
-    const series = facet.series.map((s) => ({
-      type: "column" as const,
-      name: s.name,
-      data: s.data,
-      color: s.color,
-      stacking: "normal" as const,
-      stack: s.stack,
-      visible: !hiddenSeriesNames.has(s.name),
-      borderWidth: 0,
-    }));
+    const isLine = viewMode === "line";
+    const series = facet.series.map((s) =>
+      isLine
+        ? {
+            type: "line" as const,
+            name: s.name,
+            data: s.data,
+            color: s.color,
+            visible: !hiddenSeriesNames.has(s.name),
+            marker: { enabled: true, radius: 3 },
+          }
+        : {
+            type: "column" as const,
+            name: s.name,
+            data: s.data,
+            color: s.color,
+            stacking: "normal" as const,
+            stack: s.stack,
+            visible: !hiddenSeriesNames.has(s.name),
+            borderWidth: 0,
+          },
+    );
+
+    const xLabelFontPx = facetXLabelFontPx(facetCount);
+    const xLabelStep = facetXLabelStep(facetCount, facet.categories.length);
 
     const marginBottomVert = !inverted
-      ? facetMarginBottomForVerticalCategoryLabels(facet.categories, FACET_X_LABEL_FONT_PX)
+      ? facetMarginBottomForVerticalCategoryLabels(facet.categories, xLabelFontPx)
       : undefined;
 
     const simPart = facet.display_name?.trim() || facet.scenario_name;
@@ -322,23 +372,30 @@ function FacetChart({
         categories: facet.categories,
         crosshair: { color: "#334155" },
         lineWidth: 1,
+        // Tick visible en CADA categoría (año), incluso cuando la etiqueta se salta,
+        // para que quede claro a qué columna corresponde cada label.
+        tickmarkPlacement: "on",
         tickWidth: 1,
+        tickLength: 6,
+        minorTickLength: 0,
         labels: (
           inverted
             ? {
-                style: { color: "#94a3b8", fontSize: `${FACET_X_LABEL_FONT_PX}px` },
+                style: { color: "#94a3b8", fontSize: `${xLabelFontPx}px` },
                 autoRotation: false,
               }
             : {
                 rotation: -90,
-                align: "right",
-                x: 4,
-                y: -2,
+                // Align `center` + y positivo mantiene la etiqueta debajo del eje,
+                // alineada con el tick/columna correspondiente (no "flotando" a un lado).
+                align: "center",
+                y: 16,
                 reserveSpace: true,
                 autoRotation: false,
+                step: xLabelStep,
                 style: {
                   color: "#94a3b8",
-                  fontSize: `${FACET_X_LABEL_FONT_PX}px`,
+                  fontSize: `${xLabelFontPx}px`,
                   whiteSpace: "nowrap",
                 },
               }
@@ -380,21 +437,25 @@ function FacetChart({
         },
         labels: { style: { color: "#94a3b8", fontSize: `${FACET_Y_LABEL_FONT_PX}px` } },
         gridLineColor: "#334155",
-        stackLabels: {
-          enabled: true,
-          style: {
-            fontWeight: "bold",
-            color: "#94a3b8",
-            textOutline: "none",
-            fontSize: "12px",
-          },
-          formatter: stackLabelFormatter,
-        },
+        stackLabels: isLine
+          ? { enabled: false }
+          : {
+              enabled: true,
+              style: {
+                fontWeight: "bold",
+                color: "#94a3b8",
+                textOutline: "none",
+                fontSize: "12px",
+              },
+              formatter: stackLabelFormatter,
+            },
       },
-      tooltip: buildStackedTooltipOptions({
-        unitLabel: yAxisLabel,
-        headerPrefix: () => facetTitleText,
-      }),
+      tooltip: isLine
+        ? buildLineTooltipOptions({ unitLabel: yAxisLabel })
+        : buildStackedTooltipOptions({
+            unitLabel: yAxisLabel,
+            headerPrefix: () => facetTitleText,
+          }),
       plotOptions: {
         series: {
           states: {
@@ -433,10 +494,14 @@ function FacetChart({
           groupPadding: 0.08,
           dataLabels: { enabled: false },
         },
+        line: {
+          dataLabels: { enabled: false },
+          marker: { enabled: true, radius: 3 },
+        },
       },
       series: series as Highcharts.SeriesOptionsType[],
       chart: {
-        type: "column",
+        type: isLine ? "line" : "column",
         height: chartHeight,
         inverted,
         ...(marginBottomVert !== undefined ? { marginBottom: marginBottomVert } : {}),
@@ -490,6 +555,8 @@ function FacetChart({
     inverted,
     chartHeight,
     showHighchartsLegend,
+    viewMode,
+    facetCount,
     facetExportInstanceId,
   ]);
 
@@ -521,6 +588,7 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
   barOrientation = "vertical",
   facetPlacement = "inline",
   legendMode = "shared",
+  viewMode = "column",
   serverFacetExport,
   compactToolbar = false,
 }) => {
@@ -856,6 +924,52 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
             )}
           </div>
         </div>
+        <div className="w-full pb-2">
+          <div
+            className={
+              isStacked
+                ? "flex w-full flex-col gap-4"
+                : "grid w-full gap-4"
+            }
+            style={
+              isStacked
+                ? undefined
+                : {
+                    gridTemplateColumns:
+                      n === 1 || !isLg ? "minmax(0, 1fr)" : `repeat(${n}, minmax(0, 1fr))`,
+                  }
+            }
+          >
+            {data.facets.map((facet, idx) => (
+              <div
+                key={facet.job_id}
+                className="min-w-0 rounded-lg border border-slate-800/80 bg-[#1e293b]/30 p-2"
+              >
+                <FacetChart
+                  facet={facet}
+                  yAxisLabel={data.yAxisLabel}
+                  sharedYAxisMax={sharedYAxisMax}
+                  syncGroup={data.title}
+                  hiddenSeriesNames={hiddenSeriesNames}
+                  onLegendToggle={handleLegendToggle}
+                  onLegendIsolate={handleLegendIsolate}
+                  onLegendRestoreAll={handleLegendRestoreAll}
+                  inverted={inverted}
+                  chartHeight={facetChartHeight}
+                  viewMode={viewMode}
+                  facetCount={n}
+                  showHighchartsLegend={
+                    legendMode === "perFacet" && idx === 0
+                  }
+                  hoveredSeriesName={
+                    useSharedLegendPanel ? effectiveLegendHover : null
+                  }
+                  facetExportInstanceId={facetExportInstanceIdRef.current!}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
         {useSharedLegendPanel ? (
         <div
           className="rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-3"
@@ -929,50 +1043,6 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
           </div>
         </div>
         ) : null}
-        <div className="w-full pb-2">
-          <div
-            className={
-              isStacked
-                ? "flex w-full flex-col gap-4"
-                : "grid w-full gap-4"
-            }
-            style={
-              isStacked
-                ? undefined
-                : {
-                    gridTemplateColumns:
-                      n === 1 || !isLg ? "minmax(0, 1fr)" : `repeat(${n}, minmax(0, 1fr))`,
-                  }
-            }
-          >
-            {data.facets.map((facet, idx) => (
-              <div
-                key={facet.job_id}
-                className="min-w-0 rounded-lg border border-slate-800/80 bg-[#1e293b]/30 p-2"
-              >
-                <FacetChart
-                  facet={facet}
-                  yAxisLabel={data.yAxisLabel}
-                  sharedYAxisMax={sharedYAxisMax}
-                  syncGroup={data.title}
-                  hiddenSeriesNames={hiddenSeriesNames}
-                  onLegendToggle={handleLegendToggle}
-                  onLegendIsolate={handleLegendIsolate}
-                  onLegendRestoreAll={handleLegendRestoreAll}
-                  inverted={inverted}
-                  chartHeight={facetChartHeight}
-                  showHighchartsLegend={
-                    legendMode === "perFacet" && idx === 0
-                  }
-                  hoveredSeriesName={
-                    useSharedLegendPanel ? effectiveLegendHover : null
-                  }
-                  facetExportInstanceId={facetExportInstanceIdRef.current!}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );

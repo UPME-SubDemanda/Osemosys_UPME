@@ -238,6 +238,8 @@ export function ScenariosPage() {
   const [tagSelectCreate, setTagSelectCreate] = useState("");
   const [tagSelectExcel, setTagSelectExcel] = useState("");
   const [includeUdcExcel, setIncludeUdcExcel] = useState(false);
+  /** true = colapsar/agregar timeslices (histórico); false = conservar timeslices del Excel */
+  const [collapseTimeslicesExcel, setCollapseTimeslicesExcel] = useState(true);
   // Estado del modal "Etiquetas rápidas" eliminado — CRUD completo vive en
   // /app/scenario-tags-admin.
 
@@ -493,6 +495,7 @@ export function ScenariosPage() {
           edit_policy: editPolicy,
           simulation_type: simulationType,
           include_udc_reserve_margin: includeUdcExcel,
+          collapse_timeslices: collapseTimeslicesExcel,
           ...(tagSelectExcel ? { tag_ids: [Number(tagSelectExcel)] } : {}),
         },
         (percent) => {
@@ -563,6 +566,7 @@ export function ScenariosPage() {
     setSimulationType("NATIONAL");
     setTagSelectExcel("");
     setIncludeUdcExcel(false);
+    setCollapseTimeslicesExcel(true);
     setExcelUploadPhase("idle");
     setExcelUploadPercent(0);
     setExcelUploadStartedAt(null);
@@ -1562,6 +1566,15 @@ export function ScenariosPage() {
                 </option>
               ))}
             </select>
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={collapseTimeslicesExcel}
+              onChange={(e) => setCollapseTimeslicesExcel(e.target.checked)}
+            />
+            Agregar/colapsar timeslices al importar (desmarcar para conservar los del Excel)
           </label>
 
           <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", fontSize: 13 }}>

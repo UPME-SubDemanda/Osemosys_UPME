@@ -1354,9 +1354,9 @@ class ScenarioService:
         """Clausulas SQL para aplicar reglas sobre años.
 
         Estrategia:
-        - 1 regla: `outer.id IN (SELECT id ...)` — rápido, usa índice por `year`.
-          El `SELECT DISTINCT <dims>` posterior colapsa los rows que matchean a
-          tuplas de grupo.
+        - 1 regla: aplica `year` y `value` directamente sobre el query externo.
+          Eso evita un self-subquery sobre `osemosys_param_value`, que en
+          escenarios grandes obliga a PostgreSQL a resolver millones de ids.
         - N reglas: calcula en Python la intersección de tuplas de dimensiones
           que matchean cada regla, y aplica `OR` de `AND`s (con `_eq_or_is_null`
           para los NULL) para restringir el outer. Más SQL pero evita el
@@ -1377,13 +1377,8 @@ class ScenarioService:
             year, op, val = valid[0]
             value_clause = _value_rule_clause(OsemosysParamValue.value, op, val)
             return [
-                OsemosysParamValue.id.in_(
-                    select(OsemosysParamValue.id).where(
-                        OsemosysParamValue.id_scenario == scenario_id,
-                        OsemosysParamValue.year == int(year),
-                        value_clause,
-                    )
-                )
+                OsemosysParamValue.year == int(year),
+                value_clause,
             ]
 
         # Multi-regla: intersección en Python de tuplas de dimensiones.

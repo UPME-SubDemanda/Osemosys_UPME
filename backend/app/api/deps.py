@@ -93,6 +93,21 @@ def get_user_manager(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+def get_scenario_manager(current_user: User = Depends(get_current_user)) -> User:
+    """Autoriza administración integral de escenarios ajenos.
+
+    Concede ver escenarios privados (OWNER_ONLY ajenos), editar metadatos,
+    política, etiquetas y valores; administrar permisos granulares; clonar,
+    exportar, revisar change requests y eliminar escenarios/simulaciones.
+    """
+    if not current_user.can_manage_scenarios:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para administrar escenarios ajenos.",
+        )
+    return current_user
+
+
 # ============================================================================
 # Arquitectura y Consideraciones Técnicas
 # ============================================================================

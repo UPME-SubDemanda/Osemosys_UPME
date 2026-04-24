@@ -80,10 +80,23 @@ def list_scenarios(
     permission_scope: str | None = None,
     cantidad: int | None = 25,
     offset: int | None = 1,
+    include_private: bool = False,
+    owners: list[str] | None = Query(default=None),
+    edit_policies: list[str] | None = Query(default=None),
+    simulation_types: list[str] | None = Query(default=None),
+    tag_ids: list[int] | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Lista escenarios accesibles al usuario autenticado.
+
+    - `include_private=true`: solo surte efecto si el usuario tiene el rol
+      `can_manage_scenarios=True`. En ese caso, el listado incluye también
+      escenarios `OWNER_ONLY` de otros usuarios.
+    - `owners`, `edit_policies`, `simulation_types`, `tag_ids`: listas
+      multiselect; se aplican como IN dentro de cada columna y AND entre
+      columnas. Se pasan repitiendo el query param (p.ej.
+      `owners=alice&owners=bob`).
 
     Respuestas:
         - 200: listado paginado.
@@ -98,6 +111,27 @@ def list_scenarios(
         permission_scope=permission_scope,
         cantidad=cantidad,
         offset=offset,
+        include_private=include_private,
+        owners=owners,
+        edit_policies=edit_policies,
+        simulation_types=simulation_types,
+        tag_ids=tag_ids,
+    )
+
+
+@router.get("/facets")
+def list_scenario_facets(
+    include_private: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Valores distintos para alimentar los filtros multiselect del listado.
+
+    Respeta la visibilidad del usuario. `include_private=true` solo se honra
+    si el usuario tiene `can_manage_scenarios=True`.
+    """
+    return ScenarioService.facets(
+        db, current_user=current_user, include_private=include_private
     )
 
 
@@ -629,8 +663,8 @@ def delete_scenario(
     scenario = db.get(Scenario, scenario_id)
     if not scenario:
         raise HTTPException(status_code=404, detail="Escenario no encontrado.")
-    is_admin = bool(getattr(current_user, "is_admin", False))
-    if scenario.owner != current_user.username and not is_admin:
+    is_scenario_admin = bool(getattr(current_user, "can_manage_scenarios", False))
+    if scenario.owner != current_user.username and not is_scenario_admin:
         raise HTTPException(
             status_code=403,
             detail="No tienes permisos para eliminar este escenario.",

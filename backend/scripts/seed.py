@@ -221,7 +221,7 @@ def main() -> None:
                 can_manage_catalogs=True,
                 can_import_official_data=True,
                 can_manage_users=True,
-                is_admin=True,
+                can_manage_scenarios=True,
             )
             session.add(user)
             session.flush()
@@ -236,7 +236,7 @@ def main() -> None:
             user.can_manage_catalogs = True
             user.can_import_official_data = True
             user.can_manage_users = True
-            user.is_admin = True
+            user.can_manage_scenarios = True
             session.flush()
 
         cleanup_demo_data(session)

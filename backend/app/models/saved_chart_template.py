@@ -51,6 +51,9 @@ class SavedChartTemplate(Base):
     num_scenarios: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     legend_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     filename_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: Título personalizado usado cuando la gráfica se renderiza dentro de un
+    #: reporte (export ZIP o dashboard). Si es null, se usa el título auto-generado.
+    report_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     #: Si ``True``, la gráfica es visible (solo lectura) para otros usuarios,
     #: que pueden usarla en sus propios reportes. Solo el dueño puede editar.

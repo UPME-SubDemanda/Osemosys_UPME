@@ -42,7 +42,7 @@ def list_templates(
     current_user: User = Depends(get_current_user),
 ) -> list[SavedChartTemplatePublic]:
     rows = SavedChartTemplateService.list_accessible(
-        db, user_id=current_user.id
+        db, user_id=current_user.id, current_user=current_user
     )
     return [SavedChartTemplatePublic.model_validate(r) for r in rows]
 
@@ -69,7 +69,10 @@ def get_template(
 ) -> SavedChartTemplatePublic:
     try:
         obj, owner = SavedChartTemplateService.get_accessible(
-            db, user_id=current_user.id, template_id=template_id
+            db,
+            user_id=current_user.id,
+            template_id=template_id,
+            current_user=current_user,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -100,14 +103,16 @@ def update_template(
     try:
         row = SavedChartTemplateService.update(
             db,
-            user_id=current_user.id,
+            current_user=current_user,
             template_id=template_id,
-            name=data.get("name"),
-            description=data.get("description"),
-            is_public=data.get("is_public"),
+            data=data,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(e)
+        ) from e
     return SavedChartTemplatePublic.model_validate(row)
 
 
@@ -147,6 +152,7 @@ def generate_report(
             fmt=payload.fmt,
             organize_by_category=payload.organize_by_category,
             categories=payload.categories,
+            job_display_overrides=payload.job_display_overrides,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

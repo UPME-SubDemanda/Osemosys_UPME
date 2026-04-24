@@ -20,6 +20,8 @@ import { simulationApi } from "@/features/simulation/api/simulationApi";
 import { paths } from "@/routes/paths";
 import { DashboardChartCard } from "@/features/reports/components/DashboardChartCard";
 import { ChartPicker } from "@/features/reports/components/CategoriesPanel";
+import { ChartPickerModal } from "@/features/reports/components/ChartPickerModal";
+import { useCurrentUser } from "@/app/providers/useCurrentUser";
 import {
   effectiveLayout,
   expandLayoutForExport,
@@ -42,6 +44,7 @@ export function ReportDashboardPage() {
   const { reportId } = useParams<{ reportId: string }>();
   const navigate = useNavigate();
   const numericReportId = Number(reportId);
+  const { user: currentUser } = useCurrentUser();
 
   const [report, setReport] = useState<SavedReport | null>(null);
   const [templates, setTemplates] = useState<SavedChartTemplate[]>([]);
@@ -67,6 +70,9 @@ export function ReportDashboardPage() {
   const [fmt, setFmt] = useState<"png" | "svg">("png");
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  /** Renombres por job_id solo para este export; no muta el display_name real. */
+  const [renameOverrides, setRenameOverrides] = useState<Record<number, string>>({});
+  const [renameOpen, setRenameOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
 
   // Ancho por gráfica (single-scenario): "half" = 50%, "full" = 100%.
@@ -240,7 +246,16 @@ export function ReportDashboardPage() {
   );
 
   // ── Permisos / capacidad de edición ──
-  const canEdit = Boolean(report?.is_owner);
+  const isAdminReports = Boolean(
+    currentUser?.is_admin_reports ?? currentUser?.can_manage_scenarios,
+  );
+  const canEdit = Boolean(
+    report?.is_owner
+      || (isAdminReports && (report?.is_official ?? false))
+  );
+  /** Cualquier usuario con permiso de admin_reports puede reetiquetar títulos de charts. */
+  const canEditChartReportTitle = (tpl: SavedChartTemplate): boolean =>
+    Boolean(tpl.is_owner) || isAdminReports;
 
   // ── Handlers de edición de layout ──
   const startEditing = () => {
@@ -429,6 +444,46 @@ export function ReportDashboardPage() {
     }));
     setDraftItems((prev) => (prev ? prev.filter((id) => id !== itemId) : prev));
   };
+
+  /** Reemplaza un id por otro preservando su posición en layout + items. */
+  const replaceItemDraft = (oldId: number, newId: number) => {
+    if (oldId === newId) return;
+    setDraftItems((prev) =>
+      prev
+        ? Array.from(new Set(prev.map((id) => (id === oldId ? newId : id))))
+        : prev,
+    );
+    mutateLayout((l) => ({
+      ...l,
+      categories: l.categories.map((c) => ({
+        ...c,
+        items: c.items.map((id) => (id === oldId ? newId : id)).filter(
+          (id, idx, arr) => arr.indexOf(id) === idx,
+        ),
+        subcategories: c.subcategories.map((s) => ({
+          ...s,
+          items: s.items.map((id) => (id === oldId ? newId : id)).filter(
+            (id, idx, arr) => arr.indexOf(id) === idx,
+          ),
+        })),
+      })),
+    }));
+  };
+
+  /** Guarda el report_title del template en el backend y refresca la lista local. */
+  const updateChartReportTitle = async (
+    templateId: number,
+    newTitle: string,
+  ) => {
+    try {
+      await savedChartsApi.update(templateId, { report_title: newTitle });
+      // Refrescar la lista de templates para ver el cambio reflejado en las cards.
+      const rows = await savedChartsApi.list();
+      setTemplates(rows);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "No se pudo actualizar el título.");
+    }
+  };
   const addItemDraft = (
     chartId: number,
     target: { catId: string; subId?: string },
@@ -503,6 +558,16 @@ export function ReportDashboardPage() {
     }
   };
 
+  // ── Labels de jobs (para los inputs de renombrar) ──
+  const jobLabelById = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const j of availableJobs) {
+      const label = j.display_name?.trim() || j.scenario_name || `Job ${j.id}`;
+      m.set(j.id, label);
+    }
+    return m;
+  }, [availableJobs]);
+
   // ── Export ──
   const canGenerate =
     !!report &&
@@ -525,7 +590,14 @@ export function ReportDashboardPage() {
         })
         .filter((x): x is { template_id: number; job_ids: number[] } => x !== null);
 
-      const payload = organizeFolders
+      const overridesForPayload: Record<string, string> = {};
+      for (const jid of globalScenarios) {
+        if (jid == null) continue;
+        const v = (renameOverrides[jid] ?? "").trim();
+        if (v) overridesForPayload[String(jid)] = v;
+      }
+      const hasOverrides = Object.keys(overridesForPayload).length > 0;
+      const basePayload = organizeFolders
         ? {
             items: flatItems,
             fmt,
@@ -537,6 +609,9 @@ export function ReportDashboardPage() {
             ),
           }
         : { items: flatItems, fmt };
+      const payload = hasOverrides
+        ? { ...basePayload, job_display_overrides: overridesForPayload }
+        : basePayload;
       const { blob, filename } = await savedChartsApi.generateReport(payload);
       downloadBlob(blob, filename);
     } catch (err: unknown) {
@@ -710,6 +785,47 @@ export function ReportDashboardPage() {
                     </span>
                   </span>
                 </label>
+                {globalScenarios.some((j) => j != null) ? (
+                  <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-2.5 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setRenameOpen((v) => !v)}
+                      className="flex w-full items-center justify-between gap-2 text-left"
+                    >
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                        Renombrar resultados (solo este export)
+                      </span>
+                      <span className={`text-slate-500 transition-transform ${renameOpen ? "rotate-180" : ""}`}>▾</span>
+                    </button>
+                    {renameOpen ? (
+                      <div className="space-y-1.5">
+                        <p className="m-0 text-[10px] text-slate-500 leading-snug">
+                          Cambia cómo aparece cada resultado en los títulos de las gráficas exportadas. No modifica el escenario ni el alias guardado.
+                        </p>
+                        {globalScenarios.map((jid, idx) => {
+                          if (jid == null) return null;
+                          const base = jobLabelById.get(jid) ?? `Job ${jid}`;
+                          return (
+                            <label key={`${idx}-${jid}`} className="grid gap-0.5">
+                              <span className="text-[10px] text-slate-500">
+                                Escenario {idx + 1} · <span className="text-slate-400">{base}</span>
+                              </span>
+                              <input
+                                type="text"
+                                value={renameOverrides[jid] ?? ""}
+                                onChange={(e) =>
+                                  setRenameOverrides((prev) => ({ ...prev, [jid]: e.target.value }))
+                                }
+                                placeholder={base}
+                                className="rounded border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-600"
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div>
                   <p className="m-0 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                     Formato
@@ -819,6 +935,9 @@ export function ReportDashboardPage() {
             onReorderItem={reorderItemDraft}
             onRemoveItem={removeItemDraft}
             onAddItem={addItemDraft}
+            onReplaceItem={replaceItemDraft}
+            onUpdateChartReportTitle={updateChartReportTitle}
+            canEditChartReportTitle={canEditChartReportTitle}
           />
         ) : (
           // ── Modo lectura: tabs + tarjetas con gráficas renderizadas ──
@@ -1117,6 +1236,9 @@ type EditorProps = {
     chartId: number,
     target: { catId: string; subId?: string },
   ) => void;
+  onReplaceItem: (oldId: number, newId: number) => void;
+  onUpdateChartReportTitle: (templateId: number, newTitle: string) => void;
+  canEditChartReportTitle: (tpl: SavedChartTemplate) => boolean;
 };
 
 function DashboardVisualEditor(props: EditorProps) {
@@ -1143,7 +1265,14 @@ function DashboardVisualEditor(props: EditorProps) {
     onReorderItem,
     onRemoveItem,
     onAddItem,
+    onReplaceItem,
+    onUpdateChartReportTitle,
+    canEditChartReportTitle,
   } = props;
+
+  const [replaceTargetId, setReplaceTargetId] = useState<number | null>(null);
+  const [titleEditingId, setTitleEditingId] = useState<number | null>(null);
+  const [titleDraft, setTitleDraft] = useState<string>("");
 
   const subcatMode = layout.subcategory_display ?? "tabs";
   const activeCategory = layout.categories.find(
@@ -1254,6 +1383,27 @@ function DashboardVisualEditor(props: EditorProps) {
             </select>
             <button
               type="button"
+              onClick={() => setReplaceTargetId(id)}
+              title="Reemplazar por otra gráfica guardada"
+              className="ml-1 inline-flex h-6 px-2 items-center justify-center rounded border border-indigo-500/40 text-[10px] font-semibold text-indigo-300 hover:bg-indigo-500/10"
+            >
+              ⇆ Reemplazar
+            </button>
+            {canEditChartReportTitle(tpl) ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setTitleEditingId(id);
+                  setTitleDraft(tpl.report_title ?? "");
+                }}
+                title="Editar título mostrado en reportes"
+                className="ml-1 inline-flex h-6 px-2 items-center justify-center rounded border border-cyan-500/40 text-[10px] font-semibold text-cyan-300 hover:bg-cyan-500/10"
+              >
+                ✎ Título
+              </button>
+            ) : null}
+            <button
+              type="button"
               onClick={() => onRemoveItem(id)}
               title="Quitar del reporte"
               className="ml-1 inline-flex h-6 w-6 items-center justify-center rounded border border-rose-500/40 text-rose-300 hover:bg-rose-500/10"
@@ -1261,6 +1411,46 @@ function DashboardVisualEditor(props: EditorProps) {
               ×
             </button>
           </div>
+        </div>
+        {titleEditingId === id ? (
+          <div className="rounded-md border border-cyan-500/30 bg-cyan-500/5 px-2 py-2 space-y-1">
+            <p className="m-0 text-[10px] text-slate-400">
+              Título usado al renderizar en reportes (vacío → título automático):
+            </p>
+            <div className="flex gap-1">
+              <input
+                type="text"
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                placeholder={tpl.name}
+                className="flex-1 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  await onUpdateChartReportTitle(id, titleDraft);
+                  setTitleEditingId(null);
+                }}
+                className="rounded bg-cyan-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-cyan-500"
+              >
+                Guardar
+              </button>
+              <button
+                type="button"
+                onClick={() => setTitleEditingId(null)}
+                className="rounded border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-300 hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : tpl.report_title ? (
+          <p className="m-0 rounded-md bg-slate-900/60 border border-slate-800 px-2 py-1 text-[10px] text-cyan-200/90">
+            <span className="text-slate-500">Título reporte:</span>{" "}
+            <span className="font-semibold">{tpl.report_title}</span>
+          </p>
+        ) : null}
+        <div className="flex justify-end text-[11px] text-slate-500">
           {isMulti ? (
             <span className="rounded-md border border-slate-800 bg-slate-900/60 px-2 py-0.5">
               ancho completo (multi-escenario)
@@ -1650,6 +1840,22 @@ function DashboardVisualEditor(props: EditorProps) {
           })()}
         </>
       )}
+      <ChartPickerModal
+        open={replaceTargetId != null}
+        onClose={() => setReplaceTargetId(null)}
+        title="Reemplazar gráfica"
+        templates={templates}
+        compatibleWith={
+          replaceTargetId != null
+            ? templatesById.get(replaceTargetId) ?? null
+            : null
+        }
+        excludeIds={replaceTargetId != null ? [replaceTargetId] : undefined}
+        onPick={(tpl) => {
+          if (replaceTargetId != null) onReplaceItem(replaceTargetId, tpl.id);
+          setReplaceTargetId(null);
+        }}
+      />
     </section>
   );
 }

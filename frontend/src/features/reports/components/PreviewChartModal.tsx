@@ -24,6 +24,8 @@ type Props = {
   template: SavedChartTemplate | null;
   availableJobs: SimulationRun[];
   loadingJobs: boolean;
+  /** Si se pasa, los slots se pre-rellenan al abrir el modal. */
+  initialJobIds?: number[] | undefined;
 };
 
 function partitionJobs(jobs: SimulationRun[]): {
@@ -72,6 +74,7 @@ export function PreviewChartModal({
   template,
   availableJobs,
   loadingJobs,
+  initialJobIds,
 }: Props) {
   const [jobIds, setJobIds] = useState<(number | null)[]>([]);
   const [single, setSingle] = useState<ChartDataResponse | null>(null);
@@ -82,10 +85,17 @@ export function PreviewChartModal({
   // Reset slots cuando cambia la plantilla o se abre el modal.
   useEffect(() => {
     if (!open || !template) return;
-    setJobIds(Array.from({ length: template.num_scenarios }, () => null));
+    const prefill = initialJobIds ?? [];
+    const slots: (number | null)[] = Array.from(
+      { length: template.num_scenarios },
+      (_, i) => (i < prefill.length ? prefill[i]! : null),
+    );
+    setJobIds(slots);
     setSingle(null);
     setFacet(null);
     setError(null);
+    // initialJobIds intentionally not in deps: solo se aplica al abrir.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, template]);
 
   const setJobAt = (idx: number, value: number | null) => {

@@ -805,6 +805,7 @@ def build_comparison_facet_data(
     loc: str | None = None,
     variable: str | None = None,
     agrupar_por: str | None = None,
+    job_display_overrides: dict[int, str] | None = None,
 ) -> CompareChartFacetResponse:
     """Construye datos para comparación por escenarios completos (facets).
 
@@ -860,7 +861,13 @@ def build_comparison_facet_data(
             ).get(int(scenario.id))
             if primary:
                 tag_name = primary.get("name")
-        job_display = getattr(job, "display_name", None) or None
+        override = (
+            (job_display_overrides or {}).get(jid) if job_display_overrides else None
+        )
+        job_display = (
+            override.strip() if isinstance(override, str) and override.strip()
+            else (getattr(job, "display_name", None) or None)
+        )
 
         chart = build_chart_data(
             db=db,

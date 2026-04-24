@@ -1,10 +1,15 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Highcharts from './highchartsSetup';
 import {
   EXPORTING_CONTEXT_BUTTON_DARK,
   buildChartExportMenuItems,
   onHighchartsExportError,
 } from './chartExportingShared';
+import { buildStackedTooltipOptions } from './chartTooltips';
+import {
+  createLegendDblclickState,
+  dispatchLegendClick,
+} from './chartLegendInteractions';
 import HighchartsReact from 'highcharts-react-official';
 import type { ChartDataResponse } from '../../types/domain';
 import type { ChartSelection } from './ChartSelector';
@@ -23,7 +28,41 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
   serverExport,
 }) => {
   const inverted = barOrientation === 'horizontal';
+  const legendDblclickStateRef = useRef(createLegendDblclickState());
+  const [hiddenNames, setHiddenNames] = useState<Set<string>>(() => new Set());
+
+  // Si cambia el dataset (nuevo tipo de chart), reseteamos la visibilidad.
+  const dataSignature = useMemo(
+    () => data.series.map((s) => s.name).join('|'),
+    [data.series],
+  );
+  useEffect(() => {
+    setHiddenNames(new Set());
+    legendDblclickStateRef.current.isolatedName = null;
+  }, [dataSignature]);
+
+  const handleToggle = (name: string) => {
+    setHiddenNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+  const handleIsolate = (name: string) => {
+    setHiddenNames(new Set(data.series.map((s) => s.name).filter((n) => n !== name)));
+  };
+  const handleRestoreAll = () => setHiddenNames(new Set());
+
   const options = useMemo<Highcharts.Options>(() => {
+    const legendItemClick = function (this: Highcharts.Series): boolean {
+      dispatchLegendClick(legendDblclickStateRef.current, this.name, {
+        onToggle: handleToggle,
+        onIsolate: handleIsolate,
+        onRestoreAll: handleRestoreAll,
+      });
+      return false;
+    };
     const series = data.series.map((s) => ({
       type: 'column' as const,
       name: s.name,
@@ -32,6 +71,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
       stacking: 'normal' as const,
       stack: s.stack,
       borderWidth: 0,
+      visible: !hiddenNames.has(s.name),
     }));
 
     return {
@@ -83,16 +123,11 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
           },
         },
       },
-      tooltip: {
-        headerFormat: '<b>{point.x}</b><br/>',
-        pointFormat:
-          '{series.name}: {point.y:,.2f} ' +
-          data.yAxisLabel +
-          '<br/>Total: {point.stackTotal:,.2f} ' +
-          data.yAxisLabel,
-        shared: true,
-      },
+      tooltip: buildStackedTooltipOptions({ unitLabel: data.yAxisLabel }),
       plotOptions: {
+        series: {
+          events: { legendItemClick },
+        },
         column: {
           stacking: 'normal',
           borderWidth: 0,
@@ -140,7 +175,11 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
         itemHoverStyle: { color: '#f8fafc' },
       },
     };
-  }, [data, inverted, serverExport]);
+    // `handleToggle/handleIsolate/handleRestoreAll` viven en closures estables
+    // por componente; sus dependencias reales son `data` (para `handleIsolate`) y
+    // `hiddenNames` (para `options.series[i].visible`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, inverted, serverExport, hiddenNames]);
 
   return (
     <div style={{ width: '100%' }}>

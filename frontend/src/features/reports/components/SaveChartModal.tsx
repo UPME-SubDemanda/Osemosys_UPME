@@ -27,6 +27,8 @@ type Props = {
   facetLegendMode: "shared" | "perFacet";
   chartLabel?: string | null | undefined;
   onSaved?: (template: SavedChartTemplate) => void;
+  /** Etiqueta alternativa del botón principal. Default: "Guardar gráfica". */
+  saveButtonLabel?: string | undefined;
 };
 
 function buildDefaultName(params: {
@@ -131,6 +133,7 @@ export function SaveChartModal({
   facetLegendMode,
   chartLabel,
   onSaved,
+  saveButtonLabel,
 }: Props) {
   const defaultName = useMemo(
     () =>
@@ -428,7 +431,7 @@ export function SaveChartModal({
                 ? forceDuplicate
                   ? "Crear copia nueva"
                   : "Ya existe — marca la casilla para duplicar"
-                : "Guardar gráfica"}
+                : (saveButtonLabel ?? "Guardar gráfica")}
           </Button>
         </div>
       </div>

@@ -42,6 +42,19 @@ from .technology import Technology
 from .udc_set import UdcSet
 from .core.document_type import DocumentType
 from .core.user import User
+from .catalog_meta import (
+    CatalogMetaAudit,
+    CatalogMetaChartConfig,
+    CatalogMetaChartModule,
+    CatalogMetaChartSubfilter,
+    CatalogMetaChartSubfilterGroup,
+    CatalogMetaChartSubmodule,
+    CatalogMetaColorPalette,
+    CatalogMetaLabel,
+    CatalogMetaSectorMapping,
+    CatalogMetaTechFamily,
+    CatalogMetaVariableUnit,
+)
 
 __all__ = [
     "Scenario",
@@ -86,6 +99,17 @@ __all__ = [
     "SavedChartTemplateFavorite",
     "ReportTemplate",
     "ReportTemplateFavorite",
+    "CatalogMetaColorPalette",
+    "CatalogMetaLabel",
+    "CatalogMetaSectorMapping",
+    "CatalogMetaTechFamily",
+    "CatalogMetaChartModule",
+    "CatalogMetaChartSubmodule",
+    "CatalogMetaChartConfig",
+    "CatalogMetaChartSubfilter",
+    "CatalogMetaChartSubfilterGroup",
+    "CatalogMetaVariableUnit",
+    "CatalogMetaAudit",
 ]
 
 

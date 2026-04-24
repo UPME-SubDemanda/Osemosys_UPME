@@ -494,7 +494,7 @@ export type SavedChartTemplate = {
   loc: string | null;
   variable: string | null;
   agrupar_por: string | null;
-  view_mode: "column" | "line" | "pareto" | null;
+  view_mode: "column" | "line" | "area" | "pareto" | null;
   compare_mode: "off" | "facet" | "by-year" | "line-total";
   /** Años a graficar cuando `compare_mode === "by-year"`. Null en otros modos. */
   years_to_plot: number[] | null;
@@ -530,6 +530,8 @@ export type SavedChartTemplateUpdate = {
   is_public?: boolean;
   /** Enviar "" o null limpia el override. */
   report_title?: string | null;
+  /** Tipo de trazo. Permite alternar columnas/áreas desde el reporte. */
+  view_mode?: "column" | "line" | "area" | "pareto" | null;
 };
 
 export type ReportTemplateItem = {

@@ -7,8 +7,8 @@
  * ``/simulations/{jobId}/output-values/wide/facets``,
  * ``/simulations/{jobId}/output-values/export``.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ColumnFilterPopover } from "@/shared/components/ColumnFilterPopover";
 import { YearRuleFilterPopover } from "@/shared/components/YearRuleFilterPopover";
 import { Button } from "@/shared/components/Button";
@@ -423,6 +423,60 @@ export function ResultDataExplorerPage() {
     facets?.technology_names,
     facets?.fuel_names,
   ]);
+
+  // ------------------------------------------------------------------
+  //  Pre-carga de filtros desde la URL (llegada desde una gráfica)
+  // ------------------------------------------------------------------
+  const [searchParams, setSearchParams] = useSearchParams();
+  const appliedUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const qs = searchParams.toString();
+    if (!qs) return;
+    // Esperar a que facets estén disponibles para resolver prefijos.
+    if (!facets) return;
+    // Aplicar sólo una vez por querystring distinto.
+    if (appliedUrlRef.current === qs) return;
+
+    const csv = (key: string): string[] => {
+      const v = searchParams.get(key);
+      if (!v) return [];
+      return v.split(",").map((s) => s.trim()).filter(Boolean);
+    };
+
+    const varNames = csv("variable_names");
+    const techPrefixes = csv("technology_prefixes");
+    const fuelPrefixes = csv("fuel_prefixes");
+    const emissionNames = csv("emission_names");
+
+    const resolvedTech = techPrefixes.length
+      ? resolveTechnologyNames(techPrefixes, facets.technology_names ?? [])
+      : [];
+    const resolvedFuel = fuelPrefixes.length
+      ? resolveFuelNames(fuelPrefixes, facets.fuel_names ?? [])
+      : [];
+
+    const nextFilters: Record<DimFilterKey, string[]> = {
+      variable_names: varNames,
+      region_names: [],
+      technology_names: resolvedTech,
+      fuel_names: resolvedFuel,
+      emission_names: emissionNames,
+      timeslice_names: [],
+      mode_names: [],
+      storage_names: [],
+    };
+    setColumnFilters(nextFilters);
+    setYearRules({});
+    setActiveCategory(null);
+    setActiveSubCategory(null);
+    setPage(1);
+    appliedUrlRef.current = qs;
+
+    // Limpiar querystring después de aplicar para que refrescos subsecuentes
+    // no re-sobrescriban la selección manual del usuario.
+    setSearchParams({}, { replace: true });
+  }, [searchParams, facets, setSearchParams]);
 
   const handleSelectVariable = useCallback(
     (v: string | null) => {

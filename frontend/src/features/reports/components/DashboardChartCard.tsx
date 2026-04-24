@@ -383,6 +383,7 @@ export function DashboardChartCard({
               (template.bar_orientation ?? "vertical") as "vertical" | "horizontal"
             }
             serverExport={{ jobId: jobIds[0]!, selection }}
+            stackType={template.view_mode === "area" ? "area" : "column"}
           />
         ) : !loading ? (
           <div className="flex h-[260px] items-center justify-center text-xs text-slate-500">

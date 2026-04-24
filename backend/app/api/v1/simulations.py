@@ -61,12 +61,18 @@ from app.schemas.simulation import (
     SimulationResultPublic,
     SimulationSubmit,
 )
+from app.schemas.simulation_results import (
+    OutputValuesTotals,
+    OutputValuesWidePage,
+    OutputWideFacets,
+)
 from app.services.csv_scenario_import_service import (
     CsvScenarioImportService,
     extract_zip_to_dir,
     find_csv_root,
     validate_csv_root,
 )
+from app.services.simulation_results_service import SimulationResultsService
 from app.services.simulation_service import SimulationService
 
 router = APIRouter(prefix="/simulations")
@@ -454,6 +460,236 @@ def get_simulation_result(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Data Explorer — wide-format access to osemosys_output_param_value
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_csv_list_sim(raw: str | None) -> list[str] | None:
+    if raw is None:
+        return None
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    return parts or None
+
+
+def _parse_year_rules_sim(
+    raw: str | None,
+) -> list[tuple[int, str, float | None]]:
+    """Parsea `"2025:gt:0.5,2030:nonzero"` a [(2025,"gt",0.5),(2030,"nonzero",None)]."""
+    if not raw:
+        return []
+    out: list[tuple[int, str, float | None]] = []
+    for part in raw.split(","):
+        tokens = [t.strip() for t in part.split(":") if t.strip()]
+        if len(tokens) < 2:
+            continue
+        try:
+            year = int(tokens[0])
+        except ValueError:
+            continue
+        op = tokens[1].lower()
+        val: float | None = None
+        if len(tokens) >= 3:
+            try:
+                val = float(tokens[2])
+            except ValueError:
+                val = None
+        out.append((year, op, val))
+    return out
+
+
+@router.get(
+    "/{job_id}/output-values/wide",
+    response_model=OutputValuesWidePage,
+)
+def list_output_values_wide(
+    job_id: int,
+    variable_name: str | None = None,
+    variable_names: str | None = None,
+    region_names: str | None = None,
+    technology_names: str | None = None,
+    fuel_names: str | None = None,
+    emission_names: str | None = None,
+    timeslice_names: str | None = None,
+    mode_names: str | None = None,
+    storage_names: str | None = None,
+    year_rules: str | None = None,
+    offset: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Resultados en formato wide (años como columnas).
+
+    Filtros por columna: listas CSV con valores por dimensión.
+    `year_rules`: `year:op[:value]` separados por coma (ops: gt/lt/gte/lte/
+    eq/ne/nonzero/zero).
+    """
+    try:
+        return SimulationResultsService.list_output_values_wide(
+            db,
+            job_id=job_id,
+            current_user=current_user,
+            variable_name=variable_name,
+            variable_names=_parse_csv_list_sim(variable_names),
+            region_names=_parse_csv_list_sim(region_names),
+            technology_names=_parse_csv_list_sim(technology_names),
+            fuel_names=_parse_csv_list_sim(fuel_names),
+            emission_names=_parse_csv_list_sim(emission_names),
+            timeslice_names=_parse_csv_list_sim(timeslice_names),
+            mode_names=_parse_csv_list_sim(mode_names),
+            storage_names=_parse_csv_list_sim(storage_names),
+            year_rules=_parse_year_rules_sim(year_rules),
+            offset=offset,
+            limit=limit,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(e)
+        ) from e
+
+
+@router.get(
+    "/{job_id}/output-values/wide/facets",
+    response_model=OutputWideFacets,
+)
+def list_output_wide_facets(
+    job_id: int,
+    variable_name: str | None = None,
+    variable_names: str | None = None,
+    region_names: str | None = None,
+    technology_names: str | None = None,
+    fuel_names: str | None = None,
+    emission_names: str | None = None,
+    timeslice_names: str | None = None,
+    mode_names: str | None = None,
+    storage_names: str | None = None,
+    year_rules: str | None = None,
+    limit_per_column: int = 500,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Valores únicos por columna para popovers de filtros."""
+    try:
+        return SimulationResultsService.list_output_wide_facets(
+            db,
+            job_id=job_id,
+            current_user=current_user,
+            variable_name=variable_name,
+            variable_names=_parse_csv_list_sim(variable_names),
+            region_names=_parse_csv_list_sim(region_names),
+            technology_names=_parse_csv_list_sim(technology_names),
+            fuel_names=_parse_csv_list_sim(fuel_names),
+            emission_names=_parse_csv_list_sim(emission_names),
+            timeslice_names=_parse_csv_list_sim(timeslice_names),
+            mode_names=_parse_csv_list_sim(mode_names),
+            storage_names=_parse_csv_list_sim(storage_names),
+            year_rules=_parse_year_rules_sim(year_rules),
+            limit_per_column=limit_per_column,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(e)
+        ) from e
+
+
+@router.get(
+    "/{job_id}/output-values/totals",
+    response_model=OutputValuesTotals,
+)
+def get_output_totals(
+    job_id: int,
+    variable_name: str | None = None,
+    variable_names: str | None = None,
+    region_names: str | None = None,
+    technology_names: str | None = None,
+    fuel_names: str | None = None,
+    emission_names: str | None = None,
+    timeslice_names: str | None = None,
+    mode_names: str | None = None,
+    storage_names: str | None = None,
+    year_rules: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Suma de ``value`` por año con los mismos filtros que wide."""
+    try:
+        return SimulationResultsService.get_output_totals(
+            db,
+            job_id=job_id,
+            current_user=current_user,
+            variable_name=variable_name,
+            variable_names=_parse_csv_list_sim(variable_names),
+            region_names=_parse_csv_list_sim(region_names),
+            technology_names=_parse_csv_list_sim(technology_names),
+            fuel_names=_parse_csv_list_sim(fuel_names),
+            emission_names=_parse_csv_list_sim(emission_names),
+            timeslice_names=_parse_csv_list_sim(timeslice_names),
+            mode_names=_parse_csv_list_sim(mode_names),
+            storage_names=_parse_csv_list_sim(storage_names),
+            year_rules=_parse_year_rules_sim(year_rules),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(e)
+        ) from e
+
+
+@router.get("/{job_id}/output-values/export")
+def export_output_values(
+    job_id: int,
+    variable_name: str | None = None,
+    variable_names: str | None = None,
+    region_names: str | None = None,
+    technology_names: str | None = None,
+    fuel_names: str | None = None,
+    emission_names: str | None = None,
+    timeslice_names: str | None = None,
+    mode_names: str | None = None,
+    storage_names: str | None = None,
+    year_rules: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Descarga todos los resultados filtrados en formato wide (Excel)."""
+    try:
+        payload = SimulationResultsService.export_output_values_xlsx(
+            db,
+            job_id=job_id,
+            current_user=current_user,
+            variable_name=variable_name,
+            variable_names=_parse_csv_list_sim(variable_names),
+            region_names=_parse_csv_list_sim(region_names),
+            technology_names=_parse_csv_list_sim(technology_names),
+            fuel_names=_parse_csv_list_sim(fuel_names),
+            emission_names=_parse_csv_list_sim(emission_names),
+            timeslice_names=_parse_csv_list_sim(timeslice_names),
+            mode_names=_parse_csv_list_sim(mode_names),
+            storage_names=_parse_csv_list_sim(storage_names),
+            year_rules=_parse_year_rules_sim(year_rules),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(e)
+        ) from e
+
+    filename = f"simulation_{job_id}_results.xlsx"
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/{job_id}/diagnose-infeasibility", response_model=SimulationJobPublic)

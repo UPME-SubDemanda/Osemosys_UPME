@@ -155,6 +155,12 @@ COLORES_GRUPOS = {
     "LPG": "#ffbb78",
     "FOL": "#98df8a",
     "AUT": "#ff9896",
+    # Crudos (FUEL en UseByTechnology para refinerías).
+    # Deben ir ANTES de "OIL" para que asignar_grupo haga match específico
+    # (itera por orden de inserción y "OIL" in "OIL_1LIV" sería True).
+    "OIL_3PES": "#1f2937",  # Crudo pesado — gris muy oscuro
+    "OIL_2MID": "#4b5563",  # Crudo intermedio — gris medio
+    "OIL_1LIV": "#9ca3af",  # Crudo liviano — gris claro
     "OIL": "#000000",
     "PHEV": "#c5b0d5",
     "HEV": "#f7b6d2",

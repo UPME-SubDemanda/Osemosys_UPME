@@ -36,6 +36,7 @@ class SavedChartTemplateBase(BaseModel):
     num_scenarios: int = Field(default=1, ge=1, le=10)
     legend_title: str | None = Field(default=None, max_length=255)
     filename_mode: FilenameMode | None = None
+    report_title: str | None = Field(default=None, max_length=255)
 
 
 class SavedChartTemplateCreate(SavedChartTemplateBase):
@@ -49,16 +50,25 @@ class SavedChartTemplateCreate(SavedChartTemplateBase):
 
 
 class SavedChartTemplateUpdate(BaseModel):
-    """Actualización parcial: nombre, descripción y/o visibilidad."""
+    """Actualización parcial: nombre, descripción, visibilidad y/o título en reportes."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     is_public: bool | None = None
+    #: Título al renderizar en reportes. Enviar "" o null limpia el override.
+    report_title: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
     def _any_field(self):
-        if self.name is None and self.description is None and self.is_public is None:
-            raise ValueError("Debes enviar al menos name, description o is_public.")
+        if (
+            self.name is None
+            and self.description is None
+            and self.is_public is None
+            and self.report_title is None
+        ):
+            raise ValueError(
+                "Debes enviar al menos name, description, is_public o report_title."
+            )
         return self
 
 
@@ -118,6 +128,9 @@ class ReportRequest(BaseModel):
     report_name: str | None = Field(default=None, max_length=120)
     organize_by_category: bool = False
     categories: list[ReportCategoryExport] | None = None
+    #: Alias por job_id solo para este export; no muta ``SimulationJob.display_name``.
+    #: Claves como str (JSON); el service convierte a int al aplicar.
+    job_display_overrides: dict[str, str] | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -9,16 +9,30 @@ from app.db.base import Base
 class OsemosysOutputParamValue(Base):
     """Fila de resultado de una corrida de simulacion.
 
-    Almacena las 4 series principales (Dispatch, NewCapacity, UnmetDemand,
-    AnnualEmissions) con columnas dimensionales tipadas, y las variables
-    intermedias (ProductionByTechnology, TotalCapacityAnnual, storage, etc.)
-    usando ``index_json`` para preservar el indice multi-dimensional.
+    Cubre las 48 variables del modelo abstracto. Las dimensiones relevantes
+    viven en columnas tipadas (``id_region``, ``id_technology``, ``id_fuel``,
+    ``id_emission``, ``id_timeslice``, ``id_mode_of_operation``,
+    ``id_storage``, ``id_season``, ``id_daytype``, ``id_dailytimebracket``,
+    ``year``); ``index_json`` queda como respaldo para casos no previstos.
     """
 
     __tablename__ = "osemosys_output_param_value"
     __table_args__ = (
         Index("ix_oopv_simulation_job", "id_simulation_job"),
         Index("ix_oopv_job_variable", "id_simulation_job", "variable_name"),
+        Index(
+            "ix_oopv_job_var_region_year",
+            "id_simulation_job",
+            "variable_name",
+            "id_region",
+            "year",
+        ),
+        Index(
+            "ix_oopv_job_var_tech",
+            "id_simulation_job",
+            "variable_name",
+            "id_technology",
+        ),
         {"schema": "osemosys"},
     )
 
@@ -32,6 +46,15 @@ class OsemosysOutputParamValue(Base):
 
     id_region: Mapped[int | None] = mapped_column(Integer, nullable=True)
     id_technology: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    id_fuel: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    id_emission: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    id_timeslice: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    id_mode_of_operation: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    id_storage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    id_season: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    id_daytype: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    id_dailytimebracket: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     technology_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     fuel_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     emission_name: Mapped[str | None] = mapped_column(String(128), nullable=True)

@@ -209,6 +209,14 @@ def run_osemosys_from_db(
             region_id_by_name=proc_result.region_id_by_name,
             technology_id_by_name=proc_result.technology_id_by_name,
             region_name_by_id=proc_result.region_name_by_id,
+            fuel_id_by_name=proc_result.fuel_id_by_name,
+            emission_id_by_name=proc_result.emission_id_by_name,
+            timeslice_id_by_name=proc_result.timeslice_id_by_name,
+            mode_of_operation_id_by_name=proc_result.mode_of_operation_id_by_name,
+            season_id_by_name=proc_result.season_id_by_name,
+            daytype_id_by_name=proc_result.daytype_id_by_name,
+            dailytimebracket_id_by_name=proc_result.dailytimebracket_id_by_name,
+            storage_id_by_name=proc_result.storage_id_by_name,
         )
         timings["results_processing_seconds"] = perf_counter() - t
 
@@ -390,6 +398,14 @@ def run_osemosys_from_csv_dir(
         region_id_by_name=proc_result.region_id_by_name,
         technology_id_by_name=proc_result.technology_id_by_name,
         region_name_by_id=proc_result.region_name_by_id,
+        fuel_id_by_name=proc_result.fuel_id_by_name,
+        emission_id_by_name=proc_result.emission_id_by_name,
+        timeslice_id_by_name=proc_result.timeslice_id_by_name,
+        mode_of_operation_id_by_name=proc_result.mode_of_operation_id_by_name,
+        season_id_by_name=proc_result.season_id_by_name,
+        daytype_id_by_name=proc_result.daytype_id_by_name,
+        dailytimebracket_id_by_name=proc_result.dailytimebracket_id_by_name,
+        storage_id_by_name=proc_result.storage_id_by_name,
     )
     timings["results_processing_seconds"] = perf_counter() - t
 
@@ -532,6 +548,14 @@ def run_osemosys_from_excel(
             region_id_by_name=proc_result.region_id_by_name,
             technology_id_by_name=proc_result.technology_id_by_name,
             region_name_by_id=proc_result.region_name_by_id,
+            fuel_id_by_name=proc_result.fuel_id_by_name,
+            emission_id_by_name=proc_result.emission_id_by_name,
+            timeslice_id_by_name=proc_result.timeslice_id_by_name,
+            mode_of_operation_id_by_name=proc_result.mode_of_operation_id_by_name,
+            season_id_by_name=proc_result.season_id_by_name,
+            daytype_id_by_name=proc_result.daytype_id_by_name,
+            dailytimebracket_id_by_name=proc_result.dailytimebracket_id_by_name,
+            storage_id_by_name=proc_result.storage_id_by_name,
         )
         timings["results_processing_seconds"] = perf_counter() - t
 

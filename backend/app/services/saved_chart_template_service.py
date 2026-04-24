@@ -286,6 +286,10 @@ class SavedChartTemplateService:
             raw = data["report_title"]
             cleaned = (raw or "").strip() if isinstance(raw, str) else None
             obj.report_title = cleaned if cleaned else None
+        if "view_mode" in data and data["view_mode"] in (
+            "column", "line", "area", "pareto",
+        ):
+            obj.view_mode = data["view_mode"]
         db.commit()
         db.refresh(obj)
         username = SavedChartTemplateService._resolve_owner_username(
@@ -362,6 +366,71 @@ class SavedChartTemplateService:
         scenario_alias_for_title: str | None = None,
     ) -> tuple[bytes, str]:
         """Renderiza una plantilla y devuelve (bytes, extensión-sin-punto)."""
+        # Líneas totales multi-escenario: una línea por escenario sobre el mismo eje.
+        if template.compare_mode == "line-total":
+            if len(job_ids) < 2:
+                raise ValueError(
+                    f"La plantilla '{template.name}' requiere al menos 2 escenarios."
+                )
+            chart = chart_service.build_comparison_line_data(
+                db=db,
+                job_ids=job_ids,
+                tipo=template.tipo,
+                un=template.un,
+                sub_filtro=template.sub_filtro,
+                loc=template.loc,
+                job_display_overrides=job_display_overrides,
+            )
+            if not chart.series:
+                raise ValueError(
+                    f"Plantilla '{template.name}': sin datos para líneas totales."
+                )
+            rt = (getattr(template, "report_title", None) or "").strip()
+            if rt:
+                chart.title = rt
+            sx = (scenario_alias_for_title or "").strip()
+            if sx:
+                chart.title = f"{chart.title} — {sx}"
+            img_bytes = chart_service.render_chart_visualization_bytes(
+                chart, fmt=fmt, view_mode="line",
+            )
+            return img_bytes, fmt
+
+        # Comparación por año (subplots por año): usa renderer dedicado.
+        if template.compare_mode == "by-year":
+            if len(job_ids) < 2:
+                raise ValueError(
+                    f"La plantilla '{template.name}' requiere al menos 2 escenarios."
+                )
+            years = list(template.years_to_plot or [])
+            cmp_data = chart_service.build_comparison_data(
+                db=db,
+                job_ids=job_ids,
+                tipo=template.tipo,
+                un=template.un,
+                years_to_plot=years or None,
+                agrupacion=template.agrupar_por,
+                sub_filtro=template.sub_filtro,
+                loc=template.loc,
+                job_display_overrides=job_display_overrides,
+            )
+            if not cmp_data.subplots or not any(
+                s.series for s in cmp_data.subplots
+            ):
+                raise ValueError(
+                    f"Plantilla '{template.name}': sin datos para comparación por año."
+                )
+            rt = (getattr(template, "report_title", None) or "").strip()
+            if rt:
+                cmp_data.title = rt
+            sx = (scenario_alias_for_title or "").strip()
+            if sx:
+                cmp_data.title = f"{cmp_data.title} — {sx}"
+            img_bytes = chart_service.render_comparison_by_year_bytes(
+                cmp_data, fmt=fmt,
+            )
+            return img_bytes, fmt
+
         if template.compare_mode == "facet":
             if len(job_ids) < 2:
                 raise ValueError(

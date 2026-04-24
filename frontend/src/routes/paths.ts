@@ -17,6 +17,7 @@ export const paths = {
   simulation: "/app/simulation",
   results: "/app/results",
   resultsDetail: (runId: string | number) => `/app/results/${runId}`,
+  resultsDataExplorer: (runId: string | number) => `/app/results/${runId}/data`,
   infeasibilityReport: (runId: string | number) => `/app/simulations/${runId}/infeasibility`,
   reports: "/app/reports",
   reportDashboard: (reportId: string | number) => `/app/reports/${reportId}`,

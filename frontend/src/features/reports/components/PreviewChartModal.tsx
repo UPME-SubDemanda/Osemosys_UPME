@@ -463,6 +463,7 @@ export function PreviewChartModal({
                 jobId: jobIds[0] as number,
                 selection: selection!,
               }}
+              stackType={template.view_mode === "area" ? "area" : "column"}
             />
           ) : (
             <div className="flex h-[300px] items-center justify-center text-sm text-slate-500">

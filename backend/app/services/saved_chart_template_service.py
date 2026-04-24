@@ -394,6 +394,26 @@ class SavedChartTemplateService:
             raise ValueError(
                 f"La plantilla '{template.name}' requiere un escenario."
             )
+
+        if (template.view_mode or "").lower() == "pareto":
+            pareto = chart_service.build_pareto_data(
+                db=db,
+                job_id=job_ids[0],
+                tipo=template.tipo,
+                un=template.un,
+                sub_filtro=template.sub_filtro,
+                loc=template.loc,
+            )
+            if not pareto.values:
+                raise ValueError(
+                    f"Plantilla '{template.name}': sin datos para Pareto."
+                )
+            rt = (getattr(template, "report_title", None) or "").strip()
+            if rt:
+                pareto.title = rt
+            img_bytes = chart_service.render_pareto_chart_bytes(pareto, fmt=fmt)
+            return img_bytes, fmt
+
         chart = chart_service.build_chart_data(
             db=db,
             job_id=job_ids[0],
@@ -685,9 +705,20 @@ class ReportTemplateService:
 
     @staticmethod
     def _normalize_items(
-        db: Session, *, user_id: uuid.UUID, items: list[int]
+        db: Session,
+        *,
+        user_id: uuid.UUID,
+        items: list[int],
+        current_user: User | None = None,
     ) -> list[int]:
-        """Valida que las plantillas existan y sean accesibles (propias o públicas)."""
+        """Valida que las plantillas existan y sean accesibles.
+
+        Accesibles para el reporte si: son del dueño del reporte (``user_id``),
+        son públicas, o pertenecen al usuario que realiza la operación
+        (``current_user``) — caso típico: Admin Reportes agrega a un reporte
+        ajeno sus propias plantillas recién creadas, o un usuario dueño agrega
+        sus propias privadas.
+        """
         cleaned = [int(x) for x in items]
         if not cleaned:
             raise ValueError("El reporte debe tener al menos una gráfica.")
@@ -698,13 +729,22 @@ class ReportTemplateService:
                 continue
             seen.add(tid)
             ordered.append(tid)
+        visibility = [
+            SavedChartTemplate.user_id == user_id,
+            SavedChartTemplate.is_public.is_(True),
+        ]
+        if current_user is not None:
+            visibility.append(SavedChartTemplate.user_id == current_user.id)
+            if bool(
+                getattr(current_user, "is_admin_reports", False)
+                or getattr(current_user, "can_manage_scenarios", False)
+            ):
+                # Admin Reportes puede referenciar cualquier plantilla existente.
+                visibility = [SavedChartTemplate.id == SavedChartTemplate.id]
         rows = db.execute(
             select(SavedChartTemplate).where(
                 SavedChartTemplate.id.in_(ordered),
-                or_(
-                    SavedChartTemplate.user_id == user_id,
-                    SavedChartTemplate.is_public.is_(True),
-                ),
+                or_(*visibility),
             )
         ).scalars().all()
         existing = {int(r.id) for r in rows}
@@ -846,7 +886,7 @@ class ReportTemplateService:
                 "Se requiere permiso 'Admin Reportes' para marcar un reporte como oficial."
             )
         ordered = ReportTemplateService._normalize_items(
-            db, user_id=current_user.id, items=items
+            db, user_id=current_user.id, items=items, current_user=current_user
         )
         obj = ReportTemplate(
             user_id=current_user.id,
@@ -958,7 +998,7 @@ class ReportTemplateService:
             obj.fmt = fmt
         if items is not None:
             obj.items = ReportTemplateService._normalize_items(
-                db, user_id=obj.user_id, items=items
+                db, user_id=obj.user_id, items=items, current_user=current_user
             )
         if is_public is not None:
             obj.is_public = bool(is_public)

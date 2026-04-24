@@ -21,6 +21,8 @@ import { paths } from "@/routes/paths";
 import { DashboardChartCard } from "@/features/reports/components/DashboardChartCard";
 import { ChartPicker } from "@/features/reports/components/CategoriesPanel";
 import { ChartPickerModal } from "@/features/reports/components/ChartPickerModal";
+import { IconPencil, IconSwap } from "@/features/reports/components/CardActionIcons";
+import { pickRepresentativeJob } from "@/features/reports/pickRepresentativeJob";
 import { useCurrentUser } from "@/app/providers/useCurrentUser";
 import {
   effectiveLayout,
@@ -353,6 +355,64 @@ export function ReportDashboardPage() {
     });
     if (activeCategoryId === catId) setActiveCategoryId(null);
   };
+  /**
+   * Navega a la página de resultados para crear una gráfica nueva y volver al
+   * dashboard con ella ya agregada. Codifica en la URL: report, target cat/sub
+   * y kind="dashboard".
+   */
+  const startCreateNewChart = (
+    target: { catId: string; subId?: string } | null,
+  ) => {
+    if (!report) return;
+    const job = pickRepresentativeJob(
+      availableJobs,
+      globalScenarios.filter((j): j is number => j != null),
+    );
+    if (!job) {
+      alert(
+        "No hay resultados disponibles para crear una gráfica. Lanza una simulación primero.",
+      );
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set("addToReport", String(report.id));
+    params.set("addMode", "dashboard");
+    if (target?.catId) params.set("addCatId", target.catId);
+    if (target?.subId) params.set("addSubId", target.subId);
+    navigate(`${paths.resultsDetail(job.id)}?${params.toString()}`);
+  };
+
+  const moveCategoryDraft = (id: string, delta: -1 | 1) => {
+    mutateLayout((l) => {
+      const idx = l.categories.findIndex((c) => c.id === id);
+      if (idx < 0) return l;
+      const target = idx + delta;
+      if (target < 0 || target >= l.categories.length) return l;
+      const next = [...l.categories];
+      const tmp = next[idx]!;
+      next[idx] = next[target]!;
+      next[target] = tmp;
+      return { ...l, categories: next };
+    });
+  };
+  const moveSubDraft = (catId: string, subId: string, delta: -1 | 1) => {
+    mutateLayout((l) => ({
+      ...l,
+      categories: l.categories.map((c) => {
+        if (c.id !== catId) return c;
+        const idx = c.subcategories.findIndex((s) => s.id === subId);
+        if (idx < 0) return c;
+        const target = idx + delta;
+        if (target < 0 || target >= c.subcategories.length) return c;
+        const next = [...c.subcategories];
+        const tmp = next[idx]!;
+        next[idx] = next[target]!;
+        next[target] = tmp;
+        return { ...c, subcategories: next };
+      }),
+    }));
+  };
+
   const removeSubDraft = (catId: string, subId: string) => {
     mutateLayout((l) => ({
       ...l,
@@ -938,6 +998,9 @@ export function ReportDashboardPage() {
             onReplaceItem={replaceItemDraft}
             onUpdateChartReportTitle={updateChartReportTitle}
             canEditChartReportTitle={canEditChartReportTitle}
+            onMoveCategory={moveCategoryDraft}
+            onMoveSub={moveSubDraft}
+            onStartCreateNew={startCreateNewChart}
           />
         ) : (
           // ── Modo lectura: tabs + tarjetas con gráficas renderizadas ──
@@ -1239,6 +1302,11 @@ type EditorProps = {
   onReplaceItem: (oldId: number, newId: number) => void;
   onUpdateChartReportTitle: (templateId: number, newTitle: string) => void;
   canEditChartReportTitle: (tpl: SavedChartTemplate) => boolean;
+  onMoveCategory: (id: string, delta: -1 | 1) => void;
+  onMoveSub: (catId: string, subId: string, delta: -1 | 1) => void;
+  onStartCreateNew?:
+    | ((target: { catId: string; subId?: string } | null) => void)
+    | undefined;
 };
 
 function DashboardVisualEditor(props: EditorProps) {
@@ -1268,6 +1336,9 @@ function DashboardVisualEditor(props: EditorProps) {
     onReplaceItem,
     onUpdateChartReportTitle,
     canEditChartReportTitle,
+    onMoveCategory,
+    onMoveSub,
+    onStartCreateNew,
   } = props;
 
   const [replaceTargetId, setReplaceTargetId] = useState<number | null>(null);
@@ -1385,9 +1456,9 @@ function DashboardVisualEditor(props: EditorProps) {
               type="button"
               onClick={() => setReplaceTargetId(id)}
               title="Reemplazar por otra gráfica guardada"
-              className="ml-1 inline-flex h-6 px-2 items-center justify-center rounded border border-indigo-500/40 text-[10px] font-semibold text-indigo-300 hover:bg-indigo-500/10"
+              className="ml-1 inline-flex h-6 px-2 gap-1 items-center justify-center rounded border border-indigo-500/40 text-[10px] font-semibold text-indigo-300 hover:bg-indigo-500/10"
             >
-              ⇆ Reemplazar
+              <IconSwap size={11} /> Reemplazar
             </button>
             {canEditChartReportTitle(tpl) ? (
               <button
@@ -1397,9 +1468,9 @@ function DashboardVisualEditor(props: EditorProps) {
                   setTitleDraft(tpl.report_title ?? "");
                 }}
                 title="Editar título mostrado en reportes"
-                className="ml-1 inline-flex h-6 px-2 items-center justify-center rounded border border-cyan-500/40 text-[10px] font-semibold text-cyan-300 hover:bg-cyan-500/10"
+                className="ml-1 inline-flex h-6 px-2 gap-1 items-center justify-center rounded border border-cyan-500/40 text-[10px] font-semibold text-cyan-300 hover:bg-cyan-500/10"
               >
-                ✎ Título
+                <IconPencil size={11} /> Título
               </button>
             ) : null}
             <button
@@ -1496,31 +1567,15 @@ function DashboardVisualEditor(props: EditorProps) {
   };
 
   const renderAddChartButton = (target: { catId: string; subId?: string }) => {
-    const isOpen =
-      pickerOpen != null &&
-      pickerOpen.catId === target.catId &&
-      pickerOpen.subId === target.subId;
     return (
       <div className="w-full mt-2">
-        {isOpen ? (
-          <ChartPicker
-            templates={accessibleAll}
-            currentItemIds={items}
-            onPick={(id) => {
-              onAddItem(id, target);
-              setPickerOpen(null);
-            }}
-            onClose={() => setPickerOpen(null)}
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => setPickerOpen(target)}
-            className="w-full rounded-lg border border-dashed border-cyan-500/40 px-3 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/10"
-          >
-            + Agregar gráfica a esta sección
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => setPickerOpen(target)}
+          className="w-full rounded-lg border border-dashed border-cyan-500/40 px-3 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/10"
+        >
+          + Agregar gráfica a esta sección
+        </button>
       </div>
     );
   };
@@ -1568,7 +1623,7 @@ function DashboardVisualEditor(props: EditorProps) {
 
       {/* Tabs de categoría con edición */}
       <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-800 bg-slate-900/40 p-1">
-        {layout.categories.map((c) => {
+        {layout.categories.map((c, cIdx) => {
           const total =
             c.items.length +
             c.subcategories.reduce((acc, s) => acc + s.items.length, 0);
@@ -1586,6 +1641,30 @@ function DashboardVisualEditor(props: EditorProps) {
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMoveCategory(c.id, -1);
+                }}
+                disabled={cIdx === 0}
+                title="Subir categoría (mueve sus gráficas con ella)"
+                className="text-slate-400 hover:text-slate-200 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMoveCategory(c.id, 1);
+                }}
+                disabled={cIdx >= layout.categories.length - 1}
+                title="Bajar categoría (mueve sus gráficas con ella)"
+                className="text-slate-400 hover:text-slate-200 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                ↓
+              </button>
               <input
                 type="text"
                 value={c.label}
@@ -1649,13 +1728,39 @@ function DashboardVisualEditor(props: EditorProps) {
           </div>
 
           {/* Subcategorías como accordions */}
-          {activeCategory.subcategories.map((s) => (
+          {activeCategory.subcategories.map((s, sIdx) => (
             <details
               key={s.id}
               open
               className="rounded-xl border border-slate-800 bg-slate-900/30"
             >
               <summary className="flex cursor-pointer items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800/40">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onMoveSub(activeCategory.id, s.id, -1);
+                  }}
+                  disabled={sIdx === 0}
+                  title="Subir subcategoría"
+                  className="text-slate-400 hover:text-slate-200 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onMoveSub(activeCategory.id, s.id, 1);
+                  }}
+                  disabled={sIdx >= activeCategory.subcategories.length - 1}
+                  title="Bajar subcategoría"
+                  className="text-slate-400 hover:text-slate-200 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  ↓
+                </button>
                 <input
                   type="text"
                   value={s.label}
@@ -1730,7 +1835,7 @@ function DashboardVisualEditor(props: EditorProps) {
               >
                 Todas ({activeCategory.items.length})
               </button>
-              {activeCategory.subcategories.map((s) => {
+              {activeCategory.subcategories.map((s, sIdx) => {
                 const active = s.id === activeSubcatId;
                 return (
                   <div
@@ -1741,6 +1846,30 @@ function DashboardVisualEditor(props: EditorProps) {
                         : "text-slate-500"
                     }`}
                   >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMoveSub(activeCategory.id, s.id, -1);
+                      }}
+                      disabled={sIdx === 0}
+                      title="Subir subcategoría"
+                      className="text-slate-400 hover:text-slate-200 text-[10px] disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMoveSub(activeCategory.id, s.id, 1);
+                      }}
+                      disabled={sIdx >= activeCategory.subcategories.length - 1}
+                      title="Bajar subcategoría"
+                      className="text-slate-400 hover:text-slate-200 text-[10px] disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      ↓
+                    </button>
                     <input
                       type="text"
                       value={s.label}
@@ -1855,6 +1984,19 @@ function DashboardVisualEditor(props: EditorProps) {
           if (replaceTargetId != null) onReplaceItem(replaceTargetId, tpl.id);
           setReplaceTargetId(null);
         }}
+      />
+
+      <ChartPickerModal
+        open={pickerOpen != null}
+        onClose={() => setPickerOpen(null)}
+        title="Agregar gráfica a la sección"
+        templates={templates}
+        excludeIds={new Set(items)}
+        onPick={(tpl) => {
+          if (pickerOpen) onAddItem(tpl.id, pickerOpen);
+          setPickerOpen(null);
+        }}
+        onCreateNew={onStartCreateNew ? () => onStartCreateNew(pickerOpen) : undefined}
       />
     </section>
   );

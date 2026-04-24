@@ -89,6 +89,86 @@ def _value_rule_clause(value_col, op: str, val: float | None):
     return None
 
 
+def _facet_in_session(
+    db: Session,
+    *,
+    column_key: str,
+    value_col,
+    id_col,
+    needs_catalog_join: bool,
+    can_be_null: bool,
+    scenario_id: int,
+    param_name: str | None,
+    param_name_exact: bool,
+    search: str | None,
+    param_names: list[str] | None,
+    region_names: list[str] | None,
+    technology_names: list[str] | None,
+    fuel_names: list[str] | None,
+    emission_names: list[str] | None,
+    udc_names: list[str] | None,
+    year_rules: list[tuple[int, str, float | None]] | None,
+    safe_limit: int,
+) -> list[str]:
+    """Calcula un facet usando una sesión de SQLAlchemy independiente (thread-safe)."""
+    clauses, needs_search_joins = ScenarioService._wide_filter_clauses(
+        db=db,
+        scenario_id=scenario_id,
+        param_name=param_name,
+        param_name_exact=param_name_exact,
+        search=search,
+        param_names=param_names,
+        region_names=region_names,
+        technology_names=technology_names,
+        fuel_names=fuel_names,
+        emission_names=emission_names,
+        udc_names=udc_names,
+        year_rules=year_rules,
+        skip_column=column_key,
+    )
+
+    def _base(select_col):
+        q = (
+            db.query(select_col)
+            .select_from(OsemosysParamValue)
+            .distinct()
+            .filter(*clauses)
+        )
+        if needs_search_joins or needs_catalog_join:
+            q = (
+                q.outerjoin(Region, OsemosysParamValue.id_region == Region.id)
+                .outerjoin(Technology, OsemosysParamValue.id_technology == Technology.id)
+                .outerjoin(Fuel, OsemosysParamValue.id_fuel == Fuel.id)
+                .outerjoin(Emission, OsemosysParamValue.id_emission == Emission.id)
+                .outerjoin(UdcSet, OsemosysParamValue.id_udc_set == UdcSet.id)
+            )
+        if needs_search_joins:
+            term = f"%{(search or '').strip()}%"
+            q = q.filter(
+                or_(
+                    OsemosysParamValue.param_name.ilike(term),
+                    Region.name.ilike(term),
+                    Technology.name.ilike(term),
+                    Fuel.name.ilike(term),
+                    Emission.name.ilike(term),
+                    UdcSet.code.ilike(term),
+                )
+            )
+        return q
+
+    q_values = (
+        _base(value_col).filter(value_col.isnot(None)).order_by(value_col.asc()).limit(safe_limit)
+    )
+    options = [str(r[0]) for r in q_values.all() if r[0] is not None]
+
+    has_null = False
+    if can_be_null and id_col is not None:
+        has_null = _base(id_col).filter(id_col.is_(None)).limit(1).first() is not None
+    if has_null:
+        options = [ScenarioService.NULL_SENTINEL, *options]
+    return options
+
+
 def _parse_year_rules(raw: str | None) -> list[tuple[int, str, float | None]]:
     """Parsea `"2025:gt:0.5,2030:nonzero"` a `[(2025,"gt",0.5),(2030,"nonzero",None)]`."""
     if not raw:
@@ -1705,34 +1785,52 @@ class ScenarioService:
                 options = [ScenarioService.NULL_SENTINEL, *options]
             return options
 
-        return {
-            "param_names": _facet(
-                "param_name",
-                OsemosysParamValue.param_name,
-                OsemosysParamValue.param_name,
-                needs_catalog_join=False,
-                can_be_null=False,  # NOT NULL en DB
-            ),
-            "region_names": _facet(
-                "region", Region.name, OsemosysParamValue.id_region, needs_catalog_join=True, can_be_null=True
-            ),
-            "technology_names": _facet(
-                "technology",
-                Technology.name,
-                OsemosysParamValue.id_technology,
-                needs_catalog_join=True,
-                can_be_null=True,
-            ),
-            "fuel_names": _facet(
-                "fuel", Fuel.name, OsemosysParamValue.id_fuel, needs_catalog_join=True, can_be_null=True
-            ),
-            "emission_names": _facet(
-                "emission", Emission.name, OsemosysParamValue.id_emission, needs_catalog_join=True, can_be_null=True
-            ),
-            "udc_names": _facet(
-                "udc", UdcSet.code, OsemosysParamValue.id_udc_set, needs_catalog_join=True, can_be_null=True
-            ),
-        }
+        # Paralelizamos los 6 facets con threads — cada uno con su propia
+        # Session (SQLAlchemy no permite compartir Session entre threads).
+        from concurrent.futures import ThreadPoolExecutor
+        from app.db.session import SessionLocal
+
+        facet_specs = [
+            ("param_names", "param_name", OsemosysParamValue.param_name, OsemosysParamValue.param_name, False, False),
+            ("region_names", "region", Region.name, OsemosysParamValue.id_region, True, True),
+            ("technology_names", "technology", Technology.name, OsemosysParamValue.id_technology, True, True),
+            ("fuel_names", "fuel", Fuel.name, OsemosysParamValue.id_fuel, True, True),
+            ("emission_names", "emission", Emission.name, OsemosysParamValue.id_emission, True, True),
+            ("udc_names", "udc", UdcSet.code, OsemosysParamValue.id_udc_set, True, True),
+        ]
+
+        def _facet_worker(spec):
+            key, column_key, value_col, id_col, needs_catalog_join, can_be_null = spec
+            # Sesión dedicada por thread; cerramos al terminar.
+            s = SessionLocal()
+            try:
+                return key, _facet_in_session(
+                    s,
+                    column_key=column_key,
+                    value_col=value_col,
+                    id_col=id_col,
+                    needs_catalog_join=needs_catalog_join,
+                    can_be_null=can_be_null,
+                    scenario_id=scenario_id,
+                    param_name=param_name,
+                    param_name_exact=param_name_exact,
+                    search=search,
+                    param_names=param_names,
+                    region_names=region_names,
+                    technology_names=technology_names,
+                    fuel_names=fuel_names,
+                    emission_names=emission_names,
+                    udc_names=udc_names,
+                    year_rules=year_rules,
+                    safe_limit=safe_limit,
+                )
+            finally:
+                s.close()
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            results = dict(pool.map(_facet_worker, facet_specs))
+
+        return {k: results.get(k, []) for k, *_ in facet_specs}
 
     @staticmethod
     def list_osemosys_param_audit(

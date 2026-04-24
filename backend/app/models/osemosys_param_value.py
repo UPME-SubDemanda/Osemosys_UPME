@@ -32,6 +32,8 @@ class OsemosysParamValue(Base):
         Index("ix_osemosys_param_value_param", "param_name"),
         Index("ix_osemosys_param_value_year", "year"),
         Index("ix_osemosys_param_value_region_tech_year", "id_region", "id_technology", "year"),
+        # Compuesto (scenario, year): acelera subqueries de year_rules y filtros por año.
+        Index("ix_osemosys_param_value_scenario_year", "id_scenario", "year"),
         {"schema": "osemosys"},
     )
 

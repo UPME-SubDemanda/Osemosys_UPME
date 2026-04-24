@@ -68,28 +68,13 @@ def _load_variable_data(
 ) -> pd.DataFrame:
     """Carga datos de ``osemosys_output_param_value`` y devuelve un DataFrame.
 
-    • Variables principales (Dispatch, NewCapacity, …): usa columnas tipadas
-      (``technology_name``, ``fuel_name``, ``year``, ``value``).
-    • Variables intermedias (ProductionByTechnology, TotalCapacityAnnual, …):
-      extrae TECHNOLOGY, FUEL, YEAR del campo ``index_json``.
-
-    Parámetros
-    ----------
-    db : Session
-        Sesión SQLAlchemy activa.
-    job_id : int
-        ID del simulation_job.
-    variable_name : str
-        Nombre exacto de la variable a cargar.
-
-    Retorna
-    -------
-    pd.DataFrame
-        Columnas garantizadas: TECHNOLOGY, YEAR, VALUE.
-        Columna opcional: FUEL (cuando está disponible).
+    Ruta unificada: se leen las columnas tipadas
+    (``technology_name``, ``fuel_name``, ``year``) cuando están pobladas;
+    para filas viejas donde esas columnas son NULL se cae a parsear
+    ``index_json`` con las mismas heurísticas de posición del sistema
+    anterior (zero-regresión sobre jobs previos al refactor de 2026-04-24).
     """
 
-    # ── Consulta BD ──────────────────────────────────────────────────────
     rows = (
         db.query(OsemosysOutputParamValue)
         .filter(
@@ -102,56 +87,56 @@ def _load_variable_data(
     if not rows:
         return pd.DataFrame(columns=["TECHNOLOGY", "FUEL", "YEAR", "VALUE"])
 
-    # ── Construir DataFrame ──────────────────────────────────────────────
-    if variable_name in _MAIN_TYPED_VARIABLES:
-        records = []
-        for r in rows:
-            records.append({
-                "TECHNOLOGY": r.technology_name or "",
-                "FUEL": r.fuel_name or "",
-                "YEAR": r.year,
-                "VALUE": float(r.value),
-            })
-        df = pd.DataFrame(records)
+    records: list[dict[str, Any]] = []
+    for r in rows:
+        # 1. Preferir columnas tipadas.
+        technology = r.technology_name
+        fuel = r.fuel_name
+        year = r.year
 
-    else:
-        # Variable intermedia → extraer de index_json
-        records = []
-        for r in rows:
-            idx_raw = r.index_json if r.index_json else []
+        # 2. Fallback a index_json SOLO si falta algún campo crítico.
+        if (technology is None or year is None) and r.index_json is not None:
+            idx_raw = r.index_json
             idx = idx_raw if isinstance(idx_raw, (list, tuple)) else []
-            # Convenciones del pipeline:
-            #   ProductionByTechnology / UseByTechnology / TotalCapacityAnnual /
-            #   AccumulatedNewCapacity / AnnualTechnologyEmission:
-            #     index_json = [REGION, TECHNOLOGY, FUEL?, YEAR?, ...]
-            # La posición del YEAR puede variar: posición 2, 3 o 4.
-            technology = str(idx[1]) if len(idx) > 1 else ""
-            fuel = ""
-            year = None
 
-            if len(idx) >= 5:
-                # [REGION, TECH, FUEL, ?, YEAR]  (5-element index)
-                fuel = str(idx[2]) if idx[2] is not None else ""
-                year = _safe_int(idx[4]) or _safe_int(idx[3])
-            elif len(idx) >= 4:
-                # [REGION, TECH, FUEL, YEAR]  (4-element index)
-                fuel = str(idx[2]) if idx[2] is not None else ""
-                year = _safe_int(idx[3])
-            elif len(idx) >= 3:
-                # [REGION, TECH, YEAR]  (3-element index)
-                year = _safe_int(idx[2])
+            if technology is None and len(idx) > 1:
+                technology = str(idx[1]) if idx[1] is not None else ""
 
-            records.append({
-                "TECHNOLOGY": technology,
-                "FUEL": fuel,
-                "YEAR": year,
-                "VALUE": float(r.value),
-            })
-        df = pd.DataFrame(records)
+            if variable_name in _MAIN_TYPED_VARIABLES:
+                # Las 4 variables tipadas legacy no deberían estar nunca en
+                # index_json; si lo están, mantenemos la heurística conservadora.
+                if year is None and len(idx) >= 3:
+                    year = _safe_int(idx[-1])
+            else:
+                # Forma histórica de las intermedias:
+                #  3-elem: [REGION, TECH, YEAR]
+                #  4-elem: [REGION, TECH, EMISSION|FUEL, YEAR]
+                #  5-elem: [REGION, TECH, FUEL, "", YEAR]
+                if len(idx) >= 5:
+                    if fuel is None:
+                        fuel = str(idx[2]) if idx[2] is not None else ""
+                    if year is None:
+                        year = _safe_int(idx[4]) or _safe_int(idx[3])
+                elif len(idx) >= 4:
+                    if fuel is None:
+                        fuel = str(idx[2]) if idx[2] is not None else ""
+                    if year is None:
+                        year = _safe_int(idx[3])
+                elif len(idx) >= 3:
+                    if year is None:
+                        year = _safe_int(idx[2])
 
-    # Limpiar: descartar filas sin YEAR útil
+        records.append({
+            "TECHNOLOGY": technology or "",
+            "FUEL": fuel or "",
+            "YEAR": year,
+            "VALUE": float(r.value),
+        })
+
+    df = pd.DataFrame(records)
     df = df.dropna(subset=["YEAR"])
-    df["YEAR"] = df["YEAR"].astype(int)
+    if not df.empty:
+        df["YEAR"] = df["YEAR"].astype(int)
 
     return df
 
@@ -223,8 +208,12 @@ def _filtrar_df(
 
 
 def _sector_labels(tech_series: pd.Series) -> pd.Series:
-    """Asignación vectorizada de sector, incluyendo PWR → Generación Electricidad."""
-    labels = tech_series.str[:6].map(MAPA_SECTOR)
+    """Asignación vectorizada de sector, incluyendo PWR → Generación Electricidad.
+
+    Usa ``MAPA_SECTOR`` desde BD (con fallback al dict hardcoded).
+    """
+    from app.visualization.catalog_reader import get_mapa_sector
+    labels = tech_series.str[:6].map(get_mapa_sector())
     pwr_mask = labels.isna() & tech_series.str.startswith("PWR")
     labels = labels.where(~pwr_mask, "Generación Electricidad")
     return labels.fillna("Otros")
@@ -384,6 +373,7 @@ def _build_factor_planta_data(
             data=data,
             color=color_dict.get(tech, "#999999"),
             stack="default",
+            code=str(tech),
         ))
 
     return ChartDataResponse(categories=categories, series=series, title=title, yAxisLabel="%")
@@ -565,6 +555,7 @@ def build_chart_data(
                 data=data,
                 color=color_dict.get(tech, "#999999"),
                 stack="default",
+                code=str(tech),
             )
         )
 
@@ -783,6 +774,7 @@ def build_comparison_data(
                     data=data,
                     color=mapa_colores.get(categoria, "#999999"),
                     stack="default",
+                    code=str(categoria),
                 )
             )
 
@@ -1352,21 +1344,41 @@ def get_result_summary(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_chart_catalog() -> list[ChartCatalogItem]:
-    """Devuelve la lista de gráficas disponibles para el selector del frontend."""
+    """Devuelve la lista de gráficas disponibles para el selector del frontend.
+
+    Estrategia: usa ``CONFIGS`` (Python) como fuente de las callables
+    (filtro, color_fn) y ``catalog_meta_chart_config`` (BD) como override de
+    metadata editable (label, variable_default, data_explorer_filters, flags).
+    Si la tabla está vacía, cae al comportamiento previo.
+    """
+    from app.schemas.visualization import DataExplorerFilters
+    from app.visualization.catalog_reader import get_chart_catalog_meta
+    from app.visualization.configs import DATA_EXPLORER_FILTERS
+
+    meta_from_db = get_chart_catalog_meta()
     items: list[ChartCatalogItem] = []
 
     for config_id, cfg in CONFIGS.items():
-        label = cfg.get("titulo", cfg.get("titulo_base", config_id))
+        db_meta = meta_from_db.get(config_id, {})
+        # Override con BD si hay registro; fallback al dict en Python.
+        label = db_meta.get("label_titulo") or cfg.get("titulo", cfg.get("titulo_base", config_id))
+        variable_default = db_meta.get("variable_default") or cfg["variable_default"]
+        flags = db_meta.get("flags") or {}
+        es_capacidad = bool(flags.get("es_capacidad", cfg.get("es_capacidad", False)))
+        soporta_pareto = bool(flags.get("soporta_pareto", _config_soporta_pareto(cfg)))
+        de_filters_raw = db_meta.get("data_explorer_filters") or DATA_EXPLORER_FILTERS.get(config_id)
+        filters_model = DataExplorerFilters(**de_filters_raw) if de_filters_raw else None
         items.append(
             ChartCatalogItem(
                 id=config_id,
                 label=label,
-                variable_default=cfg["variable_default"],
+                variable_default=variable_default,
                 has_sub_filtro=_config_has_sub_filtro(cfg),
                 has_loc=_config_has_loc(cfg),
                 sub_filtros=_config_sub_filtros(cfg),
-                es_capacidad=cfg.get("es_capacidad", False),
-                soporta_pareto=_config_soporta_pareto(cfg),
+                es_capacidad=es_capacidad,
+                soporta_pareto=soporta_pareto,
+                data_explorer_filters=filters_model,
             )
         )
 

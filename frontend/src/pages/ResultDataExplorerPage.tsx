@@ -114,6 +114,7 @@ export function ResultDataExplorerPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportingCsvZip, setExportingCsvZip] = useState(false);
 
   const [totals, setTotals] = useState<OutputValuesTotals | null>(null);
 
@@ -557,6 +558,27 @@ export function ResultDataExplorerPage() {
     }
   }, [jobId, buildFilters]);
 
+  const handleExportCsvZip = useCallback(async () => {
+    if (!Number.isFinite(jobId)) return;
+    setExportingCsvZip(true);
+    try {
+      const { blob, filename } = await simulationApi.exportResultsCsvZip(jobId);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error exportando CSVs";
+      setError(msg);
+    } finally {
+      setExportingCsvZip(false);
+    }
+  }, [jobId]);
+
   const selectedYearsSet = useMemo(() => {
     return new Set(Object.keys(yearRules));
   }, [yearRules]);
@@ -613,6 +635,13 @@ export function ResultDataExplorerPage() {
           />
           <Button onClick={handleExport} disabled={exporting || loading}>
             {exporting ? "Generando Excel…" : "Exportar a Excel"}
+          </Button>
+          <Button
+            onClick={handleExportCsvZip}
+            disabled={exportingCsvZip || loading}
+            title="Descarga un ZIP con un CSV por variable en formato OSeMOSYS estándar"
+          >
+            {exportingCsvZip ? "Generando ZIP…" : "Exportar CSVs (ZIP)"}
           </Button>
         </div>
       </div>

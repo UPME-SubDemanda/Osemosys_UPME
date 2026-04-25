@@ -235,7 +235,7 @@ const MENU: Module[] = [
       { id: 'cap_transporte', label: 'Sector Transporte (Capacidad) - TotalCapacityAnnual',  isCapacity: true },
       { id: 'cap_terciario',  label: 'Sector Terciario (Capacidad) - TotalCapacityAnnual',   isCapacity: true },
       { id: 'cap_otros',      label: 'Otros Sectores (Capacidad) - TotalCapacityAnnual',     isCapacity: true },
-      { id: 'ref_capacidad',  label: 'Capacidad de Refinación por Derivado',                 isCapacity: true },
+      { id: 'ref_capacidad',  label: 'Capacidad de Refinación por Derivado',                 isCapacity: false, allowedGroupings: ['TECNOLOGIA', 'FUEL'], },
     ],
   },
   {
@@ -273,8 +273,9 @@ const MENU: Module[] = [
     emoji: '💧',
     label: 'Hidrógeno',
     charts: [
-      { id: 'cap_h2',     label: 'Hidrógeno - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+      { id: 'cap_h2',     label: 'Hidrógeno - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true , soportaPorcentaje: true },
       { id: 'h2_consumo', label: 'Hidrógeno - Consumo - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+      { id: 'cap_electrolisis_verde', label: 'Capacidad Total de Electrólisis Verde', isCapacity: true },
     ],
   },
   {
@@ -302,7 +303,7 @@ const MENU: Module[] = [
       { id: 'oferta_bioenergia', label: 'Oferta Bioenergía - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'] },
     ],
   },
-];
+  ];
 
 const FIRST_MODULE = MENU[0] as Module;
 

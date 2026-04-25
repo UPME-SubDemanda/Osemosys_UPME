@@ -223,6 +223,12 @@ const MENU: Module[] = [
       { id: 'agroforestal', label: '🌾 Agroforestal',      charts: [{ id: 'agf_total',   label: 'Sector Agroforestal - Consumo Total - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true }] },
       { id: 'mineria_dem',  label: '⛏️ Minería (demanda)', charts: [{ id: 'min_total',   label: 'Sector Minería - Consumo Total - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true }] },
       { id: 'coquerias',    label: '🧱 Coquerías',          charts: [{ id: 'coq_total',   label: 'Sector Coquerías - Consumo Total - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true }] },
+      { id: 'liquidos',     label: '🛢️ Líquidos',           charts: [
+          { id: 'dem_consumo_liquidos', label: 'Consumo de Líquidos', allowedGroupings: ['FUEL'], defaultGrouping: 'FUEL', soportaPareto: true },
+          { id: 'dem_consumo_liquidos_exp_use', label: 'Consumo de Líquidos — Demanda y Exportaciones', allowedGroupings: ['FUEL'], defaultGrouping: 'FUEL', soportaPareto: true },
+          { id: 'dem_consumo_liquidos_exp_prod', label: 'Producción de Líquidos — Demanda y Exportaciones', allowedGroupings: ['FUEL'], defaultGrouping: 'FUEL', soportaPareto: true },
+          { id: 'dem_consumo_liquidos_total', label: 'Consumo de Líquidos (Todos los Sectores)', allowedGroupings: ['FUEL'], defaultGrouping: 'FUEL', soportaPareto: true },
+        ] },
       { id: 'otros_dem',    label: '📦 Otros Sectores',     charts: [{ id: 'otros_total', label: 'Otros Sectores - Consumo Total - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true }] },
     ],
   },

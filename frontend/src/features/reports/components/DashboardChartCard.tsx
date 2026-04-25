@@ -134,6 +134,8 @@ export function DashboardChartCard({
       return d;
     };
 
+    const esPorcentaje = template.view_mode === "porcentaje";
+
     if (template.view_mode === "pareto" && template.compare_mode === "off") {
       const params: Record<string, string> = {
         tipo: template.tipo,
@@ -173,6 +175,7 @@ export function DashboardChartCard({
       if (template.loc) params.loc = template.loc;
       if (template.variable) params.variable = template.variable;
       if (template.agrupar_por) params.agrupar_por = template.agrupar_por;
+      if (esPorcentaje) params.es_porcentaje = "true";
       simulationApi
         .getCompareFacetData(
           params as Parameters<typeof simulationApi.getCompareFacetData>[0],
@@ -199,6 +202,7 @@ export function DashboardChartCard({
       if (template.sub_filtro) params.sub_filtro = template.sub_filtro;
       if (template.loc) params.loc = template.loc;
       if (template.agrupar_por) params.agrupacion = template.agrupar_por;
+      if (esPorcentaje) params.es_porcentaje = "true";
       simulationApi
         .getCompareData(
           params as Parameters<typeof simulationApi.getCompareData>[0],
@@ -248,6 +252,7 @@ export function DashboardChartCard({
       if (template.loc) params.loc = template.loc;
       if (template.variable) params.variable = template.variable;
       if (template.agrupar_por) params.agrupar_por = template.agrupar_por;
+      if (esPorcentaje) params.es_porcentaje = "true";
       const jobId = jobIds[0]!;
       simulationApi
         .getChartData(

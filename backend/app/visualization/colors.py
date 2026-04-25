@@ -177,6 +177,7 @@ COLORES_GRUPOS = {
     "MINOIL_2MID": "#5c5c5c",  # Crudo intermedio - gris medio
     "MINOIL_1LIV": "#8c8c8c",  # Crudo liviano - gris claro
     "MINOIL": "#b0b0b0",  # Petróleo/crudo genérico - gris muy claro
+    
     # Sectores pequeños (fallback cuando no hay combustible en nombre)
     "DEMCON": "#6c757d",
     "DEMAGF": "#28a745",

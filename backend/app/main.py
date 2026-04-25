@@ -68,7 +68,15 @@ def create_app() -> FastAPI:
         agregar una gráfica nueva en código, basta reiniciar el API para que
         aparezca en BD con sus defaults — sin pisar ediciones del curador.
         """
-        from app.visualization.catalog_sync import sync_catalog_safely
+        try:
+            from app.visualization.catalog_sync import sync_catalog_safely
+        except ImportError as exc:
+            logger.warning(
+                "Se omite sync de catalogo de visualizacion: no se pudo importar "
+                "catalog_sync (%s). La app continuara con fallback hardcoded.",
+                exc,
+            )
+            return
         sync_catalog_safely()
 
     return app

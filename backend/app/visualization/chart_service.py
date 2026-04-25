@@ -2325,6 +2325,161 @@ def export_raw_data_excel(
             value_len_max = int(series.apply(lambda x: len(str(x)) if pd.notna(x) else 0).max())
             max_len = max(value_len_max, len(str(series.name))) + 2
             worksheet.column_dimensions[get_column_letter(idx + 1)].width = max_len
-            
+
     output.seek(0)
     return output
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 9. EXPORT RESULTS — ZIP de CSVs por variable (formato OSeMOSYS estándar)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Dimensiones por variable. Extiende VARIABLE_INDEX_NAMES con las legacy
+# tipadas (Dispatch / UnmetDemand) que se persisten directamente vía
+# pipeline._build_output_rows pero no aparecen en el registry.
+_LEGACY_TYPED_INDEX_NAMES: dict[str, tuple[str, ...]] = {
+    "Dispatch": ("REGION", "TECHNOLOGY", "FUEL", "YEAR"),
+    "UnmetDemand": ("REGION", "YEAR"),
+}
+
+# Overrides de orden de columnas para el CSV exportado, donde el orden
+# OSeMOSYS estándar difiere del usado en VARIABLE_INDEX_NAMES.
+# (No modificar VARIABLE_INDEX_NAMES: se usa para interpretar índices al
+# persistir resultados.)
+_EXPORT_INDEX_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "ProductionByTechnology": ("REGION", "TIMESLICE", "TECHNOLOGY", "FUEL", "YEAR"),
+    "UseByTechnology": ("REGION", "TIMESLICE", "TECHNOLOGY", "FUEL", "YEAR"),
+    "RateOfProductionByTechnology": ("REGION", "TIMESLICE", "TECHNOLOGY", "FUEL", "YEAR"),
+    "RateOfUseByTechnology": ("REGION", "TIMESLICE", "TECHNOLOGY", "FUEL", "YEAR"),
+}
+
+
+def export_results_csv_zip(
+    db: Session,
+    job_id: int,
+) -> "io.BytesIO":
+    """Exporta resultados de un job a un ZIP con un CSV por variable.
+
+    Cada CSV usa el formato estándar OSeMOSYS: columnas de dimensión en el
+    orden declarado por ``VARIABLE_INDEX_NAMES``, seguidas de ``VALUE``.
+    Un archivo por ``variable_name`` presente en BD.
+    """
+    import io
+    import zipfile
+
+    from app.models import (
+        Dailytimebracket, Daytype, Emission, Fuel, ModeOfOperation,
+        Region, Season, StorageSet, Technology, Timeslice,
+    )
+    from app.simulation.core.results_processing import VARIABLE_INDEX_NAMES
+
+    rows = (
+        db.query(
+            OsemosysOutputParamValue.variable_name,
+            Region.name.label("region"),
+            Technology.name.label("technology"),
+            Fuel.name.label("fuel"),
+            Emission.name.label("emission"),
+            Timeslice.code.label("timeslice"),
+            ModeOfOperation.code.label("mode_of_operation"),
+            StorageSet.code.label("storage"),
+            Season.code.label("season"),
+            Daytype.code.label("daytype"),
+            Dailytimebracket.code.label("dailytimebracket"),
+            OsemosysOutputParamValue.year,
+            OsemosysOutputParamValue.value,
+            OsemosysOutputParamValue.technology_name,
+            OsemosysOutputParamValue.fuel_name,
+            OsemosysOutputParamValue.emission_name,
+        )
+        .outerjoin(Region, OsemosysOutputParamValue.id_region == Region.id)
+        .outerjoin(Technology, OsemosysOutputParamValue.id_technology == Technology.id)
+        .outerjoin(Fuel, OsemosysOutputParamValue.id_fuel == Fuel.id)
+        .outerjoin(Emission, OsemosysOutputParamValue.id_emission == Emission.id)
+        .outerjoin(Timeslice, OsemosysOutputParamValue.id_timeslice == Timeslice.id)
+        .outerjoin(ModeOfOperation, OsemosysOutputParamValue.id_mode_of_operation == ModeOfOperation.id)
+        .outerjoin(StorageSet, OsemosysOutputParamValue.id_storage == StorageSet.id)
+        .outerjoin(Season, OsemosysOutputParamValue.id_season == Season.id)
+        .outerjoin(Daytype, OsemosysOutputParamValue.id_daytype == Daytype.id)
+        .outerjoin(Dailytimebracket, OsemosysOutputParamValue.id_dailytimebracket == Dailytimebracket.id)
+        .filter(OsemosysOutputParamValue.id_simulation_job == job_id)
+        .all()
+    )
+
+    if not rows:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=404,
+            detail="No hay resultados para este escenario.",
+        )
+
+    _DIM_TO_ROW_ATTR = {
+        "REGION": "region",
+        "TECHNOLOGY": "technology",
+        "FUEL": "fuel",
+        "EMISSION": "emission",
+        "TIMESLICE": "timeslice",
+        "MODE_OF_OPERATION": "mode_of_operation",
+        "STORAGE": "storage",
+        "SEASON": "season",
+        "DAYTYPE": "daytype",
+        "DAILYTIMEBRACKET": "dailytimebracket",
+    }
+
+    def _index_names_for(var_name: str) -> tuple[str, ...]:
+        if var_name in _EXPORT_INDEX_OVERRIDES:
+            return _EXPORT_INDEX_OVERRIDES[var_name]
+        if var_name in VARIABLE_INDEX_NAMES:
+            return VARIABLE_INDEX_NAMES[var_name]
+        if var_name in _LEGACY_TYPED_INDEX_NAMES:
+            return _LEGACY_TYPED_INDEX_NAMES[var_name]
+        return ()
+
+    def _fallback_dims_from_row(r) -> list[str]:
+        """Para variables desconocidas, deduce columnas no nulas observadas."""
+        dims: list[str] = []
+        for dim, attr in _DIM_TO_ROW_ATTR.items():
+            if getattr(r, attr, None) not in (None, ""):
+                dims.append(dim)
+        if r.year is not None:
+            dims.append("YEAR")
+        return dims
+
+    by_var: dict[str, list] = {}
+    for r in rows:
+        by_var.setdefault(r.variable_name, []).append(r)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for var_name, var_rows in sorted(by_var.items()):
+            dims = list(_index_names_for(var_name))
+            if not dims:
+                dims = _fallback_dims_from_row(var_rows[0])
+
+            header = list(dims) + ["VALUE"]
+            records: list[dict[str, object]] = []
+            for r in var_rows:
+                rec: dict[str, object] = {}
+                for dim in dims:
+                    if dim == "YEAR":
+                        rec["YEAR"] = r.year if r.year is not None else ""
+                        continue
+                    attr = _DIM_TO_ROW_ATTR.get(dim)
+                    val = getattr(r, attr, None) if attr else None
+                    if val is None:
+                        if dim == "TECHNOLOGY":
+                            val = r.technology_name
+                        elif dim == "FUEL":
+                            val = r.fuel_name
+                        elif dim == "EMISSION":
+                            val = r.emission_name
+                    rec[dim] = val if val is not None else ""
+                rec["VALUE"] = float(r.value)
+                records.append(rec)
+
+            df = pd.DataFrame(records, columns=header)
+            csv_bytes = df.to_csv(index=False).encode("utf-8")
+            zf.writestr(f"{var_name}.csv", csv_bytes)
+
+    buffer.seek(0)
+    return buffer

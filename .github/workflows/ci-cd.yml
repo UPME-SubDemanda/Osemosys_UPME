@@ -36,6 +36,9 @@ jobs:
       - name: Validate Docker Compose
         run: docker compose config -q
 
+      - name: Validate Alembic Revision Graph
+        run: python3 .github/scripts/check_alembic_graph.py
+
       - name: Ensure External Bridge Network
         run: docker network inspect osemosys_api_bridge >/dev/null 2>&1 || docker network create osemosys_api_bridge
 

@@ -287,7 +287,7 @@ export function ResultDetailPage() {
   }, [chartFacetLegendMode]);
 
   // Export state: 'svg' | 'excel' mientras se descarga, null si no
-  const [exportingType, setExportingType] = useState<'svg' | 'excel' | null>(null);
+  const [exportingType, setExportingType] = useState<'svg' | 'excel' | 'csvzip' | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [showSaveChartModal, setShowSaveChartModal] = useState(false);
@@ -752,6 +752,20 @@ export function ResultDetailPage() {
     }
   }, [currentRunId, chartSelection.un]);
 
+  const handleExportCsvZip = useCallback(async () => {
+    setShowExportMenu(false);
+    setExportingType('csvzip');
+    try {
+      const { blob, filename } = await simulationApi.exportResultsCsvZip(currentRunId);
+      downloadBlob(blob, filename);
+    } catch (err) {
+      console.error('Error exporting CSV bundle', err);
+      alert('Error al generar el ZIP de CSVs. Intenta de nuevo.');
+    } finally {
+      setExportingType(null);
+    }
+  }, [currentRunId]);
+
   const handleExportExcel = useCallback(async () => {
     setShowExportMenu(false);
     setExportingType('excel');
@@ -883,7 +897,11 @@ export function ResultDetailPage() {
                 {exportingType ? (
                   <>
                     <div className="w-4 h-4 rounded-full border-2 border-current/30 border-t-current animate-spin" />
-                    {exportingType === 'svg' ? 'Generando ZIP…' : 'Generando Excel…'}
+                    {exportingType === 'svg'
+                      ? 'Generando ZIP…'
+                      : exportingType === 'csvzip'
+                        ? 'Generando CSVs…'
+                        : 'Generando Excel…'}
                   </>
                 ) : (
                   <>
@@ -922,6 +940,18 @@ export function ResultDetailPage() {
                       </svg>
                     </span>
                     Datos crudos (Excel)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportCsvZip}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-200 hover:bg-slate-800/80"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-amber-500/20 bg-amber-500/10 text-amber-400">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h6l2 3h8a2 2 0 012 2v9a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2z" />
+                      </svg>
+                    </span>
+                    Resultados (CSV OSeMOSYS · ZIP)
                   </button>
                 </div>
               )}

@@ -369,4 +369,20 @@ export const simulationApi = {
     }
     return { blob, filename };
   },
+
+  /** Descarga un ZIP con un CSV por variable en formato OSeMOSYS estándar. */
+  async exportResultsCsvZip(jobId: number): Promise<{ blob: Blob; filename: string }> {
+    const { data, headers } = await httpClient.get(`/visualizations/${jobId}/export-csv-bundle`, {
+      responseType: "blob",
+      timeout: 10 * 60 * 1000,
+    });
+    const blob = data as Blob;
+    const disposition = headers["content-disposition"];
+    let filename = `Resultados_CSV_Job_${jobId}.zip`;
+    if (typeof disposition === "string") {
+      const match = /filename="?([^";\n]+)"?/i.exec(disposition);
+      if (match?.[1]) filename = match[1].trim();
+    }
+    return { blob, filename };
+  },
 };

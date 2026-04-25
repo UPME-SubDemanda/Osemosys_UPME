@@ -21,8 +21,11 @@ from app.api.deps import get_current_user
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.db.session import get_db
 from app.models import (
+    ChangeRequest,
+    ChangeRequestValue,
     DeletionLog,
     OsemosysParamValue,
+    OsemosysParamValueAudit,
     Scenario,
     ScenarioPermission,
     SimulationJob,
@@ -728,6 +731,29 @@ def delete_scenario(
     # RESTRICT, así que borrar el escenario con hijos vivos → FK violation).
     db.flush()
 
+    change_request_ids = [
+        int(row[0])
+        for row in (
+            db.query(ChangeRequest.id)
+            .join(
+                OsemosysParamValue,
+                ChangeRequest.id_osemosys_param_value == OsemosysParamValue.id,
+            )
+            .filter(OsemosysParamValue.id_scenario == scenario_id)
+            .all()
+        )
+    ]
+    if change_request_ids:
+        db.query(ChangeRequestValue).filter(
+            ChangeRequestValue.id_change_request.in_(change_request_ids)
+        ).delete(synchronize_session=False)
+        db.query(ChangeRequest).filter(ChangeRequest.id.in_(change_request_ids)).delete(
+            synchronize_session=False
+        )
+
+    db.query(OsemosysParamValueAudit).filter(
+        OsemosysParamValueAudit.id_scenario == scenario_id
+    ).delete(synchronize_session=False)
     db.query(OsemosysParamValue).filter(OsemosysParamValue.id_scenario == scenario_id).delete()
     db.query(ScenarioPermission).filter(ScenarioPermission.id_scenario == scenario_id).delete()
 
@@ -741,6 +767,7 @@ def delete_scenario(
             details_json={
                 **scenario_snapshot,
                 "cascaded_simulation_job_ids": [j.id for j in child_jobs],
+                "deleted_change_request_ids": change_request_ids,
             },
         )
     )

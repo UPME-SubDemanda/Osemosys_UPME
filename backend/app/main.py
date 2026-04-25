@@ -60,6 +60,17 @@ def create_app() -> FastAPI:
         else:
             logger.info("Todos los solvers configurados están disponibles: %s", availability)
 
+    @app.on_event("startup")
+    def sync_visualization_catalog() -> None:
+        """Sincroniza ``catalog_meta_*`` con los dicts hardcodeados.
+
+        Inserta sólo entradas que no existan (idempotente). Garantiza que al
+        agregar una gráfica nueva en código, basta reiniciar el API para que
+        aparezca en BD con sus defaults — sin pisar ediciones del curador.
+        """
+        from app.visualization.catalog_sync import sync_catalog_safely
+        sync_catalog_safely()
+
     return app
 
 

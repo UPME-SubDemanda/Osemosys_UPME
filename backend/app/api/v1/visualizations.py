@@ -567,9 +567,42 @@ def export_raw_data(
     scenario_name = job.get("scenario_name") or f"Job_{job_id}"
     safe_name = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in scenario_name)
     filename = f"Resultados_Crudos_{safe_name}.xlsx"
-    
+
     return StreamingResponse(
         excel_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{job_id}/export-csv-bundle")
+def export_results_csv_bundle(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """ZIP con un CSV por variable de salida en formato OSeMOSYS estándar."""
+    try:
+        job = SimulationService.get_by_id(db, current_user=current_user, job_id=job_id)
+        if job["status"] != "SUCCEEDED":
+            raise HTTPException(status_code=400, detail="Job no está en estado SUCCEEDED")
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Job no encontrado o sin acceso")
+
+    try:
+        zip_bytes = chart_service.export_results_csv_zip(db=db, job_id=job["id"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error generando ZIP de CSVs por variable")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    scenario_name = job.get("scenario_name") or f"Job_{job_id}"
+    safe_name = _safe_export_basename(scenario_name)
+    filename = f"Resultados_CSV_{safe_name}.zip"
+
+    return StreamingResponse(
+        zip_bytes,
+        media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

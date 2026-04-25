@@ -328,9 +328,9 @@ def _filtro_consumo_liquidos(df, **kw):
     if "TECHNOLOGY" not in df.columns:
         return df.iloc[0:0]
 
-    demanda_mask = df["TECHNOLOGY"].str.startswith(
-        ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
-    )
+    demanda_mask = df["TECHNOLOGY"].str.startswith((
+        "DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ"
+    ))
 
     df = df[demanda_mask]
 
@@ -349,12 +349,12 @@ def _filtro_demanda_exportaciones_liquidos(df, **kw):
     if "TECHNOLOGY" not in df.columns:
         return df.iloc[0:0]
 
-    demanda_mask = df["TECHNOLOGY"].str.startswith(
-        ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
-    )
-    export_mask = df["TECHNOLOGY"].str.startswith(
-        ("EXPDSL", "EXPGSL", "EXPJET", "EXPLPG")
-    )
+    demanda_mask = df["TECHNOLOGY"].str.startswith((
+        "DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ"
+    ))
+    export_mask = df["TECHNOLOGY"].str.startswith((
+        "EXPDSL", "EXPGSL", "EXPJET", "EXPLPG"
+    ))
 
     df = df[demanda_mask | export_mask]
 

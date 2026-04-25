@@ -263,6 +263,14 @@ def _filtro_ups_refinacion(df, **kw):
     ]
 
 
+def _filtro_electrolisis_verde(df, **kw):
+    """Electrolizadores para producción de hidrógeno verde (UPSALK, UPSPEM)."""
+    return df[
+        df["TECHNOLOGY"].str.startswith("UPSALK")
+        | df["TECHNOLOGY"].str.startswith("UPSPEM")
+    ]
+
+
 def _filtro_min_hidrocarburos(df, **kw):
     """Minería petróleo y gas (MINOIL, MINNGS)."""
     return df[
@@ -313,9 +321,9 @@ def _filtro_consumo_liquidos(df, **kw):
     if "TECHNOLOGY" not in df.columns:
         return df.iloc[0:0]
 
-    demanda_mask = df["TECHNOLOGY"].str.startswith((
-        "DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ"
-    ))
+    demanda_mask = df["TECHNOLOGY"].str.startswith(
+        ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
+    )
 
     df = df[demanda_mask]
 
@@ -334,12 +342,12 @@ def _filtro_demanda_exportaciones_liquidos(df, **kw):
     if "TECHNOLOGY" not in df.columns:
         return df.iloc[0:0]
 
-    demanda_mask = df["TECHNOLOGY"].str.startswith((
-        "DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ"
-    ))
-    export_mask = df["TECHNOLOGY"].str.startswith((
-        "EXPDSL", "EXPGSL", "EXPJET", "EXPLPG"
-    ))
+    demanda_mask = df["TECHNOLOGY"].str.startswith(
+        ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
+    )
+    export_mask = df["TECHNOLOGY"].str.startswith(
+        ("EXPDSL", "EXPGSL", "EXPJET", "EXPLPG")
+    )
 
     df = df[demanda_mask | export_mask]
 
@@ -358,12 +366,12 @@ def _filtro_liquidos_total(df, **kw):
     if "TECHNOLOGY" not in df.columns:
         return df.iloc[0:0]
 
-    demanda_mask = df["TECHNOLOGY"].str.startswith((
-        "DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ"
-    ))
-    electrico_mask = df["TECHNOLOGY"].str.startswith((
-        "PWRDSL", "PWRFOIL", "PWRJET", "PWRLPG"
-    ))
+    demanda_mask = df["TECHNOLOGY"].str.startswith(
+        ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
+    )
+    electrico_mask = df["TECHNOLOGY"].str.startswith(
+        ("PWRDSL", "PWRFOIL", "PWRJET", "PWRLPG")
+    )
 
     df = df[demanda_mask | electrico_mask]
 
@@ -833,6 +841,18 @@ CONFIGS = {
         "agrupar_por": "TECNOLOGIA",
         "color_fn": generar_colores_tecnologias,
         "variable_default": "ProductionByTechnology",
+    },
+    "cap_electrolisis_verde": {
+        "titulo_base": "Capacidad Total de Electrólisis Verde",
+        "figura_base": "CAP-ELEC-VERDE",
+        "filename_base": "Cap_Electrolisis_Verde",
+        "print_base": "CAPACIDAD - ELECTRÓLISIS VERDE",
+        "filtro": _filtro_electrolisis_verde,
+        "msg_sin_datos": "Sin electrolizadores (UPSALK / UPSPEM)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": generar_colores_tecnologias,
+        "es_capacidad": True,
+        "variable_default": "TotalCapacityAnnual",
     },
     "h2_consumo": {
         "titulo": "Hidrógeno - Consumo - UseByTechnology",

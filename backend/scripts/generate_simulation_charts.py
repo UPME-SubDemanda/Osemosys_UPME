@@ -24,7 +24,7 @@ FAMILIAS_TEC: dict[str, list[str]] = {
         "PWRNGS_CS",
         "PWRNGSCCS",
         "PWRDSL",
-        "PWRFOIL",
+        "PWRFOL",
         "PWRJET",
         "PWRLPG",
     ],

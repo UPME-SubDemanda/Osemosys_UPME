@@ -96,6 +96,7 @@ def get_comparison_data(
     agrupacion: str | None = Query(None),
     sub_filtro: str | None = Query(None),
     loc: str | None = Query(None),
+    es_porcentaje: bool = Query(False, description="Si true, normaliza cada año/escenario a 100%"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -139,6 +140,7 @@ def get_comparison_data(
             agrupacion=agrupacion,
             sub_filtro=sub_filtro,
             loc=loc,
+            es_porcentaje_override=es_porcentaje,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -153,6 +155,7 @@ def get_comparison_facet_data(
     loc: str | None = Query(None),
     variable: str | None = Query(None),
     agrupar_por: str | None = Query(None, description="Override de agrupación: TECNOLOGIA, FUEL, GROUP"),
+    es_porcentaje: bool = Query(False, description="Si true, normaliza cada año a 100%"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -169,6 +172,7 @@ def get_comparison_facet_data(
             loc=loc,
             variable=variable,
             agrupar_por=agrupar_por,
+            es_porcentaje_override=es_porcentaje,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -350,6 +354,7 @@ def get_chart_data(
     loc: str | None = Query(None),
     variable: str | None = Query(None),
     agrupar_por: str | None = Query(None, description="Override de agrupación: TECNOLOGIA, FUEL, GROUP"),
+    es_porcentaje: bool = Query(False, description="Si true, normaliza cada año a 100%"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -371,6 +376,7 @@ def get_chart_data(
             loc=loc,
             variable=variable,
             agrupar_por=agrupar_por,
+            es_porcentaje_override=es_porcentaje,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

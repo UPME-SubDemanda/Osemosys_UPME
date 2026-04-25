@@ -68,13 +68,28 @@ def _load_variable_data(
 ) -> pd.DataFrame:
     """Carga datos de ``osemosys_output_param_value`` y devuelve un DataFrame.
 
-    Ruta unificada: se leen las columnas tipadas
-    (``technology_name``, ``fuel_name``, ``year``) cuando están pobladas;
-    para filas viejas donde esas columnas son NULL se cae a parsear
-    ``index_json`` con las mismas heurísticas de posición del sistema
-    anterior (zero-regresión sobre jobs previos al refactor de 2026-04-24).
+    • Variables principales (Dispatch, NewCapacity, …): usa columnas tipadas
+      (``technology_name``, ``fuel_name``, ``year``, ``value``).
+    • Variables intermedias (ProductionByTechnology, TotalCapacityAnnual, …):
+      extrae TECHNOLOGY, FUEL, YEAR del campo ``index_json``.
+
+    Parámetros
+    ----------
+    db : Session
+        Sesión SQLAlchemy activa.
+    job_id : int
+        ID del simulation_job.
+    variable_name : str
+        Nombre exacto de la variable a cargar.
+
+    Retorna
+    -------
+    pd.DataFrame
+        Columnas garantizadas: TECHNOLOGY, YEAR, VALUE.
+        Columna opcional: FUEL (cuando está disponible).
     """
 
+    # ── Consulta BD ──────────────────────────────────────────────────────
     rows = (
         db.query(OsemosysOutputParamValue)
         .filter(
@@ -87,56 +102,56 @@ def _load_variable_data(
     if not rows:
         return pd.DataFrame(columns=["TECHNOLOGY", "FUEL", "YEAR", "VALUE"])
 
-    records: list[dict[str, Any]] = []
-    for r in rows:
-        # 1. Preferir columnas tipadas.
-        technology = r.technology_name
-        fuel = r.fuel_name
-        year = r.year
+    # ── Construir DataFrame ──────────────────────────────────────────────
+    if variable_name in _MAIN_TYPED_VARIABLES:
+        records = []
+        for r in rows:
+            records.append({
+                "TECHNOLOGY": r.technology_name or "",
+                "FUEL": r.fuel_name or "",
+                "YEAR": r.year,
+                "VALUE": float(r.value),
+            })
+        df = pd.DataFrame(records)
 
-        # 2. Fallback a index_json SOLO si falta algún campo crítico.
-        if (technology is None or year is None) and r.index_json is not None:
-            idx_raw = r.index_json
+    else:
+        # Variable intermedia → extraer de index_json
+        records = []
+        for r in rows:
+            idx_raw = r.index_json if r.index_json else []
             idx = idx_raw if isinstance(idx_raw, (list, tuple)) else []
+            # Convenciones del pipeline:
+            #   ProductionByTechnology / UseByTechnology / TotalCapacityAnnual /
+            #   AccumulatedNewCapacity / AnnualTechnologyEmission:
+            #     index_json = [REGION, TECHNOLOGY, FUEL?, YEAR?, ...]
+            # La posición del YEAR puede variar: posición 2, 3 o 4.
+            technology = str(idx[1]) if len(idx) > 1 else ""
+            fuel = ""
+            year = None
 
-            if technology is None and len(idx) > 1:
-                technology = str(idx[1]) if idx[1] is not None else ""
+            if len(idx) >= 5:
+                # [REGION, TECH, FUEL, ?, YEAR]  (5-element index)
+                fuel = str(idx[2]) if idx[2] is not None else ""
+                year = _safe_int(idx[4]) or _safe_int(idx[3])
+            elif len(idx) >= 4:
+                # [REGION, TECH, FUEL, YEAR]  (4-element index)
+                fuel = str(idx[2]) if idx[2] is not None else ""
+                year = _safe_int(idx[3])
+            elif len(idx) >= 3:
+                # [REGION, TECH, YEAR]  (3-element index)
+                year = _safe_int(idx[2])
 
-            if variable_name in _MAIN_TYPED_VARIABLES:
-                # Las 4 variables tipadas legacy no deberían estar nunca en
-                # index_json; si lo están, mantenemos la heurística conservadora.
-                if year is None and len(idx) >= 3:
-                    year = _safe_int(idx[-1])
-            else:
-                # Forma histórica de las intermedias:
-                #  3-elem: [REGION, TECH, YEAR]
-                #  4-elem: [REGION, TECH, EMISSION|FUEL, YEAR]
-                #  5-elem: [REGION, TECH, FUEL, "", YEAR]
-                if len(idx) >= 5:
-                    if fuel is None:
-                        fuel = str(idx[2]) if idx[2] is not None else ""
-                    if year is None:
-                        year = _safe_int(idx[4]) or _safe_int(idx[3])
-                elif len(idx) >= 4:
-                    if fuel is None:
-                        fuel = str(idx[2]) if idx[2] is not None else ""
-                    if year is None:
-                        year = _safe_int(idx[3])
-                elif len(idx) >= 3:
-                    if year is None:
-                        year = _safe_int(idx[2])
+            records.append({
+                "TECHNOLOGY": technology,
+                "FUEL": fuel,
+                "YEAR": year,
+                "VALUE": float(r.value),
+            })
+        df = pd.DataFrame(records)
 
-        records.append({
-            "TECHNOLOGY": technology or "",
-            "FUEL": fuel or "",
-            "YEAR": year,
-            "VALUE": float(r.value),
-        })
-
-    df = pd.DataFrame(records)
+    # Limpiar: descartar filas sin YEAR útil
     df = df.dropna(subset=["YEAR"])
-    if not df.empty:
-        df["YEAR"] = df["YEAR"].astype(int)
+    df["YEAR"] = df["YEAR"].astype(int)
 
     return df
 
@@ -285,7 +300,7 @@ def _convertir_unidades_emision(df: pd.DataFrame, un: str) -> pd.DataFrame:
 def _emision_unit_label(un: str, es_emision_kt: bool) -> str:
     """Devuelve la etiqueta de unidad correcta para gráficas de emisión."""
     if es_emision_kt:
-        return "ktCO₂eq"
+        return "kt"
     return "ktCO₂eq" if un == "ktCO2eq" else "MtCO₂eq"
 
 
@@ -376,7 +391,6 @@ def _build_factor_planta_data(
             data=data,
             color=color_dict.get(tech, "#999999"),
             stack="default",
-            code=str(tech),
         ))
 
     return ChartDataResponse(categories=categories, series=series, title=title, yAxisLabel="%")
@@ -395,6 +409,7 @@ def build_chart_data(
     loc: str | None = None,
     variable: str | None = None,
     agrupar_por: str | None = None,
+    es_porcentaje_override: bool = False,
 ) -> ChartDataResponse:
     """Construye la respuesta de gráfica para un solo escenario.
 
@@ -418,7 +433,7 @@ def build_chart_data(
 
     cfg = CONFIGS[tipo]
     es_capacidad = cfg.get("es_capacidad", False)
-    es_porcentaje = cfg.get("es_porcentaje", False)
+    es_porcentaje = cfg.get("es_porcentaje", False) or es_porcentaje_override
     es_factor_planta = cfg.get("es_factor_planta", False)
 
     # Variable a consultar
@@ -559,7 +574,6 @@ def build_chart_data(
                 data=data,
                 color=color_dict.get(tech, "#999999"),
                 stack="default",
-                code=str(tech),
             )
         )
 
@@ -583,6 +597,7 @@ def build_comparison_data(
     sub_filtro: str | None = None,
     loc: str | None = None,
     job_display_overrides: dict[int, str] | None = None,
+    es_porcentaje_override: bool = False,
 ) -> CompareChartResponse:
     """Construye la respuesta de comparación multi-escenario.
 
@@ -737,6 +752,11 @@ def build_comparison_data(
 
     df_final = pd.concat(all_data, ignore_index=True)
 
+    # ── Porcentaje override ──────────────────────────────────────────────
+    if es_porcentaje_override:
+        total_por_año_escenario = df_final.groupby(["YEAR", "SCENARIO"])["VALUE"].transform("sum")
+        df_final["VALUE"] = df_final["VALUE"] / total_por_año_escenario * 100.0
+
     # ── Colores ──────────────────────────────────────────────────────────
     categorias_unicas = sorted(df_final["CATEGORIA"].dropna().unique())
     if not es_generico:
@@ -779,7 +799,6 @@ def build_comparison_data(
                     data=data,
                     color=mapa_colores.get(categoria, "#999999"),
                     stack="default",
-                    code=str(categoria),
                 )
             )
 
@@ -791,7 +810,7 @@ def build_comparison_data(
             )
         )
 
-    return CompareChartResponse(title=title, subplots=subplots, yAxisLabel=un)
+    return CompareChartResponse(title=title, subplots=subplots, yAxisLabel="%" if es_porcentaje_override else un)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -808,6 +827,7 @@ def build_comparison_facet_data(
     variable: str | None = None,
     agrupar_por: str | None = None,
     job_display_overrides: dict[int, str] | None = None,
+    es_porcentaje_override: bool = False,
 ) -> CompareChartFacetResponse:
     """Construye datos para comparación por escenarios completos (facets).
 
@@ -885,6 +905,7 @@ def build_comparison_facet_data(
             loc=loc,
             variable=variable,
             agrupar_por=agrupar_por,
+            es_porcentaje_override=es_porcentaje_override,
         )
 
         if not facets:
@@ -1349,41 +1370,21 @@ def get_result_summary(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def get_chart_catalog() -> list[ChartCatalogItem]:
-    """Devuelve la lista de gráficas disponibles para el selector del frontend.
-
-    Estrategia: usa ``CONFIGS`` (Python) como fuente de las callables
-    (filtro, color_fn) y ``catalog_meta_chart_config`` (BD) como override de
-    metadata editable (label, variable_default, data_explorer_filters, flags).
-    Si la tabla está vacía, cae al comportamiento previo.
-    """
-    from app.schemas.visualization import DataExplorerFilters
-    from app.visualization.catalog_reader import get_chart_catalog_meta
-    from app.visualization.configs import DATA_EXPLORER_FILTERS
-
-    meta_from_db = get_chart_catalog_meta()
+    """Devuelve la lista de gráficas disponibles para el selector del frontend."""
     items: list[ChartCatalogItem] = []
 
     for config_id, cfg in CONFIGS.items():
-        db_meta = meta_from_db.get(config_id, {})
-        # Override con BD si hay registro; fallback al dict en Python.
-        label = db_meta.get("label_titulo") or cfg.get("titulo", cfg.get("titulo_base", config_id))
-        variable_default = db_meta.get("variable_default") or cfg["variable_default"]
-        flags = db_meta.get("flags") or {}
-        es_capacidad = bool(flags.get("es_capacidad", cfg.get("es_capacidad", False)))
-        soporta_pareto = bool(flags.get("soporta_pareto", _config_soporta_pareto(cfg)))
-        de_filters_raw = db_meta.get("data_explorer_filters") or DATA_EXPLORER_FILTERS.get(config_id)
-        filters_model = DataExplorerFilters(**de_filters_raw) if de_filters_raw else None
+        label = cfg.get("titulo", cfg.get("titulo_base", config_id))
         items.append(
             ChartCatalogItem(
                 id=config_id,
                 label=label,
-                variable_default=variable_default,
+                variable_default=cfg["variable_default"],
                 has_sub_filtro=_config_has_sub_filtro(cfg),
                 has_loc=_config_has_loc(cfg),
                 sub_filtros=_config_sub_filtros(cfg),
-                es_capacidad=es_capacidad,
-                soporta_pareto=soporta_pareto,
-                data_explorer_filters=filters_model,
+                es_capacidad=cfg.get("es_capacidad", False),
+                soporta_pareto=_config_soporta_pareto(cfg),
             )
         )
 
@@ -1557,9 +1558,12 @@ def _render_stacked_bar(
     ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
     ax.legend(
         loc="upper center", bbox_to_anchor=(0.5, -0.15),
-        ncol=min(len(chart.series), 5), fontsize=7, frameon=False,
+        ncol=min(len(chart.series), 5), fontsize=10, frameon=False,
     )
     ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+    if bottom.max() < 2.0:
+        import matplotlib.ticker as _ticker
+        ax.yaxis.set_major_formatter(_ticker.FormatStrFormatter("%.2f"))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -1799,7 +1803,7 @@ def render_comparison_by_year_bytes(
                 loc="upper center",
                 bbox_to_anchor=(0.5, -0.2),
                 ncol=min(ns, 4),
-                fontsize=7,
+                fontsize=10,
                 frameon=False,
             )
 

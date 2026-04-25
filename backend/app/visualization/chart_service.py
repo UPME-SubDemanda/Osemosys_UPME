@@ -34,8 +34,6 @@ from app.schemas.visualization import (
     SubplotData,
 )
 from app.visualization.colors import (
-    COLORES_GRUPOS,
-    COLORES_EMISIONES,
     asignar_grupo,
     generar_colores_tecnologias,
     _color_electricidad,
@@ -45,10 +43,12 @@ from app.visualization.colors import (
 )
 from app.visualization.labels import get_label
 from app.visualization.configs import CONFIGS, TITULOS_VARIABLES_CAPACIDAD, NOMBRES_COMBUSTIBLES
-from app.visualization.configs_comparacion import (
-    COLORES_SECTOR,
-    CONFIGS_COMPARACION,
-    MAPA_SECTOR,
+from app.visualization.configs_comparacion import CONFIGS_COMPARACION
+from app.visualization.catalog_reader import (
+    get_colores_emisiones,
+    get_colores_grupos,
+    get_colores_sector,
+    get_mapa_sector,
 )
 
 logger = logging.getLogger(__name__)
@@ -223,8 +223,12 @@ def _filtrar_df(
 
 
 def _sector_labels(tech_series: pd.Series) -> pd.Series:
-    """Asignación vectorizada de sector, incluyendo PWR → Generación Electricidad."""
-    labels = tech_series.str[:6].map(MAPA_SECTOR)
+    """Asignación vectorizada de sector, incluyendo PWR → Generación Electricidad.
+
+    Usa ``MAPA_SECTOR`` desde BD (sembrado al arrancar el API; fallback al
+    dict hardcoded sólo si la BD aún no está poblada).
+    """
+    labels = tech_series.str[:6].map(get_mapa_sector())
     pwr_mask = labels.isna() & tech_series.str.startswith("PWR")
     labels = labels.where(~pwr_mask, "Generación Electricidad")
     return labels.fillna("Otros")
@@ -309,13 +313,16 @@ def _color_map_comparison(
     Port de ``graficas_comparacion._color_map``.
     """
     if agrupacion == "COMBUSTIBLE":
-        return {c: COLORES_GRUPOS.get(c, "#999999") for c in categorias_unicas}
+        palette = get_colores_grupos()
+        return {c: palette.get(c, "#999999") for c in categorias_unicas}
 
     if agrupacion == "SECTOR":
-        return {c: COLORES_SECTOR.get(c, "#999999") for c in categorias_unicas}
+        palette = get_colores_sector()
+        return {c: palette.get(c, "#999999") for c in categorias_unicas}
 
     if agrupacion == "EMISION":
-        return {c: COLORES_EMISIONES.get(c, "#999999") for c in categorias_unicas}
+        palette = get_colores_emisiones()
+        return {c: palette.get(c, "#999999") for c in categorias_unicas}
 
     # TECNOLOGIA: reutiliza generar_colores_tecnologias de colors.py
     df_tmp = pd.DataFrame({"COLOR": list(categorias_unicas)})
@@ -546,7 +553,8 @@ def build_chart_data(
         colores_ordenados, orden_color = color_fn(df_agg, "COLOR")
     else:
         orden_color = sorted(df_agg["COLOR"].unique())
-        colores_ordenados = [COLORES_GRUPOS.get(c, "#999999") for c in orden_color]
+        _palette = get_colores_grupos()
+        colores_ordenados = [_palette.get(c, "#999999") for c in orden_color]
 
     color_dict = dict(zip(orden_color, colores_ordenados))
 
@@ -755,7 +763,8 @@ def build_comparison_data(
             colores_lista, orden_lista = color_fn(df_tmp, "COLOR")
             mapa_colores = dict(zip(orden_lista, colores_lista))
         else:
-            mapa_colores = {c: COLORES_GRUPOS.get(c, "#999999") for c in categorias_unicas}
+            _palette = get_colores_grupos()
+            mapa_colores = {c: _palette.get(c, "#999999") for c in categorias_unicas}
 
     # ── Construir subplots por año ───────────────────────────────────────
     años_ordenados = sorted(df_final["YEAR"].unique())

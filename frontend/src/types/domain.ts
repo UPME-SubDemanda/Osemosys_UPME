@@ -379,8 +379,6 @@ export type ChartSeries = {
   data: number[];
   color: string;
   stack?: string | null;
-  /** Código subyacente (tech/fuel/emission/sector) para el editor rápido. */
-  code?: string | null;
 };
 
 export type ChartDataResponse = {
@@ -430,13 +428,6 @@ export type ParetoChartResponse = {
   yAxisLabel: string;
 };
 
-export type DataExplorerFilters = {
-  variable_names?: string[] | null;
-  technology_prefixes?: string[] | null;
-  fuel_prefixes?: string[] | null;
-  emission_names?: string[] | null;
-};
-
 export type ChartCatalogItem = {
   id: string;
   label: string;
@@ -446,9 +437,7 @@ export type ChartCatalogItem = {
   sub_filtros: string[] | null;
   es_capacidad: boolean;
   soporta_pareto: boolean;
-  data_explorer_filters?: DataExplorerFilters | null;
 };
-
 
 /** Tipo de línea de una serie sintética (overlay). */
 export type SyntheticLineStyle =
@@ -505,7 +494,7 @@ export type SavedChartTemplate = {
   loc: string | null;
   variable: string | null;
   agrupar_por: string | null;
-  view_mode: "column" | "line" | "area" | "pareto" | null;
+  view_mode: "column" | "line" | "area" | "pareto" | "porcentaje" | null;
   compare_mode: "off" | "facet" | "by-year" | "line-total";
   /** Años a graficar cuando `compare_mode === "by-year"`. Null en otros modos. */
   years_to_plot: number[] | null;
@@ -542,7 +531,7 @@ export type SavedChartTemplateUpdate = {
   /** Enviar "" o null limpia el override. */
   report_title?: string | null;
   /** Tipo de trazo. Permite alternar columnas/áreas desde el reporte. */
-  view_mode?: "column" | "line" | "area" | "pareto" | null;
+  view_mode?: "column" | "line" | "area" | "pareto" | "porcentaje" | null;
 };
 
 export type ReportTemplateItem = {

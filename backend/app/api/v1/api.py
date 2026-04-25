@@ -9,7 +9,6 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     auth,
-    catalog_meta,
     change_requests,
     deletion_log,
     emissions,
@@ -56,7 +55,6 @@ router.include_router(saved_chart_templates.router, tags=["saved_chart_templates
 router.include_router(saved_chart_templates.reports_router, tags=["saved_reports"])
 router.include_router(simulations.router, tags=["simulations"])
 router.include_router(deletion_log.router, tags=["deletion_log"])
-router.include_router(catalog_meta.router, tags=["catalog_meta"])
 
 
 # ============================================================================

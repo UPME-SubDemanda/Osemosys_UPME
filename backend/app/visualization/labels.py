@@ -57,19 +57,19 @@ _ENERGETICO: dict[str, str] = {
     "BAG": "Bagazo",
     "COA": "Carbón",
     "HDG": "H₂",
-    "HYD": "Hidro",
+    "HYD": "Hidroeléctrica",
     "SOL": "Solar",
-    "WND": "Viento",
+    "WND": "Eólica",
     "ONW": "Eól.Ter.",
     "OFW": "Eól.Mar.",
     "FOL": "F.Oil",
-    "JET": "Jet A1",
+    "JET": "Jet",
     "BDL": "Biodiésel",
     "BET": "Bioetanol",
     "SAF": "SAF",
     "BJS": "JET-SAF",
     "GEO": "Geotérm.",
-    "WAS": "RSU",
+    "WAS": "Residuos/Biomasa",
     "OIL": "Petróleo",
     "OIL_1LIV": "Crudo liviano",
     "OIL_2MID": "Crudo intermedio",
@@ -155,7 +155,7 @@ _AREA: dict[str, str] = {
     "_CEN": "Central",
     "_SPL": "Split",
     "_AUC": "Autoc.",
-    "_FIX": "Fijo",
+    "_FIX": "Fija",
     "_FLO": "Flotante",
     "_UGE": "Gran esc.",
     "_UPE": "Peq.esc.",
@@ -187,8 +187,9 @@ _GRUPO: dict[str, str] = {
     "HDG002": "Hidrógeno (ind.)",
     "FOL": "Fuel Oil",
     "BDL": "Biodiésel",
-    "JET": "Jet A1",
-    "WAS": "RSU",
+    "JETSAF": "Jet Sostenible (SAF)",
+    "JET": "Jet Fuel (Queroseno)",
+    "WAS": "Residuos/Biomasa",
     "OIL": "Petróleo",
     "OIL_1LIV": "Crudo liviano",
     "OIL_2MID": "Crudo intermedio",
@@ -231,8 +232,9 @@ DISPLAY_NAMES: dict[str, str] = {
     "COA":  "Carbón",
     "FOL":  "Fuel Oil",
     "BDL":  "Biodiésel",
-    "JET":  "Jet A1",
-    "WAS":  "RSU",
+    "JETSAF": "Jet Sostenible (SAF)",
+    "JET":  "Jet Fuel (Queroseno)",
+    "WAS":  "Residuos/Biomasa",
     "OIL":  "Petróleo",
     "AFR":  "Res. Agrícolas/Forestales",
     "SAF":  "SAF",
@@ -286,7 +288,7 @@ DISPLAY_NAMES: dict[str, str] = {
     "MINGEO": "Recursos Geotérm.",
     "MINLND": "Tierra Cultivable",
     "MINLPG": "Ext. GLP",
-    "MINNGS": "Ext. GN",
+    "MINNGS": "Gas Natural Nacional",
     "MINOFW": "Pot. Eól.Mar.",
     "MINOFW_FIX": "Pot. Eól.Mar. Fijo",
     "MINOFW_FLO": "Pot. Eól.Mar. Flot.",
@@ -295,26 +297,28 @@ DISPLAY_NAMES: dict[str, str] = {
     "MINOIL_2MID": "Ext. Petróleo Med.",
     "MINOIL_3PES": "Ext. Petróleo Pes.",
     "MINONW": "Pot. Eól.Ter.",
-    "MINOPL": "Prod. Palma (BDL)",
+    "MINOPL": "Extracción Aceite de Palma - Biodiésel",
     "MINROR": "Pot. Hidro (ROR)",
-    "MINSGC": "Prod. Caña (BET)",
+    "MINSGC": "Caña de Azúcar - Bioetanol",
+    "MINBAG": "Extracción Bagazo de Caña",
+    "MINBG": "Extracción Bagazo de Caña",
     "MINSOL": "Pot. Solar FV",
     "MINSOL_RTP": "Pot. Solar Techo",
     "MINURN": "Prod. Uranio",
-    "MINWAS": "Prod. RSU",
-    "MINWAS_ORG": "Prod. RSU Org.",
+    "MINWAS": "Recolección Residuos Sólidos",
+    "MINWAS_ORG": "Recolección Residuos Orgánicos",
     "MINWAT": "Agua Disponible",
-    "MINWOO": "Ext. Leña",
+    "MINWOO": "Extracción Madera/Leña",
     "LNDAGR001": "Tierra Caña",
     "LNDAGR002": "Tierra Cacao",
     "LNDAGR003": "Tierra Café",
     "LNDAGR004": "Tierra Arroz",
     # ── Generación Eléctrica ──────────────────────────────────────────────
-    "PWRAFR": "Gen. Biomasa (AFR)",
-    "PWRAFRCCS": "Gen. Biomasa AFR+CCS",
-    "PWRBGS": "Gen. Biogás",
-    "PWRCOA": "Gen. Carbón",
-    "PWRCOACCS": "Gen. Carbón+CCS",
+    "PWRAFR": "Biomasa (AFR)",
+    "PWRAFRCCS": "Biomasa AFR+CCS",
+    "PWRBGS": "Biogás",
+    "PWRCOA": "Carbón",
+    "PWRCOACCS": "Carbón+CCS",
     "PWRCOG": "Cogeneración",
     "PWRCOGBAG": "Cogener. Bagazo",
     "PWRCOGCOF": "Cogener. Café",
@@ -322,34 +326,37 @@ DISPLAY_NAMES: dict[str, str] = {
     "PWRCOGMAZ": "Cogener. Hojarasca",
     "PWRCOGRAQ": "Cogener. Raquis",
     "PWRCOGRCE": "Cogener. Arroz",
-    "PWRCSP": "Gen. CSP",
-    "PWRDAM": "Hidro Embalse",
-    "PWRDSL": "Gen. Diésel",
+    "PWRCSP": "CSP",
+    "PWRDAM": "Hidroeléctrica Embalse",
+    "PWRDSL": "Diésel",
     "PWRDST": "Distrib. Elec.",
-    "PWRFOIL": "Gen. Fuel Oil",
-    "PWRGEO": "Gen. Geotérm.",
-    "PWRHYDDAM": "Hidro Embalse",
-    "PWRHYDROR": "Hidro ROR",
-    "PWRHYDROR_NDC": "Hidro ROR (No CDC)",
-    "PWRJET": "Gen. Jet A1",
-    "PWRLPG": "Gen. GLP",
-    "PWRNGS": "Gen. GN",
-    "PWRNGSCCS": "Gen. GN+CCS",
-    "PWRNGS_CC": "Gen. GN CC",
-    "PWRNGS_CS": "Gen. GN CS",
-    "PWRNUC": "Nuclear (SMR)",
-    "PWROFIXW": "Eól. Mar. Fijo",
-    "PWROFLOW": "Eól. Mar. Flot.",
-    "PWRONW": "Eól. Terrestre",
-    "PWRROR": "Hidro ROR",
+    "PWRFOL": "Fuel Oil",
+    "PWRGEO": "Geotérmica",
+    "PWRHYDDAM": "Hidroeléctrica Embalse",
+    "PWRHYDROR": "Hidroeléctrica Filo de Agua",
+    "PWRHYDROR_NDC": "Hidroeléctrica Filo de Agua (NDC)",
+    "PWRJET": "Jet Fuel",
+    "PWRLPG": "Gas Licuado (GLP)",
+    "PWRNGS": "Gas Natural",
+    "PWRNGSCCS": "Gas Natural+CCS",
+    "PWRNGS_CC": "Gas Natural Ciclo Combinado",
+    "PWRNGS_CS": "Gas Natural Ciclo Simple",
+    "PWRNUC": "Nuclear",
+    "PWROFIXW": "Eólica Offshore Fija",
+    "PWRWNDOFS_FIX": "Eólica Offshore Fija",
+    "PWRWNDOFS_FLO": "Eólica Offshore Flotante",
+    "PWROFLOW": "Eólica Offshore Flotante",
+    "PWRONW": "Eólica Onshore",
+    "PWRWNDONS": "Eólica Onshore",
+    "PWRROR": "Hidroeléctrica Filo de Agua",
     "PWRSOL": "Solar FV",
-    "PWRSOLBAT": "Solar FV+Bat.",
-    "PWRSOLRTP": "Solar FV Techo",
-    "PWRSOLRTP_IND": "Solar FV Techo Ind.",
-    "PWRSOLRTP_ZNI": "Solar FV Techo ZNI",
-    "PWRSOLUGE": "Solar FV Gran esc.",
-    "PWRSOLUGE_BAT": "Solar FV+Bat. Gran esc.",
-    "PWRSOLUPE": "Solar FV Peq.esc.",
+    "PWRSOLBAT": "Solar FV Utility + Bateria",
+    "PWRSOLRTP": "Solar FV Residencial (RTP)",
+    "PWRSOLRTP_IND": "Solar FV RTP Ind.",
+    "PWRSOLRTP_ZNI": "Solar FV Residencial ZNI",
+    "PWRSOLUGE": "Solar FV Utility Gran Escala",
+    "PWRSOLUGE_BAT": "Solar FV Utility + Bateria",
+    "PWRSOLUPE": "Solar FV Utility Pequeña Escala",
     "PWRWAS": "Gen. RSU",
     # ── Demanda: Agricultura y Pesca ──────────────────────────────────────
     "DEMAGFDSL": "Agric. Diésel",
@@ -460,8 +467,12 @@ DISPLAY_NAMES: dict[str, str] = {
     "DEMINDNGSFUR_LOW": "Ind. GN Horno (Baja)",
     "DEMINDNGSFUR_MID": "Ind. GN Horno (Media)",
     # ── Demanda: Industrial — Residuos ────────────────────────────────────
-    "DEMINDWASBOI_HIG": "Ind. RSU Caldera (Alta)",
-    "DEMINDWASBOI_LOW": "Ind. RSU Caldera (Baja)",
+    "DEMINDWASBOI_HIG": "Residuos/Biomasa",
+    "DEMINDWASBOI_MID": "Residuos/Biomasa",
+    "DEMINDWASBOI_LOW": "Residuos/Biomasa",
+    "DEMINDWASFUR_HIG": "Residuos Sólidos",
+    "DEMINDWASFUR_LOW": "Residuos Sólidos",
+    "DEMINDWASFUR_MID": "Residuos Sólidos",
     # ── Demanda: Residencial — Electricidad ───────────────────────────────
     "DEMRESELCAIR_HIG": "Res. Elec. AC (Alta)",
     "DEMRESELCAIR_LOW": "Res. Elec. AC (Baja)",
@@ -725,9 +736,9 @@ DISPLAY_NAMES: dict[str, str] = {
     "DEMTRAPHEVLDV": "Tra. PHEV Veh.Lig.",
     "DEMTRAPHEVTAX": "Tra. PHEV Taxi",
     # ── Demanda: Transporte — Jet / GN / Mezclas ──────────────────────────
-    "DEMTRAJETAIR": "Tra. Jet A1 Aviac.",
-    "DEMTRAJETAVI": "Tra. Jet A1 Aviac.",
-    "DEMTRAJETSAFAVI": "Tra. JET-SAF Aviac.",
+    "DEMTRAJETAIR": "Jet Fuel (Queroseno)",
+    "DEMTRAJETAVI": "Jet Fuel (Queroseno)",
+    "DEMTRAJETSAFAVI": "Jet Sostenible (SAF)",
     "DEMTRANGSBUS": "Tra. GN Bus",
     "DEMTRANGSBUS_ART": "Tra. GN Bus Artic.",
     "DEMTRANGSBUS_BIA": "Tra. GN Bus Biartic.",
@@ -743,14 +754,25 @@ DISPLAY_NAMES: dict[str, str] = {
     "DEMTRANGSTCK_C2P": "Tra. GN Cam. 5.5t",
     "DEMTRANGSTCK_CSG": "Tra. GN Cam. 12t",
     # ── Refinerias ────────────────────────────────────────
-    "UPSREG": "Planta Regasificación",
+    "UPSREG": "Importación Gas Natural",
     "UPSREF_BAR": "Refinería Barrancabermeja",
     "UPSREF_CAR": "Refinería Cartagena",
     # ── UPSTREAM y Refinación ─────────────────
-    "UPSALK": "Electrolizador alcalino",
-    "UPSPEM": "Electrolizador PEM",
-    "UPSSAF": "Planta comb. sostenible aviación",
+    "UPSALK": "Electrólisis Alcalina",
+    "UPSPEM": "Electrólisis PEM",
+    "UPSSAF": "SAF Hidroprocesado",
+    "UPSHDGRST": "Exportación H2",
     "UPSBJS": "Mezcla JET-SAF",
+    # ── H2 consumo: etiquetas de grupo para leyenda ───────────────────────
+    "DEMINDHDGBOI_HIG": "Demanda H2 Petroquímica (derivados)",
+    "DEMINDHDGBOI_LOW": "H2 Industria - calor directo",
+    "DEMTRAHDGTCK_CSG": "H2 Tractocamiones.",
+    "DEMTRAHDGBUS_URB": "Estaciones de servicio H2",
+    "DEMTRAHDGFWD":     "Estaciones de servicio H2",
+    "DEMTRAHDGLDV":     "Estaciones de servicio H2",
+    "DEMTRAHDGMIC":     "Estaciones de servicio H2",
+    "DEMTRAHDGSTT":     "Estaciones de servicio H2",
+    "DEMTRAHDGTAX":     "Estaciones de servicio H2",
 }
 
 
@@ -822,9 +844,6 @@ def get_label(code: str) -> str:
     """
     Retorna el display_name para un código de tecnología OSeMOSYS.
 
-    Fuente: catálogo editable en BD (``catalog_meta_label``) con fallback
-    a ``DISPLAY_NAMES`` si la tabla no está poblada o la query falla.
-
     Parámetros
     ----------
     code : str
@@ -835,55 +854,40 @@ def get_label(code: str) -> str:
     str
         Nombre legible para mostrar en gráficas.
         Nunca lanza excepción: retorna el código original si no hay mapeo.
+
+    Ejemplos
+    --------
+    >>> get_label("DEMINDCOABOI_LOW")
+    'Ind. Carbón Caldera (Baja)'
+    >>> get_label("PWRSOLRTP_ZNI")
+    'Solar FV Techo ZNI'
+    >>> get_label("NGS")
+    'Gas Natural'
+    >>> get_label("CODIGO_DESCONOCIDO")
+    'CODIGO_DESCONOCIDO'
     """
     if not code:
         return code
 
-    # Lazy import para evitar circular al inicializar el módulo.
-    from app.visualization.catalog_reader import (
-        get_display_names,
-        get_nombres_combustibles,
-    )
-
-    # 1. Búsqueda exacta en labels de BD (con fallback a DISPLAY_NAMES).
-    labels = get_display_names()
-    label = labels.get(code)
+    # 1. Búsqueda exacta
+    label = DISPLAY_NAMES.get(code)
     if label:
         return label
 
-    # 2. Fuel-specific labels (NOMBRES_COMBUSTIBLES vive en otra tabla/prefijo).
-    fuel_labels = get_nombres_combustibles()
-    label = fuel_labels.get(code)
-    if label:
-        return label
-
-    # 3. Grupos legacy (_GRUPO).
+    # 2. Búsqueda en grupos de combustible (para agrupación COMBUSTIBLE)
     label = _GRUPO.get(code)
     if label:
         return label
 
-    # 4. Generación dinámica.
+    # 3. Generación dinámica
     return _dynamic_label(code)
 
 
 def get_labels_batch(codes: list[str]) -> dict[str, str]:
     """
     Versión batch de get_label para mayor eficiencia cuando se procesan
-    muchos códigos a la vez. Hace una sola llamada al reader de BD.
+    muchos códigos a la vez.
 
     Retorna un dict {codigo: display_name}.
     """
-    from app.visualization.catalog_reader import (
-        get_display_names,
-        get_nombres_combustibles,
-    )
-    labels = get_display_names()
-    fuel_labels = get_nombres_combustibles()
-    out: dict[str, str] = {}
-    for code in codes:
-        if not code:
-            out[code] = code
-            continue
-        label = labels.get(code) or fuel_labels.get(code) or _GRUPO.get(code)
-        out[code] = label if label else _dynamic_label(code)
-    return out
+    return {code: get_label(code) for code in codes}

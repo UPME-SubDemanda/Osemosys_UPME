@@ -1147,20 +1147,8 @@ def list_osemosys_values_wide(
       lte, eq, ne, nonzero, zero.
     """
     from app.services.scenario_service import _parse_year_rules
-    import logging as _logging
-
-    _log = _logging.getLogger(__name__)
 
     try:
-        _parsed_year_rules = _parse_year_rules(year_rules)
-        _log.info(
-            "wide list scenario=%s year_rules_raw=%r parsed=%r param_names=%r technology_names=%r",
-            scenario_id,
-            year_rules,
-            _parsed_year_rules,
-            param_names,
-            technology_names,
-        )
         return ScenarioService.list_osemosys_values_wide(
             db,
             scenario_id=scenario_id,
@@ -1174,7 +1162,7 @@ def list_osemosys_values_wide(
             fuel_names=_parse_csv_list(fuel_names),
             emission_names=_parse_csv_list(emission_names),
             udc_names=_parse_csv_list(udc_names),
-            year_rules=_parsed_year_rules,
+            year_rules=_parse_year_rules(year_rules),
             offset=offset,
             limit=limit,
         )

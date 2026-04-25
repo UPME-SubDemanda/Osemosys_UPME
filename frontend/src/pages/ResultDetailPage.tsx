@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { simulationApi } from '../features/simulation/api/simulationApi';
 import type {
-  ChartCatalogItem,
   ResultSummaryResponse,
   ChartDataResponse,
   CompareChartResponse,
@@ -48,7 +47,6 @@ import { ScenarioTagChip } from '../shared/components/ScenarioTagChip';
 import { downloadBlob } from '../shared/utils/downloadBlob';
 import { formatCompactNumber, formatPercent } from '../shared/utils/numberFormat';
 import { SaveChartModal } from '../features/reports/components/SaveChartModal';
-import { ChartStyleEditor } from '../features/catalogMeta/components/ChartStyleEditor';
 import { SyntheticSeriesEditor } from '../shared/charts/SyntheticSeriesEditor';
 import {
   loadSyntheticSeries,
@@ -266,20 +264,6 @@ export function ResultDetailPage() {
   const [paretoData, setParetoData] = useState<ParetoChartResponse | null>(null);
   const [loadingChart, setLoadingChart] = useState(false);
 
-  // Catálogo de gráficas — incluye los data_explorer_filters por tipo.
-  const [chartCatalog, setChartCatalog] = useState<ChartCatalogItem[] | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    simulationApi.getChartCatalog().then((cat) => {
-      if (!cancelled) setChartCatalog(cat);
-    }).catch(() => {
-      if (!cancelled) setChartCatalog([]);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const [chartBarOrientation, setChartBarOrientation] = useState<ChartBarOrientation>(() =>
     loadChartBarOrientation(),
   );
@@ -307,8 +291,6 @@ export function ResultDetailPage() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [showSaveChartModal, setShowSaveChartModal] = useState(false);
-  const [showStyleEditor, setShowStyleEditor] = useState(false);
-  const [chartReloadKey, setChartReloadKey] = useState(0);
   const [savedChartToast, setSavedChartToast] = useState<string | null>(null);
   /**
    * Series manuales overlay. Persisten en localStorage por "firma" de gráfica
@@ -610,6 +592,8 @@ export function ResultDetailPage() {
     setLoadingChart(true);
     const isCompare = chartCompareMode !== 'off' && chartJobIds.length > 1;
 
+    const esPorcentaje = chartSelection.viewMode === 'porcentaje';
+
     if (isCompare && chartCompareMode === 'facet') {
       const params: Record<string, string> = {
         job_ids: chartJobIds.join(','),
@@ -620,6 +604,7 @@ export function ResultDetailPage() {
       if (chartSelection.loc) params.loc = chartSelection.loc;
       if (chartSelection.variable) params.variable = chartSelection.variable;
       if (chartSelection.agrupar_por) params.agrupar_por = chartSelection.agrupar_por;
+      if (esPorcentaje) params.es_porcentaje = 'true';
 
       simulationApi
         .getCompareFacetData(params as Parameters<typeof simulationApi.getCompareFacetData>[0])
@@ -642,6 +627,7 @@ export function ResultDetailPage() {
       if (chartSelection.sub_filtro) params.sub_filtro = chartSelection.sub_filtro;
       if (chartSelection.loc) params.loc = chartSelection.loc;
       if (chartSelection.agrupar_por) params.agrupacion = chartSelection.agrupar_por;
+      if (esPorcentaje) params.es_porcentaje = 'true';
 
       simulationApi
         .getCompareData(params as Parameters<typeof simulationApi.getCompareData>[0])
@@ -683,6 +669,7 @@ export function ResultDetailPage() {
       if (chartSelection.loc) params.loc = chartSelection.loc;
       if (chartSelection.variable) params.variable = chartSelection.variable;
       if (chartSelection.agrupar_por) params.agrupar_por = chartSelection.agrupar_por;
+      if (esPorcentaje) params.es_porcentaje = 'true';
 
       if (chartSelection.viewMode === 'pareto') {
         const paretoParams: Record<string, string> = {
@@ -730,7 +717,6 @@ export function ResultDetailPage() {
     chartJobIds,
     chartYearsToPlot,
     chartDisplayNamesSignature,
-    chartReloadKey,
   ]);
 
   // Cerrar dropdown al hacer clic fuera
@@ -1473,54 +1459,6 @@ export function ResultDetailPage() {
               </svg>
               {isAddToReportFlow ? "Guardar gráfica y agregar al reporte" : "Guardar gráfica"}
             </button>
-            {chartCompareMode === 'off' ? (() => {
-              const catItem = chartCatalog?.find((c) => c.id === chartSelection.tipo);
-              const filters = catItem?.data_explorer_filters ?? undefined;
-              const built: Parameters<typeof paths.resultsDataExplorer>[1] = {};
-              if (filters?.variable_names && filters.variable_names.length) {
-                built.variable_names = filters.variable_names;
-              }
-              if (filters?.technology_prefixes && filters.technology_prefixes.length) {
-                built.technology_prefixes = filters.technology_prefixes;
-              }
-              if (filters?.fuel_prefixes && filters.fuel_prefixes.length) {
-                built.fuel_prefixes = filters.fuel_prefixes;
-              }
-              if (filters?.emission_names && filters.emission_names.length) {
-                built.emission_names = filters.emission_names;
-              }
-              const href = paths.resultsDataExplorer(
-                currentRunId,
-                Object.keys(built).length ? built : undefined,
-              );
-              return (
-                <Link
-                  to={href}
-                  title="Abrir los datos de esta gráfica en el Data Explorer"
-                  className="inline-flex items-center gap-2 rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-xs font-semibold text-violet-200 hover:bg-violet-500/20"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                    <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
-                  </svg>
-                  Ver Datos de Resultados
-                </Link>
-              );
-            })() : null}
-            {chartCompareMode === 'off' && singleChartData ? (
-              <button
-                type="button"
-                onClick={() => setShowStyleEditor(true)}
-                title="Editar labels y colores de las series de esta gráfica"
-                className="inline-flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/20"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
-                </svg>
-                Editar labels/colores
-              </button>
-            ) : null}
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900/30 backdrop-blur-sm p-6 relative">
@@ -1625,13 +1563,6 @@ export function ResultDetailPage() {
             ? compareLineData.categories.map((c) => Number(c)).filter(Number.isFinite)
             : singleChartData?.categories?.map((c) => Number(c)).filter(Number.isFinite)
         }
-      />
-
-      <ChartStyleEditor
-        open={showStyleEditor}
-        onClose={() => setShowStyleEditor(false)}
-        series={singleChartData?.series ?? []}
-        onSaved={() => setChartReloadKey((k) => k + 1)}
       />
 
       <SaveChartModal

@@ -34,7 +34,6 @@ export function AppLayout() {
     { to: paths.scenarios, label: "Escenarios" },
     { to: paths.changeRequests, label: "Solicitudes de cambio" },
     ...(user?.can_manage_catalogs ? [{ to: paths.catalogs, label: "Catálogos" }] : []),
-    ...(user?.can_manage_catalogs ? [{ to: paths.visualizationCatalog, label: "Visualización (admin)" }] : []),
     ...(user?.can_manage_users ? [{ to: paths.usersAdmin, label: "Usuarios y permisos" }] : []),
     { to: paths.simulation, label: "Simulación" },
     { to: paths.results, label: "Resultados" },

@@ -300,7 +300,7 @@ def _convertir_unidades_emision(df: pd.DataFrame, un: str) -> pd.DataFrame:
 def _emision_unit_label(un: str, es_emision_kt: bool) -> str:
     """Devuelve la etiqueta de unidad correcta para gráficas de emisión."""
     if es_emision_kt:
-        return "ktCO₂eq"
+        return "kt"
     return "ktCO₂eq" if un == "ktCO2eq" else "MtCO₂eq"
 
 
@@ -409,6 +409,7 @@ def build_chart_data(
     loc: str | None = None,
     variable: str | None = None,
     agrupar_por: str | None = None,
+    es_porcentaje_override: bool = False,
 ) -> ChartDataResponse:
     """Construye la respuesta de gráfica para un solo escenario.
 
@@ -432,7 +433,7 @@ def build_chart_data(
 
     cfg = CONFIGS[tipo]
     es_capacidad = cfg.get("es_capacidad", False)
-    es_porcentaje = cfg.get("es_porcentaje", False)
+    es_porcentaje = cfg.get("es_porcentaje", False) or es_porcentaje_override
     es_factor_planta = cfg.get("es_factor_planta", False)
 
     # Variable a consultar
@@ -596,6 +597,7 @@ def build_comparison_data(
     sub_filtro: str | None = None,
     loc: str | None = None,
     job_display_overrides: dict[int, str] | None = None,
+    es_porcentaje_override: bool = False,
 ) -> CompareChartResponse:
     """Construye la respuesta de comparación multi-escenario.
 
@@ -750,6 +752,11 @@ def build_comparison_data(
 
     df_final = pd.concat(all_data, ignore_index=True)
 
+    # ── Porcentaje override ──────────────────────────────────────────────
+    if es_porcentaje_override:
+        total_por_año_escenario = df_final.groupby(["YEAR", "SCENARIO"])["VALUE"].transform("sum")
+        df_final["VALUE"] = df_final["VALUE"] / total_por_año_escenario * 100.0
+
     # ── Colores ──────────────────────────────────────────────────────────
     categorias_unicas = sorted(df_final["CATEGORIA"].dropna().unique())
     if not es_generico:
@@ -803,7 +810,7 @@ def build_comparison_data(
             )
         )
 
-    return CompareChartResponse(title=title, subplots=subplots, yAxisLabel=un)
+    return CompareChartResponse(title=title, subplots=subplots, yAxisLabel="%" if es_porcentaje_override else un)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -820,6 +827,7 @@ def build_comparison_facet_data(
     variable: str | None = None,
     agrupar_por: str | None = None,
     job_display_overrides: dict[int, str] | None = None,
+    es_porcentaje_override: bool = False,
 ) -> CompareChartFacetResponse:
     """Construye datos para comparación por escenarios completos (facets).
 
@@ -897,6 +905,7 @@ def build_comparison_facet_data(
             loc=loc,
             variable=variable,
             agrupar_por=agrupar_por,
+            es_porcentaje_override=es_porcentaje_override,
         )
 
         if not facets:
@@ -1549,9 +1558,12 @@ def _render_stacked_bar(
     ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
     ax.legend(
         loc="upper center", bbox_to_anchor=(0.5, -0.15),
-        ncol=min(len(chart.series), 5), fontsize=7, frameon=False,
+        ncol=min(len(chart.series), 5), fontsize=10, frameon=False,
     )
     ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+    if bottom.max() < 2.0:
+        import matplotlib.ticker as _ticker
+        ax.yaxis.set_major_formatter(_ticker.FormatStrFormatter("%.2f"))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -1791,7 +1803,7 @@ def render_comparison_by_year_bytes(
                 loc="upper center",
                 bbox_to_anchor=(0.5, -0.2),
                 ncol=min(ns, 4),
-                fontsize=7,
+                fontsize=10,
                 frameon=False,
             )
 

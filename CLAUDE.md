@@ -168,11 +168,13 @@ Unit conversion (`_convertir_unidades`): PJ is the baseline. GW, MW, TWh, Gpc ap
 | Component | Mode |
 |-----------|------|
 | `HighchartsChart.tsx` | Single scenario — stacked bar, all years on X-axis |
-| `LineChart.tsx` | Single scenario — line chart view mode |
+| `LineChart.tsx` | Single scenario — line chart view mode; supports synthetic series overlays |
 | `CompareChart.tsx` | Multi-scenario by year — one subplot per year, scenarios on X-axis |
 | `CompareChartFacet.tsx` | Multi-scenario facets — one complete chart per scenario |
-| `ChartSelector.tsx` | Controls: chart type, unit, sub-filter, location, view mode (bar/line) |
+| `ParetoChart.tsx` | Single/compare — bars by category + cumulative % line (dual Y-axis) |
+| `ChartSelector.tsx` | Controls: chart type, unit, sub-filter, location, view mode (bar/line/area/pareto), grouping (TECNOLOGIA/FUEL/SECTOR), bar orientation |
 | `ScenarioComparer.tsx` | Comparison mode toggle + scenario/year selection |
+| `SyntheticSeriesEditor.tsx` | UI to create/edit manual data overlays on line charts (year/value pairs, styling) |
 | `highchartsSetup.ts` | Highcharts global initialization (modules, options) |
 | `chartExportingShared.ts` | Shared export utilities (PNG/SVG/CSV) for all chart types |
 | `serverChartExport.ts` | Server-side export: calls backend `/export-chart` endpoint |
@@ -180,14 +182,37 @@ Unit conversion (`_convertir_unidades`): PJ is the baseline. GW, MW, TWh, Gpc ap
 | `chartLayoutPreferences.ts` | Persists chart layout/view preferences across sessions |
 | `defaultChartSelection.ts` | Default chart type selection logic on page load |
 | `techFamilies.ts` | Technology family definitions and prefix-to-family mappings |
+| `chartLegendInteractions.ts` | Plotly-style legend double-click: single click = toggle, double-click = isolate/restore |
+| `chartTooltips.ts` | Standardized tooltip builders: `buildStackedTooltipOptions`, `buildLineTooltipOptions`, `buildStackedSinglePointTooltipOptions` |
+| `syntheticSeriesStorage.ts` | localStorage persistence for synthetic series, keyed by chart signature (tipo+un+filtros+viewMode) |
 
-The page component `ResultDetailPage.tsx` orchestrates API calls and routes to the correct chart component based on comparison mode and selected view mode (bar vs. line).
+The page component `ResultDetailPage.tsx` orchestrates API calls and routes to the correct chart component based on comparison mode and selected view mode (bar vs. line/area/pareto).
+
+### View modes and chart types
+
+`ChartSelection.viewMode` controls the render path:
+- `"column"` → `HighchartsChart` (stacked bars)
+- `"line"` / `"area"` → `LineChart` (line or area, supports synthetic series)
+- `"pareto"` → `ParetoChart` (bars + cumulative % line); requires `soportaPareto: true` on the chart item in `MENU`
+
+Special chart ID sets in `ChartSelector.tsx` control unit/grouping behavior:
+- `GEI_CHART_IDS` — emission charts with switchable units (MtCO₂eq ↔ ktCO₂eq)
+- `CONTAMINANTES_CHART_IDS` (`emisiones_contaminantes`, `emisiones_contaminantes_pct`) — fixed unit kt, grouping fixed to EMISION
+- `PORCENTAJE_CHART_IDS` (`factor_planta`) — fixed unit %, no grouping selector
+- `CHARTS_SIN_AGRUPACION` — charts where grouping selector is hidden (agrupación fija en backend)
+
+Grouping options (`AGRUPACION_OPTIONS`): `TECNOLOGIA`, `FUEL`, `SECTOR`.
+
+### Synthetic series
+
+Manual data overlays that appear on top of line charts. Defined via `SyntheticSeriesEditor.tsx`, stored in localStorage via `syntheticSeriesStorage.ts`. Each series has: name, color, data `[year, value][]`, lineStyle, markerSymbol, markerRadius, lineWidth, active flag. Inactive series are hidden. Excel paste supported (single value, row, column, or 2-column matrix).
 
 ### Adding a new single-scenario chart type
 
 1. Add a filter function in `configs.py` (or reuse existing).
 2. Add entry to `CONFIGS` with: `variable_default`, `filtro`, `agrupar_por`, `color_fn`, `titulo_base`, `figura_base`, `es_capacidad`, `es_porcentaje`.
 3. If the chart supports sub-filters, register in `_config_has_sub_filtro` / `_config_sub_filtros` in `chart_service.py`.
+4. Add a `ChartItem` entry to the correct `Module` or `Subsector` in `MENU` inside `ChartSelector.tsx` with the same `id`. Mark `soportaPareto: true` if applicable.
 
 ### Adding a new comparison chart type
 
@@ -262,6 +287,76 @@ MUIO (LU1–LU4) are defined in the model but currently **not loaded** from CSVs
 
 ---
 
+## Saved Charts & Reports System
+
+Allows users to save chart configurations as reusable templates and assemble them into shareable reports with scenario assignments.
+
+### Data model
+
+| Model | File | Description |
+|-------|------|-------------|
+| `SavedChartTemplate` | `backend/app/models/saved_chart_template.py` | One saved chart config: tipo, un, sub_filtro, loc, variable, agrupar_por, view_mode, compare_mode, bar_orientation, facet_placement, facet_legend_mode, num_scenarios, years_to_plot, synthetic_series (JSONB), report_title, is_public |
+| `ReportTemplate` | `backend/app/models/report_template.py` | Ordered collection of template IDs: items (JSONB), layout (JSONB category tree), scenario_aliases, default_job_ids, fmt (png/svg), is_public, is_official |
+| `SavedChartTemplateFavorite` | `saved_chart_template_favorite.py` | User × template favorites |
+| `ReportTemplateFavorite` | `report_template_favorite.py` | User × report favorites |
+
+### Backend API (`backend/app/api/v1/saved_chart_templates.py`)
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /saved-chart-templates` | List user's + public templates |
+| `POST /saved-chart-templates` | Create template (detects exact duplicates) |
+| `PATCH /saved-chart-templates/{id}` | Update name/description/is_public/report_title/view_mode |
+| `DELETE /saved-chart-templates/{id}` | Delete (owner only) |
+| `POST /saved-chart-templates/report` | Generate ZIP with PNG/SVG per template × scenario |
+| `PATCH /saved-chart-templates/{id}/favorite` | Toggle favorite |
+| `POST /saved-chart-templates/{id}/copy` | Clone as private copy |
+| `GET /saved-reports` | List reports |
+| `POST /saved-reports` | Create report |
+| `PATCH /saved-reports/{id}` | Update (tri-state: absent=no-change, null=reset, value=set) |
+| `DELETE /saved-reports/{id}` | Delete (owner or admin) |
+| `POST /saved-reports/{id}/copy` | Clone (also clones inaccessible templates) |
+
+### Frontend pages & components
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/pages/ReportsPage.tsx` | 3-tab page: "Mis gráficas guardadas" (CRUD templates) / "Generador de reportes" (assemble + export) / "Mis reportes" (saved reports) |
+| `frontend/src/pages/ReportDashboardPage.tsx` | View/edit a saved report: render all charts with scenario bindings, reorder, export ZIP |
+| `frontend/src/features/reports/components/SaveChartModal.tsx` | Save current chart view as template; auto-detects duplicates |
+| `frontend/src/features/reports/components/ChartPickerModal.tsx` | Select a template to add/replace in a report; filter by compare_mode compatibility |
+| `frontend/src/features/reports/components/DashboardChartCard.tsx` | Render a single template in a report dashboard: fetches data, applies aliases, renders correct chart type |
+| `frontend/src/features/reports/components/CategoriesPanel.tsx` | Organize charts into category/subcategory tree |
+| `frontend/src/features/reports/components/RowScenarioPicker.tsx` | Per-chart job picker (override which global scenario slot) |
+| `frontend/src/features/reports/scenarioMemory.ts` | Persist scenario slot assignments to localStorage |
+| `frontend/src/features/reports/layout.ts` | Compute/reconcile category structure for export |
+| `frontend/src/features/reports/pickRepresentativeJob.ts` | Choose representative job for chart preview |
+| `frontend/src/features/reports/api/savedChartsApi.ts` | API client for templates and reports |
+
+### Report workflow
+
+1. User builds a chart in `ResultDetailPage` and clicks "Guardar gráfica" → `SaveChartModal` → stored as `SavedChartTemplate`.
+2. In `ReportsPage` → "Generador de reportes": selects templates, assigns scenario slots, previews each chart via `DashboardChartCard`.
+3. Exports as ZIP (PNG or SVG) via `POST /saved-chart-templates/report`.
+4. Optionally saves the assembled report as `ReportTemplate` for reuse.
+
+---
+
+## Result Data Explorer
+
+`frontend/src/pages/ResultDataExplorerPage.tsx` — Read-only wide-format table of raw simulation output.
+
+- **Data source**: `/simulations/{jobId}/output-values/wide` (paginated) + `/wide/facets` (filter options) + `/export` (Excel)
+- **8-dimension filters**: variable, region, technology, fuel, emission, timeslice, mode, storage
+- **Category tabs**: 3-level drill-down (category → sub-category → variable name)
+- **Dynamic column visibility**: auto-hide empty columns, manual override
+- **Year rules**: include/exclude/range rules per year
+- **Pagination**: 25/50/100/200 rows per page
+- **Excel export**: formatted XLSX of filtered results
+- Backend API: `backend/app/api/v1/simulations.py` (output-values routes)
+
+---
+
 ## Key Design Decisions
 
 - **Dual simulation path**: DB-mode uses `run_data_processing()` (PostgreSQL → CSVs); SAND/Excel mode uses `run_data_processing_from_excel()` (Excel → CSVs). Both feed the same `build_instance()` → `solve_model()` → `process_results()` pipeline.
@@ -273,3 +368,8 @@ MUIO (LU1–LU4) are defined in the model but currently **not loaded** from CSVs
 - **Visualization labels**: technology and fuel display names are managed in `labels.py` via `get_label()` (single) and `get_labels_batch()` (batch). 740+ static entries in `DISPLAY_NAMES`; `_dynamic_label()` generates from code segments as fallback. No external dictionary file — all mappings live in that module.
 - **Individual chart export**: Charts can be exported individually (PNG/SVG/CSV) via a server-side endpoint (`/export-chart`). Frontend uses `serverChartExport.ts` to call this endpoint. Facet export merges SVGs client-side via `mergeFacetChartsSvg.ts`.
 - **MODE_OF_OPERATION normalization**: `mode_of_operation_normalize.py` sanitizes mode values before writing CSVs, preventing Pyomo index mismatches from inconsistent input formatting.
+- **Saved chart templates**: Chart configurations (tipo, un, filtros, viewMode, compareMode, syntheticSeries, etc.) are persisted as `SavedChartTemplate` records, enabling reuse across sessions and assembly into reports. `num_scenarios` determines how many job slots a template requires.
+- **Synthetic series**: Manual data overlays (e.g. historical data, external projections) stored as JSONB in `SavedChartTemplate.synthetic_series` and also in localStorage for in-session use. Only rendered on line/area charts.
+- **Pareto view**: Activated when `viewMode="pareto"` and `soportaPareto: true` on the chart item. Backend returns `ParetoChartResponse` (categories, values, cumulative_percent). Frontend renders via `ParetoChart.tsx` with dual Y-axis.
+- **Special unit sets**: `CONTAMINANTES_CHART_IDS` and `PORCENTAJE_CHART_IDS` in `ChartSelector.tsx` pin the unit selector to a fixed value — frontend ignores the normal units dropdown for these charts.
+- **Report bulk export**: `POST /saved-chart-templates/report` renders all templates with their assigned job IDs server-side (Matplotlib) and returns a ZIP. `organize_by_category=true` creates subdirectories matching the report layout.

@@ -974,7 +974,7 @@ _UDC_RESERVE_MARGIN_DICT: dict[str, float] = {
     "PWRCOACCS": -1.0,
     "PWRCSP": 0.0,
     "PWRDSL": -1.0,
-    "PWRFOIL": -1.0,
+    "PWRFOL": -1.0,
     "PWRGEO": -1.0,
     "PWRHYDDAM": -1.0,
     "PWRHYDROR": 0.0,

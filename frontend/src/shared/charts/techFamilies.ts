@@ -20,7 +20,7 @@ export const FAMILIAS_TEC: Record<string, string[]> = {
     "PWRNGS_CS",
     "PWRNGSCCS",
     "PWRDSL",
-    "PWRFOIL",
+    "PWRFOL",
     "PWRJET",
     "PWRLPG",
   ],

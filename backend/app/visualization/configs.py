@@ -14,6 +14,11 @@ from app.visualization.colors import (
     _color_electricidad,
     _color_por_sector,
     _color_por_emision,
+    _color_electrolisis,
+    _color_h2_consumo,
+    _color_bioenergia,
+    _color_gas_produccion,
+    _color_liquidos_import,
 )
 
 # Gases de efecto invernadero a filtrar (EMIC02 con cero, no letra O)
@@ -65,8 +70,9 @@ NOMBRES_COMBUSTIBLES = {
     "HDG": "Hidrógeno",
     "FOL": "Fuel Oil",
     "BDL": "Biodiésel",
+    "JETSAF": "Jet Sostenible (SAF)",
     "JET": "Jet A1",
-    "WAS": "RSU",
+    "WAS": "Residuos/Biomasa",
     "OIL": "Petróleo",
     "AFR": "Residuos Agrícolas/Forestales",
     "SAF": "SAF",
@@ -371,7 +377,7 @@ def _filtro_liquidos_total(df, **kw):
         ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
     )
     electrico_mask = df["TECHNOLOGY"].str.startswith(
-        ("PWRDSL", "PWRFOIL", "PWRJET", "PWRLPG")
+        ("PWRDSL", "PWRFOL", "PWRJET", "PWRLPG")
     )
 
     df = df[demanda_mask | electrico_mask]
@@ -434,7 +440,7 @@ CONFIGS = {
         "filtro": _filtro_gas_produccion,
         "msg_sin_datos": "Sin tecnologías de producción (UPSREG / MINNGS)",
         "agrupar_por": "TECNOLOGIA",
-        "color_fn": generar_colores_tecnologias,
+        "color_fn": _color_gas_produccion,
         "variable_default": "ProductionByTechnology",
     },
     # ═══════════════════════════════════════════════════════════════════
@@ -503,7 +509,7 @@ CONFIGS = {
         "filtro": _filtro_liquidos_produccion_importacion,
         "msg_sin_datos": "Sin tecnologías de líquidos (IMPDSL/IMPGSL/IMPJET/IMPLPG/UPSREF_CAR/UPSREF_BAR)",
         "agrupar_por": "TECNOLOGIA",
-        "color_fn": generar_colores_tecnologias,
+        "color_fn": _color_liquidos_import,
         "variable_default": "ProductionByTechnology",
     },
     # ═══════════════════════════════════════════════════════════════════
@@ -851,7 +857,7 @@ CONFIGS = {
         "filtro": _filtro_electrolisis_verde,
         "msg_sin_datos": "Sin electrolizadores (UPSALK / UPSPEM)",
         "agrupar_por": "TECNOLOGIA",
-        "color_fn": generar_colores_tecnologias,
+        "color_fn": _color_electrolisis,
         "es_capacidad": True,
         "variable_default": "TotalCapacityAnnual",
     },
@@ -863,7 +869,7 @@ CONFIGS = {
         "filtro": _filtro_h2,
         "msg_sin_datos": "Sin tecnologías que consumen hidrógeno (FUEL=HDG/HDG002)",
         "agrupar_por": "TECNOLOGIA",
-        "color_fn": generar_colores_tecnologias,
+        "color_fn": _color_h2_consumo,
         "variable_default": "UseByTechnology",
     },
     "ups_refinacion": {
@@ -907,7 +913,7 @@ CONFIGS = {
         "filtro": _filtro_oferta_bioenergia,
         "msg_sin_datos": "Sin tecnologías de bioenergía",
         "agrupar_por": "TECNOLOGIA",
-        "color_fn": generar_colores_tecnologias,
+        "color_fn": _color_bioenergia,
         "variable_default": "ProductionByTechnology",
     },
     "emisiones_total": {

@@ -30,11 +30,42 @@ from app.schemas.saved_chart_template import (
     ReportCategoryExport,
     ReportTemplateItem,
 )
+from app.schemas.visualization import ChartDataResponse, ChartSeries
 from app.services.simulation_service import SimulationService
 from app.visualization import chart_service
 
 
 logger = logging.getLogger(__name__)
+
+_LINE_VIEW_MODES: frozenset[str] = frozenset({"line", "area"})
+
+
+def _inject_synthetic_series(chart: ChartDataResponse, raw_series: list[dict]) -> None:
+    """Agrega las series manuales activas del template a las series del chart.
+
+    Convierte cada serie (pares [año, valor]) a ChartSeries alineada a las
+    categorías del chart. Años sin dato quedan como NaN (gap en línea).
+    """
+    for synth in raw_series:
+        if synth.get("active", True) is False:
+            continue
+        data_map: dict[int, float] = {}
+        for point in (synth.get("data") or []):
+            try:
+                year, val = int(point[0]), float(point[1])
+                data_map[year] = val
+            except (TypeError, ValueError, IndexError):
+                logger.debug("Serie sintética '%s': punto inválido %r, omitido", synth.get("name"), point)
+                continue
+        aligned = [data_map.get(int(cat), float("nan")) for cat in chart.categories]
+        chart.series.append(
+            ChartSeries(
+                name=synth.get("name") or "Serie manual",
+                data=aligned,
+                color=synth.get("color") or "#999999",
+                stack=None,
+            )
+        )
 
 
 def _slugify(text: str, max_len: int = 80) -> str:
@@ -385,6 +416,8 @@ class SavedChartTemplateService:
                 raise ValueError(
                     f"Plantilla '{template.name}': sin datos para líneas totales."
                 )
+            if template.synthetic_series:
+                _inject_synthetic_series(chart, template.synthetic_series)
             rt = (getattr(template, "report_title", None) or "").strip()
             if rt:
                 chart.title = rt
@@ -506,6 +539,9 @@ class SavedChartTemplateService:
             raise ValueError(
                 f"Plantilla '{template.name}': sin datos con los filtros y escenario seleccionados."
             )
+        view_mode = template.view_mode or "column"
+        if template.synthetic_series and view_mode in _LINE_VIEW_MODES:
+            _inject_synthetic_series(chart, template.synthetic_series)
         rt = (getattr(template, "report_title", None) or "").strip()
         if rt:
             chart.title = rt
@@ -515,7 +551,7 @@ class SavedChartTemplateService:
         img_bytes = chart_service.render_chart_visualization_bytes(
             chart,
             fmt=fmt,
-            view_mode=template.view_mode or "column",
+            view_mode=view_mode,
         )
         return img_bytes, fmt
 

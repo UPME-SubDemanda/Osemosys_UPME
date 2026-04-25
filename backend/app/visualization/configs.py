@@ -244,6 +244,7 @@ def _filtro_oferta_bioenergia(df, **kw):
         | df["TECHNOLOGY"].str.startswith("MINWAS_ORG")
         | df["TECHNOLOGY"].str.startswith("MINSGC")
         | df["TECHNOLOGY"].str.startswith("MINWOO")
+        | df["TECHNOLOGY"].str.startswith("MINBAG")
     ]
 
 

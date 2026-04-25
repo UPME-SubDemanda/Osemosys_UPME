@@ -296,7 +296,7 @@ def _convertir_unidades_emision(df: pd.DataFrame, un: str) -> pd.DataFrame:
 def _emision_unit_label(un: str, es_emision_kt: bool) -> str:
     """Devuelve la etiqueta de unidad correcta para gráficas de emisión."""
     if es_emision_kt:
-        return "ktCO₂eq"
+        return "kt"
     return "ktCO₂eq" if un == "ktCO2eq" else "MtCO₂eq"
 
 
@@ -1549,9 +1549,12 @@ def _render_stacked_bar(
     ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
     ax.legend(
         loc="upper center", bbox_to_anchor=(0.5, -0.15),
-        ncol=min(len(chart.series), 5), fontsize=7, frameon=False,
+        ncol=min(len(chart.series), 5), fontsize=10, frameon=False,
     )
     ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+    if bottom.max() < 2.0:
+        import matplotlib.ticker as _ticker
+        ax.yaxis.set_major_formatter(_ticker.FormatStrFormatter("%.2f"))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -1791,7 +1794,7 @@ def render_comparison_by_year_bytes(
                 loc="upper center",
                 bbox_to_anchor=(0.5, -0.2),
                 ncol=min(ns, 4),
-                fontsize=7,
+                fontsize=10,
                 frameon=False,
             )
 

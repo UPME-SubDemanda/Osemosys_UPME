@@ -1789,7 +1789,7 @@ class ScenarioService:
             "PWRCOACCS": -1.0,
             "PWRCSP": 0.0,
             "PWRDSL": -1.0,
-            "PWRFOIL": -1.0,
+            "PWRFOL": -1.0,
             "PWRGEO": -1.0,
             "PWRHYDDAM": -1.0,
             "PWRHYDROR": 0.0,

@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from app.api.v1.scenarios import delete_scenario
+from app.api.v1.scenarios import (
+    delete_scenario,
+    detach_scenario_children,
+    get_scenario_delete_impact,
+)
 from app.api.v1.simulations import delete_simulation
 from app.models import (
     ChangeRequest,
@@ -17,6 +21,7 @@ from app.models import (
     SimulationJobEvent,
     SimulationJobFavorite,
 )
+from app.schemas.scenario import ScenarioDetachChildrenRequest
 
 from factories import create_osemosys_value, create_permission, create_scenario, create_user
 
@@ -99,6 +104,72 @@ def test_delete_scenario_cleans_dependents_and_writes_audit_log(db_session) -> N
     assert scenario_log.entity_id == scenario_id
     assert scenario_log.details_json["deleted_change_request_ids"] == [change_request_id]
     assert scenario_log.details_json["cascaded_simulation_job_ids"] == [job_id]
+
+
+def test_delete_scenario_blocks_direct_children_before_deleting_data(db_session) -> None:
+    owner = create_user(db_session, username="parent-owner")
+    parent = create_scenario(db_session, name="Parent scenario", owner=owner.username)
+    child = create_scenario(
+        db_session,
+        name="Child scenario",
+        owner=owner.username,
+        base_scenario_id=parent.id,
+    )
+    parent_value = create_osemosys_value(
+        db_session,
+        scenario_id=parent.id,
+        param_name="CapitalCost",
+        year=2030,
+        value=10.0,
+    )
+    db_session.commit()
+    parent_id = parent.id
+    child_id = child.id
+    parent_value_id = parent_value.id
+
+    with pytest.raises(HTTPException) as exc:
+        delete_scenario(parent_id, db=db_session, current_user=owner)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "scenario_has_children"
+    assert [item["id"] for item in exc.value.detail["children"]] == [child_id]
+    assert db_session.get(OsemosysParamValue, parent_value_id) is not None
+    assert db_session.get(DeletionLog, 1) is None
+
+
+def test_detach_scenario_children_allows_parent_delete(db_session) -> None:
+    owner = create_user(db_session, username="detach-owner")
+    parent = create_scenario(db_session, name="Parent scenario", owner=owner.username)
+    child = create_scenario(
+        db_session,
+        name="Child scenario",
+        owner=owner.username,
+        base_scenario_id=parent.id,
+    )
+    db_session.commit()
+    parent_id = parent.id
+    child_id = child.id
+
+    impact = get_scenario_delete_impact(parent_id, db=db_session, current_user=owner)
+
+    assert impact["scenario_id"] == parent_id
+    assert [item["id"] for item in impact["direct_children"]] == [child_id]
+
+    response = detach_scenario_children(
+        parent_id,
+        ScenarioDetachChildrenRequest(child_ids=[child_id]),
+        db=db_session,
+        current_user=owner,
+    )
+
+    assert response == {"detached_child_ids": [child_id]}
+    db_session.refresh(child)
+    assert child.base_scenario_id is None
+
+    delete_scenario(parent_id, db=db_session, current_user=owner)
+
+    assert db_session.get(type(parent), parent_id) is None
+    assert db_session.get(type(child), child_id) is not None
 
 
 def test_delete_simulation_blocks_active_jobs_and_deletes_results_for_admin(db_session) -> None:

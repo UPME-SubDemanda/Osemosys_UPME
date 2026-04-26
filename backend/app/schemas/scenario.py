@@ -228,6 +228,37 @@ class ScenarioPublic(BaseModel):
     effective_access: ScenarioAccessPublic | None = None
 
 
+class ScenarioDeleteChildPublic(BaseModel):
+    """Escenario hijo que bloquea la eliminación de su padre."""
+
+    id: int
+    name: str
+    owner: str
+    edit_policy: str
+    simulation_type: SimulationType
+    child_count: int = 0
+    simulation_job_count: int = 0
+    created_at: datetime
+
+
+class ScenarioDeleteImpact(BaseModel):
+    """Impacto previo de eliminar un escenario."""
+
+    scenario_id: int
+    scenario_name: str
+    direct_children: list[ScenarioDeleteChildPublic] = Field(default_factory=list)
+
+
+class ScenarioDetachChildrenRequest(BaseModel):
+    """Hijos directos que se independizan del escenario padre."""
+
+    child_ids: list[int] = Field(min_length=1)
+
+
+class ScenarioDetachChildrenResponse(BaseModel):
+    detached_child_ids: list[int] = Field(default_factory=list)
+
+
 class ScenarioPermissionCreate(BaseModel):
     """Crea/actualiza permisos de un usuario sobre un escenario."""
 

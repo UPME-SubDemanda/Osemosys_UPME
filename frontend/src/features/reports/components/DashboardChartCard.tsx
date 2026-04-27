@@ -48,7 +48,70 @@ type Props = {
    * como override al nombre/leyenda de series/facets en multi-escenario.
    */
   scenarioNames?: string[] | undefined;
+  /** Filtro de rango de años aplicado en cliente al recibir los datos. */
+  yearFrom?: number | null | undefined;
+  yearTo?: number | null | undefined;
 };
+
+/** Filtra in-place categorías-año y datos paralelos por [yearFrom, yearTo]. */
+function _yearKeepIndices(
+  categories: ReadonlyArray<string | number>,
+  yearFrom: number | null | undefined,
+  yearTo: number | null | undefined,
+): number[] {
+  if ((yearFrom == null) && (yearTo == null)) {
+    return categories.map((_, i) => i);
+  }
+  const keep: number[] = [];
+  for (let i = 0; i < categories.length; i += 1) {
+    const raw = categories[i];
+    const y = typeof raw === "number" ? raw : parseInt(String(raw), 10);
+    if (Number.isNaN(y)) {
+      keep.push(i);
+      continue;
+    }
+    if (yearFrom != null && y < yearFrom) continue;
+    if (yearTo != null && y > yearTo) continue;
+    keep.push(i);
+  }
+  return keep;
+}
+
+function _applyYearRangeChart<
+  T extends ChartDataResponse,
+>(d: T, yearFrom: number | null | undefined, yearTo: number | null | undefined): T {
+  if (yearFrom == null && yearTo == null) return d;
+  const cats = d.categories;
+  const series = d.series;
+  if (!cats || !series) return d;
+  const keep = _yearKeepIndices(cats, yearFrom, yearTo);
+  d.categories = keep.map((i) => String(cats[i]));
+  d.series = series.map((s) => ({
+    ...s,
+    data: keep.map((i) => (i < s.data.length ? (s.data[i] as number) : 0)),
+  }));
+  return d;
+}
+
+function _applyYearRangeFacet(
+  d: CompareChartFacetResponse,
+  yearFrom: number | null | undefined,
+  yearTo: number | null | undefined,
+): CompareChartFacetResponse {
+  if (yearFrom == null && yearTo == null) return d;
+  d.facets = d.facets.map((f) => {
+    const keep = _yearKeepIndices(f.categories, yearFrom, yearTo);
+    return {
+      ...f,
+      categories: keep.map((i) => f.categories[i] as string),
+      series: f.series.map((s) => ({
+        ...s,
+        data: keep.map((i) => (i < s.data.length ? (s.data[i] as number) : 0)),
+      })),
+    };
+  });
+  return d;
+}
 
 export function DashboardChartCard({
   template,
@@ -56,6 +119,8 @@ export function DashboardChartCard({
   compactToolbar = false,
   scenarioAliasSuffix,
   scenarioNames,
+  yearFrom,
+  yearTo,
 }: Props) {
   const [single, setSingle] = useState<ChartDataResponse | null>(null);
   const [facet, setFacet] = useState<CompareChartFacetResponse | null>(null);
@@ -69,7 +134,8 @@ export function DashboardChartCard({
     jobIds.length === template.num_scenarios && jobIds.every((j) => j != null);
 
   // Fingerprint estable para evitar re-fetch redundante.
-  const fingerprint = `${template.id}|${template.compare_mode}|${jobIds.join(",")}|${(template.years_to_plot ?? []).join(",")}`;
+  // Incluimos el rango de años para invalidar el render cuando cambie.
+  const fingerprint = `${template.id}|${template.compare_mode}|${jobIds.join(",")}|${(template.years_to_plot ?? []).join(",")}|yf=${yearFrom ?? ""}|yt=${yearTo ?? ""}`;
 
   useEffect(() => {
     if (!ready) {
@@ -182,7 +248,11 @@ export function DashboardChartCard({
         )
         .then((data) => {
           if (cancelled) return;
-          setFacet(applyTitle(applyFacetAliases(data)));
+          setFacet(
+            applyTitle(
+              applyFacetAliases(_applyYearRangeFacet(data, yearFrom, yearTo)),
+            ),
+          );
           setSingle(null);
           setByYear(null);
           setLineTotal(null);
@@ -193,16 +263,34 @@ export function DashboardChartCard({
         })
         .finally(() => !cancelled && setLoading(false));
     } else if (template.compare_mode === "by-year") {
+      // Recortar la lista de años explícita al rango si está activo.
+      const allYears = template.years_to_plot ?? [];
+      const filteredYears = (yearFrom != null || yearTo != null)
+        ? allYears.filter(
+            (y) =>
+              (yearFrom == null || y >= yearFrom) &&
+              (yearTo == null || y <= yearTo),
+          )
+        : allYears;
       const params: Record<string, string> = {
         job_ids: jobIds.join(","),
         tipo: template.tipo,
         un: template.un,
-        years_to_plot: (template.years_to_plot ?? []).join(","),
+        years_to_plot: filteredYears.join(","),
       };
       if (template.sub_filtro) params.sub_filtro = template.sub_filtro;
       if (template.loc) params.loc = template.loc;
       if (template.agrupar_por) params.agrupacion = template.agrupar_por;
       if (esPorcentaje) params.es_porcentaje = "true";
+      if (filteredYears.length === 0) {
+        setError(
+          "El rango de años seleccionado no incluye ninguno de los años de esta plantilla.",
+        );
+        setLoading(false);
+        return () => {
+          cancelled = true;
+        };
+      }
       simulationApi
         .getCompareData(
           params as Parameters<typeof simulationApi.getCompareData>[0],
@@ -233,7 +321,11 @@ export function DashboardChartCard({
         )
         .then((data) => {
           if (cancelled) return;
-          setLineTotal(applyTitle(applySeriesAliases(data)));
+          setLineTotal(
+            applyTitle(
+              applySeriesAliases(_applyYearRangeChart(data, yearFrom, yearTo)),
+            ),
+          );
           setSingle(null);
           setFacet(null);
           setByYear(null);
@@ -261,7 +353,7 @@ export function DashboardChartCard({
         )
         .then((data) => {
           if (cancelled) return;
-          setSingle(applyTitle(data));
+          setSingle(applyTitle(_applyYearRangeChart(data, yearFrom, yearTo)));
           setFacet(null);
           setByYear(null);
           setLineTotal(null);

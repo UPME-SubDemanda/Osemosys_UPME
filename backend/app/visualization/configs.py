@@ -15,10 +15,12 @@ from app.visualization.colors import (
     _color_por_sector,
     _color_por_emision,
     _color_electrolisis,
+    _color_h2_produccion,
     _color_h2_consumo,
     _color_bioenergia,
     _color_gas_produccion,
     _color_liquidos_import,
+    _color_ref_import,
 )
 
 # Gases de efecto invernadero a filtrar (EMIC02 con cero, no letra O)
@@ -465,7 +467,11 @@ CONFIGS = {
         "filtro": _filtro_ref_import,
         "msg_sin_datos": "Sin tecnologías de refinería/importación",
         "agrupar_por": "TECNOLOGIA",
-        "color_fn": generar_colores_tecnologias,
+        # Para refinerías separamos en (refinería × combustible) y aplicamos
+        # una gama por refinería (un color base por refinería, un tono por
+        # combustible). Las importaciones (IMP*) conservan su color fijo.
+        "split_refineries_by_fuel": True,
+        "color_fn": _color_ref_import,
         "variable_default": "ProductionByTechnology",
     },
     "ref_consumo": {
@@ -846,7 +852,9 @@ CONFIGS = {
         "filtro": _filtro_h2,
         "msg_sin_datos": "Sin tecnologías que producen hidrógeno (FUEL=HDG/HDG002)",
         "agrupar_por": "TECNOLOGIA",
-        "color_fn": generar_colores_tecnologias,
+        # Paleta dedicada — verde para electrólisis (UPSALK/UPSPEM), gris para
+        # SMR sin captura (UPSSMR), azul para SMR con CCS (UPSSMRCCS).
+        "color_fn": _color_h2_produccion,
         "variable_default": "ProductionByTechnology",
     },
     "cap_electrolisis_verde": {

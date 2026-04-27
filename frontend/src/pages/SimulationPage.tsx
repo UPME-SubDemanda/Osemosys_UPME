@@ -28,6 +28,7 @@ import { Button } from "@/shared/components/Button";
 import { DataTable } from "@/shared/components/DataTable";
 import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
 import { Modal } from "@/shared/components/Modal";
+import { RunTimingCell } from "@/shared/components/RunTimingCell";
 import { paths } from "@/routes/paths";
 import type {
   CsvSimulationResult,
@@ -1774,19 +1775,23 @@ export function SimulationPage() {
               render: (r) => (r.queue_position ?? "—"),
             },
             {
-              key: "queued_at",
-              header: "Encolado",
-              render: (r) => new Date(r.queued_at).toLocaleString(),
-            },
-            {
-              key: "started_at",
-              header: "Inicio",
-              render: (r) => (r.started_at ? new Date(r.started_at).toLocaleString() : "—"),
-            },
-            {
-              key: "finished_at",
-              header: "Fin",
-              render: (r) => (r.finished_at ? new Date(r.finished_at).toLocaleString() : "—"),
+              key: "timing",
+              header: "Tiempo",
+              render: (r) => {
+                // Si está corriendo (sin finished_at) usamos liveTickMs para
+                // que el cronómetro avance.
+                const isRunning = r.status === "RUNNING" && !!r.started_at && !r.finished_at;
+                return (
+                  <RunTimingCell
+                    startedAt={r.started_at ?? null}
+                    finishedAt={r.finished_at ?? null}
+                    queuedAt={r.queued_at}
+                    liveTickMs={isRunning ? liveTickMs : undefined}
+                    onClick={() => void loadLogs(r.id)}
+                    title="Ver registros (logs) de la ejecución"
+                  />
+                );
+              },
             },
             {
               key: "actions",
@@ -1840,10 +1845,8 @@ export function SimulationPage() {
                   ),
                   logs: svg(
                     <>
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                      <path d="M14 2v6h6" />
-                      <path d="M9 13h6" />
-                      <path d="M9 17h6" />
+                      <polyline points="4 17 10 11 4 5" />
+                      <line x1="12" y1="19" x2="20" y2="19" />
                     </>,
                   ),
                   alert: svg(

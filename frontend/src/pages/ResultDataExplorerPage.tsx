@@ -7,8 +7,8 @@
  * ``/simulations/{jobId}/output-values/wide/facets``,
  * ``/simulations/{jobId}/output-values/export``.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ColumnFilterPopover } from "@/shared/components/ColumnFilterPopover";
 import { YearRuleFilterPopover } from "@/shared/components/YearRuleFilterPopover";
 import { Button } from "@/shared/components/Button";
@@ -80,6 +80,7 @@ function formatCellValue(v: number): string {
 export function ResultDataExplorerPage() {
   const { runId } = useParams<{ runId: string }>();
   const jobId = useMemo(() => Number(runId), [runId]);
+  const [urlSearchParams, setUrlSearchParams] = useSearchParams();
 
   const [jobLabel, setJobLabel] = useState<string>("");
 
@@ -307,6 +308,83 @@ export function ResultDataExplorerPage() {
     },
     [applyPreset],
   );
+
+  // ------------------------------------------------------------------
+  //  Filtros desde querystring (botón "Ver Datos de Resultados" en chart)
+  //  Resuelve prefijos cuando ``facets`` esté cargado y aplica una sola vez.
+  // ------------------------------------------------------------------
+  const querystringAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (querystringAppliedRef.current) return;
+    if (!Number.isFinite(jobId)) return;
+
+    const parseList = (key: string): string[] => {
+      const raw = urlSearchParams.get(key);
+      if (!raw) return [];
+      return raw.split(",").map((s) => s.trim()).filter(Boolean);
+    };
+
+    const variableNames = parseList("variable_names");
+    const technologyNames = parseList("technology_names");
+    const technologyPrefixes = parseList("technology_prefixes");
+    const fuelNames = parseList("fuel_names");
+    const fuelPrefixes = parseList("fuel_prefixes");
+    const emissionNames = parseList("emission_names");
+
+    const hasAnything =
+      variableNames.length ||
+      technologyNames.length ||
+      technologyPrefixes.length ||
+      fuelNames.length ||
+      fuelPrefixes.length ||
+      emissionNames.length;
+    if (!hasAnything) {
+      querystringAppliedRef.current = true;
+      return;
+    }
+
+    // Si hay prefijos pendientes de resolver, esperar a que ``facets`` cargue.
+    const needsFacetResolve =
+      (technologyPrefixes.length > 0 && !facets?.technology_names) ||
+      (fuelPrefixes.length > 0 && !facets?.fuel_names);
+    if (needsFacetResolve) return;
+
+    const next: Record<DimFilterKey, string[]> = {
+      variable_names: variableNames.length ? variableNames : [],
+      region_names: [],
+      technology_names: [],
+      fuel_names: [],
+      emission_names: emissionNames.length ? emissionNames : [],
+      timeslice_names: [],
+      mode_names: [],
+      storage_names: [],
+    };
+
+    if (technologyNames.length) {
+      next.technology_names = technologyNames;
+    } else if (technologyPrefixes.length && facets?.technology_names) {
+      next.technology_names = resolveTechnologyNames(
+        technologyPrefixes,
+        facets.technology_names,
+      );
+    }
+
+    if (fuelNames.length) {
+      next.fuel_names = fuelNames;
+    } else if (fuelPrefixes.length && facets?.fuel_names) {
+      next.fuel_names = resolveFuelNames(fuelPrefixes, facets.fuel_names);
+    }
+
+    setColumnFilters(next);
+    setActiveCategory(null);
+    setActiveSubCategory(null);
+    setPage(1);
+    querystringAppliedRef.current = true;
+
+    // Limpia los query params del URL para no re-aplicar al navegar.
+    setUrlSearchParams(new URLSearchParams(), { replace: true });
+  }, [jobId, urlSearchParams, facets, setUrlSearchParams]);
 
   // Preset activo (madre + submadre) para derivar el universo de variables
   // disponible en el tercer nivel y manejar el click de "Todas".
@@ -537,26 +615,38 @@ export function ResultDataExplorerPage() {
 
   const handleResetColumnModes = useCallback(() => setColumnModes({}), []);
 
-  const handleExport = useCallback(async () => {
-    if (!Number.isFinite(jobId)) return;
-    setExporting(true);
-    try {
-      const blob = await resultsDataApi.exportOutputValues(jobId, buildFilters());
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `simulation_${jobId}_results.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Error exportando";
-      setError(msg);
-    } finally {
-      setExporting(false);
-    }
-  }, [jobId, buildFilters]);
+  /**
+   * Exporta los resultados a Excel.
+   *
+   * @param applyFilters - Si ``true`` (default), aplica los filtros activos del
+   *   Data Explorer (dimensiones, años, categorías). Si ``false``, exporta
+   *   TODA la simulación sin filtros, ignorando lo seleccionado en pantalla.
+   */
+  const handleExport = useCallback(
+    async (applyFilters = true) => {
+      if (!Number.isFinite(jobId)) return;
+      setExporting(true);
+      try {
+        const filters = applyFilters ? buildFilters() : {};
+        const blob = await resultsDataApi.exportOutputValues(jobId, filters);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const suffix = applyFilters && hasActiveFilters ? "_filtered" : "";
+        a.download = `simulation_${jobId}_results${suffix}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Error exportando";
+        setError(msg);
+      } finally {
+        setExporting(false);
+      }
+    },
+    [jobId, buildFilters, hasActiveFilters],
+  );
 
   const handleExportCsvZip = useCallback(async () => {
     if (!Number.isFinite(jobId)) return;
@@ -633,9 +723,12 @@ export function ResultDataExplorerPage() {
             onToggleAutoHide={setAutoHideEnabled}
             onResetAll={handleResetColumnModes}
           />
-          <Button onClick={handleExport} disabled={exporting || loading}>
-            {exporting ? "Generando Excel…" : "Exportar a Excel"}
-          </Button>
+          <ExportExcelMenu
+            hasActiveFilters={hasActiveFilters}
+            exporting={exporting}
+            disabled={loading}
+            onExport={handleExport}
+          />
           <Button
             onClick={handleExportCsvZip}
             disabled={exportingCsvZip || loading}
@@ -909,6 +1002,163 @@ export function ResultDataExplorerPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Export Excel: split-button con submenú cuando hay filtros activos ────
+
+type ExportExcelMenuProps = {
+  hasActiveFilters: boolean;
+  exporting: boolean;
+  disabled: boolean;
+  onExport: (applyFilters: boolean) => void;
+};
+
+function ExportExcelMenu({
+  hasActiveFilters,
+  exporting,
+  disabled,
+  onExport,
+}: ExportExcelMenuProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Cerrar el menú cuando el usuario hace click fuera.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (ev: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(ev.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
+  // Sin filtros: botón simple — exportar todo equivale a exportar filtrado.
+  if (!hasActiveFilters) {
+    return (
+      <Button onClick={() => onExport(true)} disabled={exporting || disabled}>
+        {exporting ? "Generando Excel…" : "Exportar a Excel"}
+      </Button>
+    );
+  }
+
+  // Con filtros activos: split-button.  El click principal exporta SOLO los
+  // filtrados (el caso esperado por el usuario); el chevron despliega el
+  // submenú con la opción de "Todos los datos (sin filtros)".
+  return (
+    <div ref={containerRef} style={{ position: "relative", display: "inline-flex" }}>
+      <Button
+        onClick={() => onExport(true)}
+        disabled={exporting || disabled}
+        title="Exportar sólo las filas que cumplen los filtros activos"
+        style={{
+          borderTopRightRadius: 0,
+          borderBottomRightRadius: 0,
+        }}
+      >
+        {exporting ? "Generando Excel…" : "Exportar Excel (filtrado)"}
+      </Button>
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        disabled={exporting || disabled}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        title="Más opciones de exportación"
+        className="inline-flex items-center justify-center px-2"
+        style={{
+          borderTopLeftRadius: 0,
+          borderBottomLeftRadius: 0,
+          borderLeft: "1px solid rgba(255,255,255,0.18)",
+          background: "var(--btn-primary-bg, #1f2937)",
+          color: "var(--btn-primary-fg, #e5e7eb)",
+          border: "1px solid rgba(255,255,255,0.18)",
+          borderTopRightRadius: 6,
+          borderBottomRightRadius: 6,
+          cursor: exporting || disabled ? "not-allowed" : "pointer",
+          opacity: exporting || disabled ? 0.6 : 1,
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {menuOpen ? (
+        <div
+          role="menu"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            right: 0,
+            zIndex: 30,
+            minWidth: 260,
+            background: "rgba(20,20,24,0.98)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 8,
+            boxShadow: "0 8px 28px rgba(0,0,0,0.5)",
+            padding: 6,
+            display: "grid",
+            gap: 2,
+          }}
+        >
+          <MenuItem
+            title="Sólo datos filtrados"
+            description="Aplica los filtros de dimensión, año y categoría activos en pantalla."
+            onClick={() => {
+              setMenuOpen(false);
+              onExport(true);
+            }}
+          />
+          <MenuItem
+            title="Todos los datos (sin filtros)"
+            description="Ignora los filtros activos y exporta la simulación completa."
+            onClick={() => {
+              setMenuOpen(false);
+              onExport(false);
+            }}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MenuItem({
+  title,
+  description,
+  onClick,
+}: {
+  title: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      style={{
+        display: "grid",
+        gap: 2,
+        padding: "8px 10px",
+        textAlign: "left",
+        background: "transparent",
+        border: "none",
+        borderRadius: 6,
+        color: "inherit",
+        cursor: "pointer",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+    >
+      <span style={{ fontSize: 13, fontWeight: 600 }}>{title}</span>
+      <span style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35 }}>
+        {description}
+      </span>
+    </button>
   );
 }
 

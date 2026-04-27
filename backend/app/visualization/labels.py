@@ -758,21 +758,27 @@ DISPLAY_NAMES: dict[str, str] = {
     "UPSREF_BAR": "Refinería Barrancabermeja",
     "UPSREF_CAR": "Refinería Cartagena",
     # ── UPSTREAM y Refinación ─────────────────
-    "UPSALK": "Electrólisis Alcalina",
-    "UPSPEM": "Electrólisis PEM",
-    "UPSSAF": "SAF Hidroprocesado",
-    "UPSHDGRST": "Exportación H2",
-    "UPSBJS": "Mezcla JET-SAF",
-    # ── H2 consumo: etiquetas de grupo para leyenda ───────────────────────
-    "DEMINDHDGBOI_HIG": "Demanda H2 Petroquímica (derivados)",
-    "DEMINDHDGBOI_LOW": "H2 Industria - calor directo",
-    "DEMTRAHDGTCK_CSG": "H2 Tractocamiones.",
-    "DEMTRAHDGBUS_URB": "Estaciones de servicio H2",
-    "DEMTRAHDGFWD":     "Estaciones de servicio H2",
-    "DEMTRAHDGLDV":     "Estaciones de servicio H2",
-    "DEMTRAHDGMIC":     "Estaciones de servicio H2",
-    "DEMTRAHDGSTT":     "Estaciones de servicio H2",
-    "DEMTRAHDGTAX":     "Estaciones de servicio H2",
+    "UPSALK":    "Electrólisis Alcalina",
+    "UPSPEM":    "Electrólisis PEM",
+    "UPSSMR":    "Reformado Vapor (SMR)",
+    "UPSSMRCCS": "Reformado Vapor + CCS (H₂ azul)",
+    "UPSSAF":    "SAF Hidroprocesado",
+    "UPSHDGRST": "Exportación H₂",
+    "UPSBJS":    "Mezcla JET-SAF",
+    # ── H₂ — etiquetas finales para leyenda (sobre-escriben las anteriores) ──
+    # Cada serie tiene su propia etiqueta para que la leyenda sea distinguible.
+    "DEMDERHDG":         "H₂ Petroquímica (derivados)",
+    "DEMINDHDGBOI_HIG":  "H₂ Industria - Caldera Alta",
+    "DEMINDHDGBOI_LOW":  "H₂ Industria - Caldera Baja",
+    "DEMINDHDGFUR":      "H₂ Industria - Horno",
+    "DEMTRAHDGTCK_CSG":  "H₂ Tractocamión",
+    "DEMTRAHDGSTT":      "H₂ Semitractor (FCEV)",
+    "DEMTRAHDGBUS_IMU":  "H₂ Bus Intermunicipal",
+    "DEMTRAHDGBUS_URB":  "H₂ Bus Urbano",
+    "DEMTRAHDGMIC":      "H₂ Microbús",
+    "DEMTRAHDGFWD":      "H₂ Vehículo 4x4",
+    "DEMTRAHDGLDV":      "H₂ Vehículo Ligero (FCEV)",
+    "DEMTRAHDGTAX":      "H₂ Taxi",
 }
 
 

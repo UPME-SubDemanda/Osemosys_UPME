@@ -91,6 +91,10 @@ export function ReportDashboardPage() {
   const [renameOverrides, setRenameOverrides] = useState<Record<number, string>>({});
   const [renameOpen, setRenameOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  // Rango de años persistido en el reporte. ``null`` = sin tope por ese lado.
+  const [yearFrom, setYearFrom] = useState<number | null>(null);
+  const [yearTo, setYearTo] = useState<number | null>(null);
+  const [savingYears, setSavingYears] = useState(false);
 
   // Ancho por gráfica (single-scenario): "half" = 50%, "full" = 100%.
   // Las facets siempre 100%.
@@ -107,6 +111,8 @@ export function ReportDashboardPage() {
       setScenarioAliases(
         Array.isArray(r.scenario_aliases) ? [...r.scenario_aliases] : [],
       );
+      setYearFrom(typeof r.year_from === "number" ? r.year_from : null);
+      setYearTo(typeof r.year_to === "number" ? r.year_to : null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "No se pudo cargar el reporte.");
       setReport(null);
@@ -761,6 +767,31 @@ export function ReportDashboardPage() {
     }
   };
 
+  // ── Persistir rango de años (debounced — guarda al perder foco) ──
+  const persistYearRange = async (
+    nextFrom: number | null,
+    nextTo: number | null,
+  ) => {
+    if (!report) return;
+    // Validar coherencia.
+    if (nextFrom != null && nextTo != null && nextFrom > nextTo) {
+      alert("El año inicial no puede ser mayor que el año final.");
+      return;
+    }
+    setSavingYears(true);
+    try {
+      await savedChartsApi.updateReport(report.id, {
+        year_from: nextFrom,
+        year_to: nextTo,
+      });
+      await refreshReport();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "No se pudo guardar el rango.");
+    } finally {
+      setSavingYears(false);
+    }
+  };
+
   // ── Labels de jobs (para los inputs de renombrar) ──
   const jobLabelById = useMemo(() => {
     const m = new Map<number, string>();
@@ -843,9 +874,14 @@ export function ReportDashboardPage() {
             ),
           }
         : { items: flatItems, fmt };
-      const payload = hasOverrides
-        ? { ...basePayload, job_display_overrides: overridesForPayload }
-        : basePayload;
+      const yearPayload: { year_from?: number; year_to?: number } = {};
+      if (yearFrom != null) yearPayload.year_from = yearFrom;
+      if (yearTo != null) yearPayload.year_to = yearTo;
+      const payload = {
+        ...basePayload,
+        ...(hasOverrides ? { job_display_overrides: overridesForPayload } : {}),
+        ...yearPayload,
+      };
       const { blob, filename } = await savedChartsApi.generateReport(payload);
       downloadBlob(blob, filename);
     } catch (err: unknown) {
@@ -1105,6 +1141,79 @@ export function ReportDashboardPage() {
         </div>
       </div>
 
+      {/* ── Rango de años (filtra dashboard + export) ── */}
+      <section className="rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="m-0 text-sm font-semibold uppercase tracking-wider text-cyan-200">
+              Rango de años
+            </h2>
+            <p className="m-0 mt-1 text-xs text-cyan-200/70">
+              Filtra todas las gráficas del dashboard y del ZIP exportado. Deja
+              ambos vacíos para mostrar todos los años (predeterminado).
+            </p>
+          </div>
+          {savingYears ? (
+            <span className="text-[10px] uppercase tracking-wider text-cyan-300/70">
+              Guardando…
+            </span>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="grid gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-cyan-300/80">
+              Desde
+            </span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1900}
+              max={2200}
+              value={yearFrom ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setYearFrom(raw === "" ? null : Number(raw));
+              }}
+              onBlur={() => void persistYearRange(yearFrom, yearTo)}
+              placeholder="todos"
+              className="w-28 rounded border border-cyan-500/40 bg-slate-950/60 px-2 py-1 text-sm text-cyan-100 placeholder:text-cyan-700"
+            />
+          </label>
+          <label className="grid gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-cyan-300/80">
+              Hasta
+            </span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1900}
+              max={2200}
+              value={yearTo ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setYearTo(raw === "" ? null : Number(raw));
+              }}
+              onBlur={() => void persistYearRange(yearFrom, yearTo)}
+              placeholder="todos"
+              className="w-28 rounded border border-cyan-500/40 bg-slate-950/60 px-2 py-1 text-sm text-cyan-100 placeholder:text-cyan-700"
+            />
+          </label>
+          {(yearFrom != null || yearTo != null) ? (
+            <button
+              type="button"
+              onClick={() => {
+                setYearFrom(null);
+                setYearTo(null);
+                void persistYearRange(null, null);
+              }}
+              className="rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[11px] font-medium text-cyan-200 hover:bg-cyan-500/20"
+            >
+              Limpiar
+            </button>
+          ) : null}
+        </div>
+      </section>
+
       {/* ── Escenarios globales ── */}
       <section className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4 space-y-3">
         <div>
@@ -1240,6 +1349,8 @@ export function ReportDashboardPage() {
               globalScenarios.length,
             )}
             scenarioAliases={draftAliases ?? scenarioAliases}
+            yearFrom={yearFrom}
+            yearTo={yearTo}
           />
         ) : (
           // ── Modo lectura: tabs + tarjetas con gráficas renderizadas ──
@@ -1302,6 +1413,8 @@ export function ReportDashboardPage() {
                               setCardWidthById={setCardWidthById}
                               resolveAliasSuffix={resolveAliasSuffix}
                               resolveScenarioNames={resolveScenarioNames}
+                              yearFrom={yearFrom}
+                              yearTo={yearTo}
                             />
                           </div>
                         ) : null}
@@ -1331,6 +1444,8 @@ export function ReportDashboardPage() {
                                   setCardWidthById={setCardWidthById}
                                   resolveAliasSuffix={resolveAliasSuffix}
                                   resolveScenarioNames={resolveScenarioNames}
+                                  yearFrom={yearFrom}
+                                  yearTo={yearTo}
                                 />
                               )}
                             </div>
@@ -1411,6 +1526,8 @@ export function ReportDashboardPage() {
                             setCardWidthById={setCardWidthById}
                             resolveAliasSuffix={resolveAliasSuffix}
                             resolveScenarioNames={resolveScenarioNames}
+                            yearFrom={yearFrom}
+                            yearTo={yearTo}
                           />
                         );
                       })()}
@@ -1575,6 +1692,8 @@ function ChartGrid({
   setCardWidthById,
   resolveAliasSuffix,
   resolveScenarioNames,
+  yearFrom,
+  yearTo,
 }: {
   chartIds: number[];
   templatesById: Map<number, SavedChartTemplate>;
@@ -1583,6 +1702,8 @@ function ChartGrid({
   setCardWidthById: Dispatch<SetStateAction<Record<number, "half" | "full">>>;
   resolveAliasSuffix?: (tpl: SavedChartTemplate) => string | undefined;
   resolveScenarioNames?: (tpl: SavedChartTemplate) => string[] | undefined;
+  yearFrom?: number | null;
+  yearTo?: number | null;
 }) {
   return (
     <div className="flex flex-wrap gap-3">
@@ -1651,6 +1772,8 @@ function ChartGrid({
               compactToolbar
               scenarioAliasSuffix={resolveAliasSuffix?.(tpl)}
               scenarioNames={resolveScenarioNames?.(tpl)}
+              yearFrom={yearFrom}
+              yearTo={yearTo}
             />
           </div>
         );
@@ -1707,6 +1830,8 @@ type EditorProps = {
   onChangeSlotOverride: (templateId: number, slots: number[] | null) => void;
   globalScenariosLen: number;
   scenarioAliases: string[];
+  yearFrom?: number | null;
+  yearTo?: number | null;
 };
 
 function DashboardVisualEditor(props: EditorProps) {
@@ -1744,6 +1869,8 @@ function DashboardVisualEditor(props: EditorProps) {
     onChangeSlotOverride,
     globalScenariosLen,
     scenarioAliases,
+    yearFrom,
+    yearTo,
   } = props;
   const scenarioLabel = (idx: number): string => {
     const a = scenarioAliases[idx]?.trim();
@@ -2077,6 +2204,8 @@ function DashboardVisualEditor(props: EditorProps) {
               return a && a.length > 0 ? a : `Escenario ${s + 1}`;
             });
           })()}
+          yearFrom={yearFrom}
+          yearTo={yearTo}
         />
       </div>
     );

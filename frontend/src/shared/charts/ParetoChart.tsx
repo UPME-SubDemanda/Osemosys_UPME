@@ -6,6 +6,7 @@ import {
   onHighchartsExportError,
 } from './chartExportingShared';
 import { TOOLTIP_BASE_OPTIONS, fmtValue } from './chartTooltips';
+import { formatAxis3Sig } from './numberFormat';
 import HighchartsReact from 'highcharts-react-official';
 import type { ParetoChartResponse } from '../../types/domain';
 import type { ChartSelection } from './ChartSelector';
@@ -48,7 +49,12 @@ export const ParetoChart: React.FC<ParetoChartProps> = ({ data, serverExport }) 
             text: data.yAxisLabel,
             style: { color: '#94a3b8', fontSize: '13px' },
           },
-          labels: { style: { color: '#94a3b8', fontSize: '12px' } },
+          labels: {
+            style: { color: '#94a3b8', fontSize: '12px' },
+            formatter: function (this: Highcharts.AxisLabelsFormatterContextObject) {
+              return formatAxis3Sig(this.value as number);
+            },
+          },
           gridLineColor: '#334155',
         },
         {

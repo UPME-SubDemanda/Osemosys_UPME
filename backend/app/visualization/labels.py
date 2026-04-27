@@ -247,10 +247,12 @@ DISPLAY_NAMES: dict[str, str] = {
     "EMICO":    "CO",
     "EMICOVDM": "COV",
     "EMINH3":   "NH₃",
-    "EMINOx":   "NOₓ",
+    # ``NOx`` / ``SOx`` con "x" literal (no Unicode subscript ₓ U+2093):
+    # la fuente Nunito y muchas otras carecen del glyph y aparece como □.
+    "EMINOx":   "NOx",
     "EMIPM10":  "PM10",
     "EMIPM2_5": "PM2.5",
-    "EMISOx":   "SOₓ",
+    "EMISOx":   "SOx",
     # ── Backstop ──────────────────────────────────────────────────────────
     "BACKSTOP 1": "Backup 1",
     "BACKSTOP 2": "Backup 2",
@@ -763,7 +765,7 @@ DISPLAY_NAMES: dict[str, str] = {
     "UPSSMR":    "Reformado Vapor (SMR)",
     "UPSSMRCCS": "Reformado Vapor + CCS (H₂ azul)",
     "UPSSAF":    "SAF Hidroprocesado",
-    "UPSHDGRST": "Exportación H₂",
+    "UPSHDGRST": "Estaciones de Servicio H₂",
     "UPSBJS":    "Mezcla JET-SAF",
     # ── H₂ — etiquetas finales para leyenda (sobre-escriben las anteriores) ──
     # Cada serie tiene su propia etiqueta para que la leyenda sea distinguible.
@@ -779,6 +781,9 @@ DISPLAY_NAMES: dict[str, str] = {
     "DEMTRAHDGFWD":      "H₂ Vehículo 4x4",
     "DEMTRAHDGLDV":      "H₂ Vehículo Ligero (FCEV)",
     "DEMTRAHDGTAX":      "H₂ Taxi",
+    # Demanda de exportación: pseudo-demanda que el modelo debe cumplir y que
+    # se "despacha" mediante UPSHDGRST en la cara upstream.
+    "DEMEXPHDG":         "Exportación H₂",
 }
 
 

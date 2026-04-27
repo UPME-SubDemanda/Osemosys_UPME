@@ -278,10 +278,10 @@ COLORES_EMISIONES = {
     "EMICO":     "#e91e8c",  # CO - magenta/fucsia
     "EMICOVDM":  "#7f7f7f",  # COV - gris
     "EMINH3":    "#aec7e8",  # NH₃ - azul claro
-    "EMINOx":    "#7b3f00",  # NOₓ - marrón
+    "EMINOx":    "#7b3f00",  # NOx - marrón
     "EMIPM10":   "#ff69b4",  # PM10 - rosa
     "EMIPM2_5":  "#d62728",  # PM2.5 - rojo medio
-    "EMISOx":    "#9467bd",  # SOₓ - violeta
+    "EMISOx":    "#9467bd",  # SOx - violeta
 }
 
 
@@ -340,7 +340,8 @@ COLOR_MAP_H2_CONSUMO: dict[str, str] = {
     "DEMTRAHDGLDV":      "#facc15",  # Vehículo ligero (FCEV) — amarillo
     "DEMTRAHDGTAX":      "#eab308",  # Taxi — amarillo dorado
     # ── Otros usos ────────────────────────────────────────────────────────
-    "UPSHDGRST":         "#7c3aed",  # Exportación H₂ — violeta vibrante
+    "UPSHDGRST":         "#7c3aed",  # Exportación H₂ (upstream) — violeta vibrante
+    "DEMEXPHDG":         "#a78bfa",  # Exportación H₂ (demanda)  — violeta claro
     # Las técnicas de producción pueden aparecer también en UseByTechnology
     # (consumo eléctrico de los electrolizadores). Mantenemos los colores de
     # producción para que la lectura sea consistente entre los dos charts.

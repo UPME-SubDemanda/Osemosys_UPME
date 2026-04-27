@@ -224,7 +224,7 @@ export const simulationApi = {
   async exportChart(
     jobId: number,
     selection: ChartSelection,
-    fmt: "png" | "svg" | "csv",
+    fmt: "png" | "svg" | "csv" | "xlsx",
   ): Promise<{ blob: Blob; filename: string }> {
     const params: Record<string, string> = {
       tipo: selection.tipo,
@@ -236,6 +236,15 @@ export const simulationApi = {
     if (selection.loc) params.loc = selection.loc;
     if (selection.variable) params.variable = selection.variable;
     if (selection.agrupar_por) params.agrupar_por = selection.agrupar_por;
+    // Solo aplican cuando view_mode === 'table'
+    if (selection.viewMode === "table") {
+      if (typeof selection.tablePeriodYears === "number" && selection.tablePeriodYears >= 1) {
+        params.table_period_years = String(selection.tablePeriodYears);
+      }
+      if (selection.tableCumulative) {
+        params.table_cumulative = "true";
+      }
+    }
 
     const response = await httpClient.get(`/visualizations/${jobId}/export-chart`, {
       params,
@@ -244,7 +253,7 @@ export const simulationApi = {
     });
     const blob = response.data as Blob;
     const disposition = response.headers["content-disposition"];
-    const ext = fmt === "csv" ? "csv" : fmt === "svg" ? "svg" : "png";
+    const ext = fmt;
     let filename = `grafica_${jobId}.${ext}`;
     if (typeof disposition === "string") {
       const match = /filename="?([^";\n]+)"?/i.exec(disposition);

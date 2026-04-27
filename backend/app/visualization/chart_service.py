@@ -264,6 +264,85 @@ def _year_keep_indices(
     return keep
 
 
+def apply_period_years(chart: Any, period: int | None) -> None:
+    """Filtra ``categories`` (años) tomando uno cada ``period``, in-place.
+
+    El primer año visible es el primer índice donde el offset (idx desde el
+    primer año-categoría) es múltiplo de ``period``. El último año siempre
+    se preserva (aunque rompa la cadencia) para que la tabla cierre en el
+    horizonte real del modelo.
+
+    Categorías no parseables como año se preservan tal cual.
+    Si ``period`` es ``None`` o ``< 2``, no se hace nada.
+    """
+    if period is None or period < 2:
+        return
+    cats = getattr(chart, "categories", None)
+    series = getattr(chart, "series", None)
+    if not cats or series is None:
+        return
+    # Encontrar índices de años parseables.
+    year_indices: list[int] = []
+    year_values: list[int] = []
+    for i, c in enumerate(cats):
+        try:
+            y = int(str(c))
+            year_indices.append(i)
+            year_values.append(y)
+        except (TypeError, ValueError):
+            continue
+    if not year_indices:
+        return
+    base = year_values[0]
+    keep = set()
+    # No-año (otros): siempre conservar.
+    for i in range(len(cats)):
+        if i not in year_indices:
+            keep.add(i)
+    # Cada ``period`` años desde el primer año visible.
+    for idx, year in zip(year_indices, year_values):
+        if (year - base) % period == 0:
+            keep.add(idx)
+    # Garantizar que el último año esté presente.
+    keep.add(year_indices[-1])
+    keep_sorted = sorted(keep)
+    chart.categories = [cats[i] for i in keep_sorted]
+    for s in series:
+        data = getattr(s, "data", None)
+        if data is None:
+            continue
+        s.data = [data[i] for i in keep_sorted if i < len(data)]
+
+
+def apply_cumulative_series(chart: Any) -> None:
+    """Reemplaza cada ``series.data`` por su suma acumulada, in-place.
+
+    Útil para tablas de "capacidad acumulada", "emisiones acumuladas", etc.
+    NaN/None se trata como 0 para no destruir el acumulador.
+    """
+    import math
+
+    series = getattr(chart, "series", None)
+    if not series:
+        return
+    for s in series:
+        data = getattr(s, "data", None)
+        if data is None:
+            continue
+        cum: list[float] = []
+        running = 0.0
+        for v in data:
+            try:
+                f = float(v)
+                if not math.isfinite(f):
+                    f = 0.0
+            except (TypeError, ValueError):
+                f = 0.0
+            running += f
+            cum.append(running)
+        s.data = cum
+
+
 def filter_chart_by_year_range(
     chart: Any,
     year_from: int | None,
@@ -1079,11 +1158,82 @@ def build_comparison_facet_data(
                 series=chart.series,
             )
         )
+    # Unifica el eje X entre todos los facets: si un escenario llega hasta
+    # 2030 y otro hasta 2033, ambos paneles muestran 2022-2033 con 0 en los
+    # años faltantes para el escenario corto. Mantener ejes idénticos hace
+    # que las comparaciones visuales sean directas.
+    _align_facet_x_axis(facets)
     return CompareChartFacetResponse(
         title=title,
         facets=facets,
         yAxisLabel=y_label,
     )
+
+
+def _align_facet_x_axis(facets: list[FacetData]) -> None:
+    """Unifica el eje X entre todos los facets, in-place.
+
+    1. Construye la unión ordenada de todas las categorías (ordena como int
+       si todas son parseables como año, sino orden lexicográfico).
+    2. Para cada facet, reescribe ``categories`` con la unión y rellena
+       ``series.data`` con **None** en las posiciones que ese escenario no
+       tenía.
+
+    ``None`` (serializado como ``null`` en JSON) es importante porque:
+      - **Líneas**: ``null`` crea un *gap* (Highcharts/matplotlib no traza
+        el punto) en vez de hacer caer la línea a 0.
+      - **Barras apiladas**: ``null`` no se dibuja como barra ni contribuye
+        al total apilado — los totales (``StackItemObject.total``) no se
+        contaminan.
+
+    Si solo hay 0 o 1 facet, o todos comparten exactamente el mismo eje, no
+    hace nada.
+    """
+    if not facets or len(facets) < 2:
+        return
+    # Cortocircuito: si todos los facets ya comparten exactamente las mismas
+    # categorías en el mismo orden, no hacemos nada.
+    first_cats = list(facets[0].categories)
+    if all(list(f.categories) == first_cats for f in facets):
+        return
+
+    # 1) Construir la unión.
+    union_set: set[str] = set()
+    for f in facets:
+        for c in f.categories:
+            union_set.add(str(c))
+    # ¿Todas las categorías son parseables como entero (año)?
+    try:
+        as_ints = sorted({int(c) for c in union_set})
+        union: list[str] = [str(y) for y in as_ints]
+    except ValueError:
+        union = sorted(union_set)
+
+    union_index: dict[str, int] = {c: i for i, c in enumerate(union)}
+    n = len(union)
+
+    # 2) Reescribir cada facet con la unión. Posiciones faltantes → None.
+    for f in facets:
+        old_cats = [str(c) for c in f.categories]
+        old_index_in_union = [union_index.get(c) for c in old_cats]
+        for s in f.series:
+            new_data: list[float | None] = [None] * n
+            for i, target in enumerate(old_index_in_union):
+                if target is None or i >= len(s.data):
+                    continue
+                v = s.data[i]
+                if v is None:
+                    new_data[target] = None
+                    continue
+                try:
+                    fv = float(v)
+                    # NaN/Infinity también se representan como None.
+                    import math as _math
+                    new_data[target] = None if not _math.isfinite(fv) else fv
+                except (TypeError, ValueError):
+                    new_data[target] = None
+            s.data = new_data
+        f.categories = list(union)
 
 
 def _procesar_bloque_comparacion(
@@ -1920,7 +2070,10 @@ def render_chart_visualization_bytes(
     fmt: str,
     view_mode: str = "column",
 ) -> bytes:
-    """Genera PNG o SVG con Matplotlib. ``view_mode``: ``column`` | ``line`` | ``area``."""
+    """Genera PNG o SVG con Matplotlib.
+
+    ``view_mode``: ``column`` | ``line`` | ``area`` | ``table``.
+    """
     if fmt not in ("png", "svg"):
         raise ValueError("fmt debe ser 'png' o 'svg'")
     title = chart.title
@@ -1928,8 +2081,217 @@ def render_chart_visualization_bytes(
         buf = _render_line_chart(chart, title, fmt=fmt)
     elif view_mode == "area":
         buf = _render_stacked_area(chart, title, fmt=fmt)
+    elif view_mode == "table":
+        buf = _render_table_image(chart, title, fmt=fmt)
     else:
         buf = _render_stacked_bar(chart, title, fmt=fmt)
+    return buf.getvalue()
+
+
+def _render_table_image(
+    chart: ChartDataResponse,
+    title: str,
+    fmt: str = "png",
+) -> "io.BytesIO":
+    """Renderiza un ChartDataResponse como **tabla** (matplotlib ``ax.table``).
+
+    Layout:
+      * Header: categorías (años o periodos) en columnas.
+      * Primera columna: nombre de serie.
+      * Cuerpo: valores formateados con ``format_axis_3sig`` (≥ 3 cifras sig).
+      * Última fila: "Total" con suma vertical por columna.
+
+    El swatch de color por serie se aplica como ``cellColours`` en la
+    primera columna (celda con el color de la serie + texto blanco).
+    """
+    import io
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    categories = list(chart.categories)
+    series = list(chart.series)
+    n_cols = 1 + len(categories)  # 1 columna para "Tecnología/Categoría"
+    n_rows_body = len(series)
+
+    # Cuerpo de la tabla
+    cell_text: list[list[str]] = []
+    for s in series:
+        row = [s.name]
+        for i in range(len(categories)):
+            v = s.data[i] if i < len(s.data) else None
+            row.append(format_axis_3sig(v))
+        cell_text.append(row)
+
+    # Fila Total (suma vertical por columna)
+    totals: list[float] = []
+    for i in range(len(categories)):
+        col_total = 0.0
+        for s in series:
+            try:
+                f = float(s.data[i]) if i < len(s.data) else 0.0
+                if f != f:  # NaN
+                    f = 0.0
+            except (TypeError, ValueError):
+                f = 0.0
+            col_total += f
+        totals.append(col_total)
+    if n_rows_body > 0:
+        cell_text.append(["Total"] + [format_axis_3sig(t) for t in totals])
+
+    # Cabecera
+    col_labels = ["Tecnología"] + [str(c) for c in categories]
+
+    # Colores de celdas
+    header_color = "#1e293b"  # fondo cabecera (slate)
+    header_text_color = "#ffffff"
+    alt_row = "#f8fafc"
+    base_row = "#ffffff"
+    total_row = "#e2e8f0"
+
+    # Cell colours: misma forma que cell_text (filas × columnas).
+    n_total_rows = len(cell_text)
+    cell_colours: list[list[str]] = []
+    for r_idx in range(n_total_rows):
+        is_total = r_idx == n_total_rows - 1 and n_rows_body > 0
+        if is_total:
+            row_colors = [total_row] * n_cols
+        else:
+            base = alt_row if r_idx % 2 == 1 else base_row
+            row_colors = [base] * n_cols
+            # Primera columna con color de la serie.
+            if r_idx < n_rows_body:
+                row_colors[0] = series[r_idx].color or "#94a3b8"
+        cell_colours.append(row_colors)
+
+    # Tamaño dinámico de figura.
+    fig_w = max(8.0, min(24.0, 1.6 + 1.4 * n_cols))
+    fig_h = max(2.0, min(20.0, 1.6 + 0.55 * (n_total_rows + 1)))
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    ax.axis("off")
+    ax.set_title(title, fontsize=17, fontweight="bold", pad=14)
+
+    table = ax.table(
+        cellText=cell_text if cell_text else [[""]],
+        colLabels=col_labels,
+        cellColours=cell_colours if cell_colours else None,
+        colColours=[header_color] * n_cols,
+        cellLoc="center",
+        loc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(12)
+    # Ancho mínimo razonable: matplotlib ajusta auto pero forzamos pad.
+    table.scale(1.0, 1.4)
+
+    # Estilo: cabecera bold, texto blanco; primera columna con texto blanco
+    # contra el color de la serie. Si el color es muy claro, matplotlib
+    # mostrará el texto en negro — pero los colores de serie tienden a ser
+    # saturados así que blanco suele leerse bien.
+    for (row, col), cell in table.get_celld().items():
+        # row=0 → cabecera (porque colLabels existe).
+        if row == 0:
+            cell.set_text_props(color=header_text_color, fontweight="bold")
+            cell.set_edgecolor("#0f172a")
+        else:
+            cell.set_edgecolor("#cbd5e1")
+        # Primera columna del cuerpo (no la cabecera): texto blanco bold sobre
+        # el color de la serie.
+        if col == 0 and 0 < row <= n_rows_body:
+            cell.set_text_props(color="#ffffff", fontweight="bold")
+        # Fila Total: texto bold.
+        if n_rows_body > 0 and row == n_total_rows:
+            cell.set_text_props(fontweight="bold")
+
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format=fmt, dpi=200, bbox_inches="tight", facecolor="#ffffff")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def chart_data_to_xlsx_bytes(chart: ChartDataResponse) -> bytes:
+    """Serializa ``ChartDataResponse`` a un workbook XLSX (wide format).
+
+    Hoja única "Datos" con:
+      * cabecera = ``["Categoría"] + [serie.name]``
+      * filas    = una por categoría, valores numéricos.
+      * fila final "Total" con suma vertical.
+    """
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Datos"
+
+    headers = ["Categoría"] + [s.name for s in chart.series]
+    ws.append(headers)
+    header_fill = PatternFill("solid", fgColor="1e293b")
+    header_font = Font(bold=True, color="ffffff")
+    for col_idx, _ in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Filas
+    for i, cat in enumerate(chart.categories):
+        row = [cat]
+        for s in chart.series:
+            v = s.data[i] if i < len(s.data) else None
+            row.append(v)
+        ws.append(row)
+
+    # Fila Total
+    if chart.categories and chart.series:
+        totals_row: list = ["Total"]
+        for s in chart.series:
+            total = 0.0
+            for v in s.data:
+                try:
+                    f = float(v)
+                    if f != f:
+                        f = 0.0
+                except (TypeError, ValueError):
+                    f = 0.0
+                total += f
+            totals_row.append(total)
+        ws.append(totals_row)
+        last_row_idx = ws.max_row
+        bold = Font(bold=True)
+        total_fill = PatternFill("solid", fgColor="e2e8f0")
+        for col_idx in range(1, len(totals_row) + 1):
+            c = ws.cell(row=last_row_idx, column=col_idx)
+            c.font = bold
+            c.fill = total_fill
+
+    # Auto-ajuste de ancho de columnas
+    for col_idx, header in enumerate(headers, start=1):
+        max_len = len(str(header))
+        for row in ws.iter_rows(
+            min_row=2, max_row=ws.max_row, min_col=col_idx, max_col=col_idx
+        ):
+            for cell in row:
+                v = cell.value
+                if v is None:
+                    continue
+                if isinstance(v, float):
+                    s = f"{v:,.2f}"
+                else:
+                    s = str(v)
+                if len(s) > max_len:
+                    max_len = len(s)
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(40, max_len + 2)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
     return buf.getvalue()
 
 

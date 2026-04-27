@@ -391,20 +391,41 @@ def export_chart(
     loc: str | None = Query(None),
     variable: str | None = Query(None),
     agrupar_por: str | None = Query(None),
-    fmt: str = Query("png", description="Formato: png, svg o csv"),
+    fmt: str = Query("png", description="Formato: png, svg, csv o xlsx"),
     view_mode: str = Query(
         "column",
-        description="column (barras apiladas), line (líneas) o pareto; solo afecta png/svg",
+        description=(
+            "column (barras apiladas), line (líneas), area (áreas apiladas), "
+            "pareto o table; el view_mode afecta el render PNG/SVG"
+        ),
+    ),
+    table_period_years: int | None = Query(
+        None,
+        ge=1,
+        le=100,
+        description="Solo cuando view_mode=table: filtra años cada N (5=cada 5 años).",
+    ),
+    table_cumulative: bool = Query(
+        False,
+        description="Solo cuando view_mode=table: muestra valores acumulados.",
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Exporta la gráfica actual como imagen (Matplotlib) o CSV, sin depender del navegador."""
-    if fmt not in ("png", "svg", "csv"):
-        raise HTTPException(status_code=400, detail="fmt debe ser 'png', 'svg' o 'csv'")
-    if view_mode not in ("column", "line", "pareto"):
+    """Exporta la gráfica actual como imagen (Matplotlib), CSV o XLSX."""
+    if fmt not in ("png", "svg", "csv", "xlsx"):
         raise HTTPException(
-            status_code=400, detail="view_mode debe ser 'column', 'line' o 'pareto'"
+            status_code=400, detail="fmt debe ser 'png', 'svg', 'csv' o 'xlsx'"
+        )
+    if view_mode not in ("column", "line", "area", "pareto", "table"):
+        raise HTTPException(
+            status_code=400,
+            detail="view_mode debe ser 'column', 'line', 'area', 'pareto' o 'table'",
+        )
+    # XLSX solo aplica a charts con datos tabulables (no Pareto).
+    if fmt == "xlsx" and view_mode == "pareto":
+        raise HTTPException(
+            status_code=400, detail="XLSX no soportado para Pareto"
         )
 
     try:
@@ -476,6 +497,15 @@ def export_chart(
     if not chart.series:
         raise HTTPException(status_code=404, detail="Sin datos para exportar con los filtros actuales")
 
+    # Transformaciones específicas del modo tabla — se aplican antes de
+    # cualquier serialización (CSV/XLSX/PNG/SVG) para que TODOS los formatos
+    # reflejen el mismo dato visible.
+    if view_mode == "table":
+        if table_cumulative:
+            chart_service.apply_cumulative_series(chart)
+        if table_period_years and table_period_years >= 2:
+            chart_service.apply_period_years(chart, table_period_years)
+
     base_name = _safe_export_basename(chart.title)
     if fmt == "csv":
         body = chart_service.chart_data_to_csv_bytes(chart)
@@ -483,6 +513,21 @@ def export_chart(
         return StreamingResponse(
             io.BytesIO(body),
             media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    if fmt == "xlsx":
+        try:
+            body = chart_service.chart_data_to_xlsx_bytes(chart)
+        except Exception as e:  # pragma: no cover
+            logger.exception("Error generando XLSX para export")
+            raise HTTPException(status_code=500, detail=str(e))
+        filename = f"{base_name}.xlsx"
+        return StreamingResponse(
+            io.BytesIO(body),
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 

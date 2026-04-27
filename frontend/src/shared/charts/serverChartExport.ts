@@ -3,12 +3,12 @@ import { downloadBlob } from '@/shared/utils/downloadBlob';
 import type { ChartSelection } from './ChartSelector';
 
 /**
- * Descarga PNG/SVG/CSV generados en el servidor (Matplotlib / CSV), sin offline-exporting.
+ * Descarga PNG/SVG/CSV/XLSX generados en el servidor, sin offline-exporting.
  */
 export async function downloadChartFromServer(
   jobId: number,
   selection: ChartSelection,
-  fmt: 'png' | 'svg' | 'csv',
+  fmt: 'png' | 'svg' | 'csv' | 'xlsx',
 ): Promise<void> {
   const { blob, filename } = await simulationApi.exportChart(jobId, selection, fmt);
   downloadBlob(blob, filename);

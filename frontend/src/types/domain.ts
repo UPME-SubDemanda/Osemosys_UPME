@@ -379,6 +379,29 @@ export type ChartSeries = {
   data: number[];
   color: string;
   stack?: string | null;
+  /** True si es overlay manual del usuario (synthetic series). */
+  is_synthetic?: boolean | null;
+  /** Estilo de línea para overlays. */
+  lineStyle?:
+    | "Solid"
+    | "Dash"
+    | "Dot"
+    | "DashDot"
+    | "ShortDash"
+    | null;
+  /** Símbolo de marker para overlays. */
+  markerSymbol?:
+    | "circle"
+    | "diamond"
+    | "square"
+    | "triangle"
+    | "triangle-down"
+    | "none"
+    | null;
+  /** Radio del marker en px. */
+  markerRadius?: number | null;
+  /** Grosor de línea en px. */
+  lineWidth?: number | null;
 };
 
 export type ChartDataResponse = {
@@ -428,6 +451,19 @@ export type ParetoChartResponse = {
   yAxisLabel: string;
 };
 
+/**
+ * Filtros que reproducen las filas que un chart agrega/grafica. Consumido
+ * por el botón "Ver Datos de Resultados" para abrir el Data Explorer ya
+ * filtrado a las filas que el chart suma.
+ */
+export type ChartDataExplorerFilters = {
+  variable_names?: string[];
+  technology_prefixes?: string[];
+  fuel_prefixes?: string[];
+  fuel_names?: string[];
+  emission_names?: string[];
+};
+
 export type ChartCatalogItem = {
   id: string;
   label: string;
@@ -437,6 +473,7 @@ export type ChartCatalogItem = {
   sub_filtros: string[] | null;
   es_capacidad: boolean;
   soporta_pareto: boolean;
+  data_explorer_filters?: ChartDataExplorerFilters | null;
 };
 
 /** Tipo de línea de una serie sintética (overlay). */
@@ -588,6 +625,10 @@ export type ReportRequest = {
    * resultado. Las claves son strings por el wire format (JSON).
    */
   job_display_overrides?: Record<string, string> | null;
+  /** Año mínimo a incluir (cierra inclusive). `null`/ausente = sin tope inferior. */
+  year_from?: number | null;
+  /** Año máximo a incluir (cierra inclusive). `null`/ausente = sin tope superior. */
+  year_to?: number | null;
 };
 
 /** Reporte guardado: colección ordenada de IDs de SavedChartTemplate. */
@@ -611,6 +652,10 @@ export type SavedReport = {
   scenario_aliases?: string[] | null;
   /** Job IDs por defecto por slot (0-based). `null` en la posición = slot vacío. */
   default_job_ids?: (number | null)[] | null;
+  /** Año mínimo persistido del rango. `null` = sin tope inferior. */
+  year_from?: number | null;
+  /** Año máximo persistido del rango. `null` = sin tope superior. */
+  year_to?: number | null;
 };
 
 export type SavedReportCreate = {
@@ -621,6 +666,8 @@ export type SavedReportCreate = {
   layout?: ReportLayout | null;
   scenario_aliases?: string[] | null;
   default_job_ids?: (number | null)[] | null;
+  year_from?: number | null;
+  year_to?: number | null;
 };
 
 export type SavedReportUpdate = {
@@ -636,6 +683,10 @@ export type SavedReportUpdate = {
   scenario_aliases?: string[] | null;
   /** Enviar `null` o `[]` limpia los defaults. */
   default_job_ids?: (number | null)[] | null;
+  /** Enviar `null` limpia el filtro inferior. */
+  year_from?: number | null;
+  /** Enviar `null` limpia el filtro superior. */
+  year_to?: number | null;
 };
 
 export type ResultSummaryResponse = {

@@ -6,6 +6,7 @@ import {
   onHighchartsExportError,
 } from './chartExportingShared';
 import { buildLineTooltipOptions } from './chartTooltips';
+import { formatAxis3Sig } from './numberFormat';
 import {
   createLegendDblclickState,
   dispatchLegendClick,
@@ -136,7 +137,13 @@ export const LineChart: React.FC<LineChartProps> = ({ data, serverExport, synthe
           text: data.yAxisLabel,
           style: { color: '#94a3b8', fontSize: '14px' },
         },
-        labels: { style: { color: '#94a3b8', fontSize: '13px' } },
+        labels: {
+          style: { color: '#94a3b8', fontSize: '13px' },
+          // Mínimo 3 cifras significativas (sin notación científica).
+          formatter: function (this: Highcharts.AxisLabelsFormatterContextObject) {
+            return formatAxis3Sig(this.value as number);
+          },
+        },
         gridLineColor: '#334155',
       },
       tooltip: buildLineTooltipOptions({ unitLabel: data.yAxisLabel }),

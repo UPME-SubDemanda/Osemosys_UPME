@@ -14,6 +14,7 @@ Funciones públicas:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import pandas as pd
@@ -21,6 +22,39 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import OsemosysOutputParamValue, SimulationJob
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Tipografía: registramos Nunito (bundled en `fonts/`) y la dejamos como
+#  font.family default para todos los renderers matplotlib del módulo.
+# ──────────────────────────────────────────────────────────────────────────
+def _register_nunito_font() -> None:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        from matplotlib import font_manager
+
+        fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
+        if not os.path.isdir(fonts_dir):
+            return
+        for fname in os.listdir(fonts_dir):
+            if fname.lower().endswith((".ttf", ".otf")):
+                font_manager.fontManager.addfont(os.path.join(fonts_dir, fname))
+        # Si Nunito quedó disponible, lo activamos como default.
+        names = {f.name for f in font_manager.fontManager.ttflist}
+        if "Nunito" in names:
+            matplotlib.rcParams["font.family"] = "Nunito"
+            matplotlib.rcParams["font.sans-serif"] = [
+                "Nunito",
+                "DejaVu Sans",
+                "sans-serif",
+            ]
+    except Exception:  # pragma: no cover — no romper el módulo si falla
+        pass
+
+
+_register_nunito_font()
 from app.schemas.scenario import ScenarioTagPublic
 from app.schemas.visualization import (
     ChartCatalogItem,
@@ -164,6 +198,113 @@ def _safe_int(val: Any) -> int | None:
         return int(val)
     except (ValueError, TypeError):
         return None
+
+
+def format_axis_3sig(v: Any) -> str:
+    """Formatea un valor numérico con **mínimo 3 cifras significativas**.
+
+    Uso típico: ``ax.yaxis.set_major_formatter(FuncFormatter(format_axis_3sig))``.
+
+    Reglas:
+      * ``|v| >= 100``  → entero con separador de miles ("1,234")
+      * ``10 <= |v| < 100`` → 1 decimal ("12.3")
+      * ``1 <= |v| < 10``  → 2 decimales ("1.23")
+      * ``|v| < 1`` → tantos decimales como sean necesarios para 3 cifras
+        significativas ("0.123", "0.0123", "0.00123", …)
+      * cero → "0"
+    """
+    import math
+
+    if v is None:
+        return "0"
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if not math.isfinite(v):
+        return str(v)
+    if v == 0:
+        return "0"
+    abs_v = abs(v)
+    if abs_v >= 100:
+        decimals = 0
+    elif abs_v >= 10:
+        decimals = 1
+    elif abs_v >= 1:
+        decimals = 2
+    else:
+        order = math.floor(math.log10(abs_v))  # negativo
+        decimals = min(8, -order + 2)
+    return f"{v:,.{decimals}f}"
+
+
+def _year_keep_indices(
+    categories: list[Any],
+    year_from: int | None,
+    year_to: int | None,
+) -> list[int]:
+    """Índices de ``categories`` cuyo valor (parseable como año) cae en el rango.
+
+    Categorías no parseables como entero se preservan (no son años).
+    """
+    if year_from is None and year_to is None:
+        return list(range(len(categories)))
+    keep: list[int] = []
+    for i, c in enumerate(categories):
+        try:
+            y = int(str(c))
+        except (TypeError, ValueError):
+            keep.append(i)
+            continue
+        if year_from is not None and y < year_from:
+            continue
+        if year_to is not None and y > year_to:
+            continue
+        keep.append(i)
+    return keep
+
+
+def filter_chart_by_year_range(
+    chart: Any,
+    year_from: int | None,
+    year_to: int | None,
+) -> None:
+    """Filtra in-place ``ChartDataResponse`` o ``CompareChartFacetResponse``.
+
+    - ``ChartDataResponse``: corta ``categories`` y cada ``series.data``.
+    - ``CompareChartFacetResponse``: aplica el corte por cada faceta.
+
+    Si ambos extremos son ``None``, no hace nada. Categorías no-año se
+    preservan tal cual.
+    """
+    if year_from is None and year_to is None:
+        return
+    # Single chart / line-total (categories + series)
+    cats = getattr(chart, "categories", None)
+    series = getattr(chart, "series", None)
+    if cats is not None and series is not None:
+        keep = _year_keep_indices(cats, year_from, year_to)
+        chart.categories = [cats[i] for i in keep]
+        for s in series:
+            data = getattr(s, "data", None)
+            if data is None:
+                continue
+            s.data = [data[i] for i in keep if i < len(data)]
+    # Facet (per-facet categories + series)
+    facets = getattr(chart, "facets", None)
+    if facets is not None:
+        for f in facets:
+            f_cats = getattr(f, "categories", None)
+            f_series = getattr(f, "series", None)
+            if f_cats is None or f_series is None:
+                continue
+            keep = _year_keep_indices(f_cats, year_from, year_to)
+            f.categories = [f_cats[i] for i in keep]
+            for s in f_series:
+                data = getattr(s, "data", None)
+                if data is None:
+                    continue
+                s.data = [data[i] for i in keep if i < len(data)]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -490,7 +631,18 @@ def build_chart_data(
     agrupar_col = agrupar_por if agrupar_por is not None else cfg["agrupar_por"]
 
     if agrupar_col == "TECNOLOGIA":
-        df["COLOR"] = df["TECHNOLOGY"]
+        # Algunas configs piden separar las refinerías en (refinería × combustible)
+        # mientras dejan el resto agrupado por tecnología (típicamente imports).
+        if cfg.get("split_refineries_by_fuel") and "FUEL" in df.columns:
+            df["COLOR"] = df.apply(
+                lambda r: f"{r['TECHNOLOGY']}::{r['FUEL']}"
+                if str(r.get("TECHNOLOGY", "")).startswith("UPSREF")
+                and str(r.get("FUEL", "")).strip() != ""
+                else r["TECHNOLOGY"],
+                axis=1,
+            )
+        else:
+            df["COLOR"] = df["TECHNOLOGY"]
     elif agrupar_col == "GROUP":
         if "FUEL" in df.columns:
             df["COLOR"] = (
@@ -563,6 +715,13 @@ def build_chart_data(
     años = sorted(df_agg["YEAR"].unique())
     categories = [str(a) for a in años]
 
+    def _composite_label(code: str) -> str:
+        # COLOR de la forma "UPSREF_XXX::FUEL" → "Refinería ... — Combustible"
+        if "::" in code:
+            left, right = code.split("::", 1)
+            return f"{get_label(left)} — {get_label(right)}"
+        return get_label(code)
+
     series: list[ChartSeries] = []
     for tech in orden_color:
         df_tech = df_agg[df_agg["COLOR"] == tech]
@@ -570,7 +729,7 @@ def build_chart_data(
         data = [round(valor_por_año.get(a, 0.0), 6) for a in años]
         series.append(
             ChartSeries(
-                name=get_label(str(tech)),
+                name=_composite_label(str(tech)),
                 data=data,
                 color=color_dict.get(tech, "#999999"),
                 stack="default",
@@ -1371,10 +1530,15 @@ def get_result_summary(
 
 def get_chart_catalog() -> list[ChartCatalogItem]:
     """Devuelve la lista de gráficas disponibles para el selector del frontend."""
+    from app.schemas.visualization import DataExplorerFilters
+    from app.visualization.data_explorer_filters import get_data_explorer_filters
+
     items: list[ChartCatalogItem] = []
 
     for config_id, cfg in CONFIGS.items():
         label = cfg.get("titulo", cfg.get("titulo_base", config_id))
+        de_raw = get_data_explorer_filters(config_id, cfg.get("variable_default"))
+        de_filters = DataExplorerFilters(**{k: v for k, v in de_raw.items() if v}) if de_raw else None
         items.append(
             ChartCatalogItem(
                 id=config_id,
@@ -1385,6 +1549,7 @@ def get_chart_catalog() -> list[ChartCatalogItem]:
                 sub_filtros=_config_sub_filtros(cfg),
                 es_capacidad=cfg.get("es_capacidad", False),
                 soporta_pareto=_config_soporta_pareto(cfg),
+                data_explorer_filters=de_filters,
             )
         )
 
@@ -1519,6 +1684,29 @@ def export_all_charts_zip(
     return output
 
 
+def _legend_ncols_for_labels(labels: list[str], hard_cap: int = 5) -> int:
+    """Cap de columnas de leyenda según el largo máximo de las etiquetas.
+
+    Evita que leyendas con etiquetas muy largas se expandan más allá del ancho
+    de la figura — lo que con ``bbox_inches="tight"`` haría que matplotlib
+    estire la imagen final horizontalmente, dejando el panel pequeño y con
+    huecos blancos a los lados.
+    """
+    n = len(labels)
+    if n == 0:
+        return 1
+    max_len = max(len(lab) for lab in labels)
+    if max_len > 48:
+        cap = 2
+    elif max_len > 34:
+        cap = 3
+    elif max_len > 22:
+        cap = 4
+    else:
+        cap = hard_cap
+    return max(1, min(cap, hard_cap, n))
+
+
 def _render_stacked_bar(
     chart: ChartDataResponse,
     title: str,
@@ -1539,31 +1727,57 @@ def _render_stacked_bar(
 
     bottom = np.zeros(n_cats)
 
-    for s in chart.series:
+    # Convención visual igual a Highcharts: la PRIMERA serie de
+    # ``chart.series`` queda en la parte de ARRIBA del stack. Iteramos en
+    # orden inverso para acumular.
+    for s in reversed(chart.series):
         values = np.array(s.data, dtype=float)
-        ax.bar(x, values, bottom=bottom, label=s.name, color=s.color, width=0.7)
+        ax.bar(x, values, bottom=bottom, color=s.color, width=0.7)
         bottom += values
+    # Markers circulares estilo Highcharts para la leyenda (orden top→bottom).
+    from matplotlib.lines import Line2D as _Line2D
 
-    # Stack totals on top
+    bar_handles = [
+        _Line2D(
+            [0],
+            [0],
+            marker="o",
+            color=s.color,
+            linestyle="None",
+            markersize=10,
+            markerfacecolor=s.color,
+            markeredgecolor=s.color,
+        )
+        for s in chart.series
+    ]
+    bar_labels = [s.name for s in chart.series]
+
+    # Stack totals on top — 1 decimal máx, cada 2 categorías (0, 2, 4, …).
     for i, total in enumerate(bottom):
+        if i % 2 != 0:
+            continue
         if total > 0:
             ax.text(
                 i, total, f"{total:,.1f}",
-                ha="center", va="bottom", fontsize=7, color="#333",
+                ha="center", va="bottom", fontsize=11, color="#333",
             )
 
     ax.set_xticks(x)
-    ax.set_xticklabels(categories, rotation=45 if n_cats > 15 else 0, ha="right" if n_cats > 15 else "center", fontsize=8)
-    ax.set_ylabel(chart.yAxisLabel, fontsize=10)
-    ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
+    ax.set_xticklabels(categories, rotation=90, ha="center", fontsize=12)
+    ax.set_ylabel(chart.yAxisLabel, fontsize=14, fontweight="bold")
+    ax.set_title(title, fontsize=17, fontweight="bold", pad=12)
+    # Leyenda invertida respecto al stack: la primera serie (top del stack)
+    # aparece al final de la leyenda → lectura abajo→arriba como las barras.
     ax.legend(
+        list(reversed(bar_handles)), list(reversed(bar_labels)),
         loc="upper center", bbox_to_anchor=(0.5, -0.15),
-        ncol=min(len(chart.series), 5), fontsize=10, frameon=False,
+        ncol=_legend_ncols_for_labels(bar_labels), fontsize=14, frameon=False,
+        handlelength=1.0, handletextpad=0.6, columnspacing=1.85, labelspacing=0.55,
     )
     ax.grid(axis="y", alpha=0.3, linewidth=0.5)
-    if bottom.max() < 2.0:
-        import matplotlib.ticker as _ticker
-        ax.yaxis.set_major_formatter(_ticker.FormatStrFormatter("%.2f"))
+    ax.tick_params(axis="y", labelsize=10)
+    from matplotlib.ticker import FuncFormatter as _FuncFormatter
+    ax.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -1574,6 +1788,54 @@ def _render_stacked_bar(
     plt.close(fig)
     buf.seek(0)
     return buf
+
+
+_SYNTH_LINESTYLE_MAP: dict[str, Any] = {
+    "Solid": "-",
+    "Dash": "--",
+    "Dot": ":",
+    "DashDot": "-.",
+    "ShortDash": (0, (3, 3)),
+}
+
+_SYNTH_MARKER_MAP: dict[str, str] = {
+    "circle": "o",
+    "diamond": "D",
+    "square": "s",
+    "triangle": "^",
+    "triangle-down": "v",
+    "none": "",
+}
+
+
+def _series_style_for_render(s: Any) -> dict[str, Any]:
+    """Resuelve los kwargs de ``ax.plot`` para una serie (sintética o no).
+
+    Para series no-sintéticas: defaults del renderer (`o`, ms=4, lw=2, sólida).
+    Para sintéticas: usa los campos opcionales de la serie con fallback.
+    """
+    is_synth = bool(getattr(s, "is_synthetic", False))
+    if not is_synth:
+        return {"marker": "o", "markersize": 4, "linewidth": 2, "linestyle": "-"}
+
+    raw_marker = getattr(s, "markerSymbol", None) or "diamond"
+    marker = _SYNTH_MARKER_MAP.get(raw_marker, "D")
+    raw_ls = getattr(s, "lineStyle", None) or "ShortDash"
+    linestyle = _SYNTH_LINESTYLE_MAP.get(raw_ls, (0, (3, 3)))
+    radius = getattr(s, "markerRadius", None)
+    markersize = float(radius) if radius is not None else 5.0
+    width = getattr(s, "lineWidth", None)
+    linewidth = float(width) if width is not None else 2.0
+    style: dict[str, Any] = {
+        "marker": marker,
+        "markersize": markersize,
+        "linewidth": linewidth,
+        "linestyle": linestyle,
+    }
+    if marker == "":
+        style.pop("marker")
+        style["markersize"] = 0
+    return style
 
 
 def _render_line_chart(
@@ -1598,33 +1860,49 @@ def _render_line_chart(
 
     for s in chart.series:
         values = np.array(s.data, dtype=float)
+        style = _series_style_for_render(s)
         ax.plot(
             x,
             values,
-            marker="o",
-            markersize=4,
             label=s.name,
             color=s.color,
-            linewidth=2,
+            **style,
         )
 
     ax.set_xticks(x)
-    ax.set_xticklabels(
-        categories,
-        rotation=45 if n_cats > 15 else 0,
-        ha="right" if n_cats > 15 else "center",
-        fontsize=8,
-    )
-    ax.set_ylabel(chart.yAxisLabel, fontsize=10)
-    ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
+    ax.set_xticklabels(categories, rotation=90, ha="center", fontsize=12)
+    ax.set_ylabel(chart.yAxisLabel, fontsize=14, fontweight="bold")
+    ax.set_title(title, fontsize=17, fontweight="bold", pad=12)
+    # Orden de leyenda:
+    #   1) Series naturales en orden invertido (lectura abajo→arriba como
+    #      en las columnas apiladas — convención del proyecto).
+    #   2) Series manuales (sintéticas) SIEMPRE al final, en su orden natural.
+    _line_handles, _line_labels = ax.get_legend_handles_labels()
+    _synth_flags = [bool(getattr(s, "is_synthetic", False)) for s in chart.series]
+    _natural = [
+        (h, l) for (h, l, f) in zip(_line_handles, _line_labels, _synth_flags) if not f
+    ]
+    _synth = [
+        (h, l) for (h, l, f) in zip(_line_handles, _line_labels, _synth_flags) if f
+    ]
+    _ordered = list(reversed(_natural)) + _synth
     ax.legend(
+        [h for h, _ in _ordered],
+        [l for _, l in _ordered],
         loc="upper center",
         bbox_to_anchor=(0.5, -0.15),
-        ncol=min(len(chart.series), 5),
-        fontsize=7,
+        ncol=_legend_ncols_for_labels([s.name for s in chart.series]),
+        fontsize=14,
         frameon=False,
+        handlelength=1.0,
+        handletextpad=0.6,
+        columnspacing=1.85,
+        labelspacing=0.55,
     )
     ax.grid(axis="y", alpha=0.3, linewidth=0.5)
+    ax.tick_params(axis="y", labelsize=10)
+    from matplotlib.ticker import FuncFormatter as _FuncFormatter
+    ax.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -1676,9 +1954,13 @@ def _render_stacked_area(
     fig, ax = plt.subplots(figsize=(max(12, n_cats * 0.5), 7))
 
     if chart.series:
-        ys = [np.array(s.data, dtype=float) for s in chart.series]
-        labels = [s.name for s in chart.series]
-        colors = [getattr(s, "color", None) for s in chart.series]
+        # stackplot dibuja la primera serie al fondo. Para que la convención
+        # coincida con Highcharts (primera serie del array → arriba),
+        # invertimos el orden antes de pasarlo a stackplot.
+        rev_series = list(reversed(chart.series))
+        ys = [np.array(s.data, dtype=float) for s in rev_series]
+        labels = [s.name for s in rev_series]
+        colors = [getattr(s, "color", None) for s in rev_series]
         ax.stackplot(
             x,
             np.vstack(ys) if ys else np.zeros((0, n_cats)),
@@ -1690,20 +1972,51 @@ def _render_stacked_area(
         )
 
     ax.set_xticks(x)
-    ax.set_xticklabels(
-        categories,
-        rotation=45 if n_cats > 15 else 0,
-        ha="right" if n_cats > 15 else "center",
-        fontsize=8,
-    )
-    ax.set_ylabel(chart.yAxisLabel, fontsize=10)
-    ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
+    ax.set_xticklabels(categories, rotation=90, ha="center", fontsize=12)
+    ax.tick_params(axis="y", labelsize=10)
+    from matplotlib.ticker import FuncFormatter as _FuncFormatter
+    ax.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
+    ax.set_ylabel(chart.yAxisLabel, fontsize=14, fontweight="bold")
+    ax.set_title(title, fontsize=17, fontweight="bold", pad=12)
+    # Markers circulares en la leyenda (estilo Highcharts), orden top→bottom.
+    from matplotlib.lines import Line2D as _Line2D
+
+    legend_handles = [
+        _Line2D(
+            [0],
+            [0],
+            marker="o",
+            color=s.color or "#999999",
+            linestyle="None",
+            markersize=10,
+            markerfacecolor=s.color or "#999999",
+            markeredgecolor=s.color or "#999999",
+        )
+        for s in chart.series
+    ]
+    legend_labels = [s.name for s in chart.series]
+    # Orden de leyenda: naturales en orden invertido (lectura abajo→arriba)
+    # y series manuales (sintéticas) SIEMPRE al final.
+    _synth_flags = [bool(getattr(s, "is_synthetic", False)) for s in chart.series]
+    _natural = [
+        (h, l) for (h, l, f) in zip(legend_handles, legend_labels, _synth_flags) if not f
+    ]
+    _synth = [
+        (h, l) for (h, l, f) in zip(legend_handles, legend_labels, _synth_flags) if f
+    ]
+    _ordered = list(reversed(_natural)) + _synth
     ax.legend(
+        [h for h, _ in _ordered],
+        [l for _, l in _ordered],
         loc="upper center",
         bbox_to_anchor=(0.5, -0.15),
-        ncol=min(len(chart.series), 5),
-        fontsize=7,
+        ncol=_legend_ncols_for_labels(legend_labels),
+        fontsize=14,
         frameon=False,
+        handlelength=1.0,
+        handletextpad=0.6,
+        columnspacing=1.85,
+        labelspacing=0.55,
     )
     ax.grid(axis="y", alpha=0.3, linewidth=0.5)
     ax.spines["top"].set_visible(False)
@@ -1786,15 +2099,15 @@ def render_comparison_by_year_bytes(
                 label=s.name,
                 color=name_to_color.get(s.name) or getattr(s, "color", None),
             )
-        ax.set_title(f"Año {sp.year}", fontsize=11, fontweight="bold")
+        ax.set_title(f"Año {sp.year}", fontsize=15, fontweight="bold")
         ax.set_xticks(x)
-        ax.set_xticklabels(
-            categories,
-            rotation=45 if nc > 6 else 0,
-            ha="right" if nc > 6 else "center",
-            fontsize=8,
+        ax.set_xticklabels(categories, rotation=90, ha="center", fontsize=12)
+        ax.set_ylabel(data.yAxisLabel, fontsize=14, fontweight="bold")
+        ax.tick_params(axis="y", labelsize=10)
+        from matplotlib.ticker import FuncFormatter as _FuncFormatter
+        ax.yaxis.set_major_formatter(
+            _FuncFormatter(lambda v, _p: format_axis_3sig(v))
         )
-        ax.set_ylabel(data.yAxisLabel, fontsize=9)
         ax.grid(axis="y", alpha=0.3, linewidth=0.5)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -1802,16 +2115,22 @@ def render_comparison_by_year_bytes(
             ax.legend(
                 loc="upper center",
                 bbox_to_anchor=(0.5, -0.2),
-                ncol=min(ns, 4),
-                fontsize=10,
+                ncol=_legend_ncols_for_labels(
+                    [s.name for s in sp.series], hard_cap=4
+                ),
+                fontsize=14,
                 frameon=False,
+                handlelength=1.0,
+                handletextpad=0.6,
+                columnspacing=1.85,
+                labelspacing=0.55,
             )
 
     # Ocultar axes sobrantes
     for j in range(n, rows * cols):
         axes[j // cols][j % cols].set_axis_off()
 
-    fig.suptitle(data.title, fontsize=13, fontweight="bold")
+    fig.suptitle(data.title, fontsize=17, fontweight="bold")
     fig.tight_layout(rect=[0, 0.02, 1, 0.96])
 
     buf = io.BytesIO()
@@ -1853,24 +2172,29 @@ def render_pareto_chart_bytes(
     x = np.arange(n)
     fig, ax1 = plt.subplots(figsize=(max(12, n * 0.5), 7))
     ax1.bar(x, values, color="#60a5fa", edgecolor="#1e3a8a", linewidth=0.5)
-    ax1.set_ylabel(pareto.yAxisLabel, fontsize=10, color="#1e3a8a")
+    ax1.set_ylabel(pareto.yAxisLabel, fontsize=14, fontweight="bold", color="#1e3a8a")
     ax1.set_xticks(x)
+    # Eje X a 45° (más legible que vertical para etiquetas largas tipo
+    # tecnología/sector). ``ha="right"`` ancla el final de la etiqueta al tick
+    # para que no se solape con la barra siguiente.
     ax1.set_xticklabels(
-        categories,
-        rotation=45 if n > 8 else 0,
-        ha="right" if n > 8 else "center",
-        fontsize=8,
+        categories, rotation=45, ha="right", rotation_mode="anchor", fontsize=12,
     )
+    ax1.tick_params(axis="y", labelsize=10)
+    from matplotlib.ticker import FuncFormatter as _FuncFormatter
+    ax1.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
     ax1.grid(axis="y", alpha=0.3, linewidth=0.5)
     ax1.spines["top"].set_visible(False)
 
     ax2 = ax1.twinx()
     ax2.plot(x, cum_pct, color="#dc2626", marker="o", linewidth=2)
-    ax2.set_ylabel("% acumulado", fontsize=10, color="#dc2626")
+    ax2.set_ylabel("% acumulado", fontsize=14, fontweight="bold", color="#dc2626")
+    ax2.tick_params(axis="y", labelsize=10)
+    ax2.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
     ax2.set_ylim(0, 110)
     ax2.spines["top"].set_visible(False)
 
-    ax1.set_title(pareto.title, fontsize=13, fontweight="bold", pad=12)
+    ax1.set_title(pareto.title, fontsize=17, fontweight="bold", pad=12)
     fig.tight_layout()
 
     buf = io.BytesIO()
@@ -1942,7 +2266,7 @@ def render_comparison_facet_figure_bytes(
     import numpy as np
     from matplotlib import patheffects as pe
     from matplotlib.patches import Rectangle
-    from matplotlib.ticker import AutoMinorLocator, MaxNLocator, StrMethodFormatter
+    from matplotlib.ticker import AutoMinorLocator, FuncFormatter, MaxNLocator
 
     if fmt not in ("png", "svg"):
         raise ValueError("fmt debe ser 'png' o 'svg'")
@@ -1965,6 +2289,9 @@ def render_comparison_facet_figure_bytes(
     max_leg_label_len = max((len(lab) for lab in legend_labels_full), default=0)
 
     # Leyenda: **siempre** texto completo; menos columnas si los nombres son largos.
+    # Cap duro de **5 columnas** para evitar que figuras con muchas series
+    # corten demasiado ancho horizontal con leyendas extremadamente anchas.
+    LEG_NCOL_MAX = 5
     if max_leg_label_len > 48:
         leg_ncol = max(1, min(2, n_leg_items))
     elif max_leg_label_len > 34:
@@ -1972,29 +2299,60 @@ def render_comparison_facet_figure_bytes(
     elif max_leg_label_len > 22:
         leg_ncol = max(1, min(4, n_leg_items))
     else:
-        leg_ncol = max(
-            1,
-            min(6, n_leg_items if n_leg_items <= 10 else (4 if n_leg_items <= 16 else 5)),
-        )
+        leg_ncol = max(1, min(LEG_NCOL_MAX, n_leg_items))
     n_leg_rows = max(1, (n_leg_items + leg_ncol - 1) // leg_ncol)
 
-    w_per_facet = 5.6
-    fig_w = max(15.0, w_per_facet * n + 0.9 * (n - 1))
-    # Leyenda más ancha en figuras anchas (ocupa más el espacio horizontal).
+    # Ancho por panel: aprovechamos un "presupuesto" total horizontal de ~26″
+    # repartido entre los `n` paneles, con un mínimo de 5.0″ y un máximo de
+    # 9.0″ por panel. Así con pocos escenarios cada panel es bien ancho, y
+    # con muchos escenarios mantenemos legibilidad sin estirar la figura
+    # más de lo necesario.
+    inter_panel = 0.55
+    fig_w_target = 26.0
+    w_per_facet = max(
+        5.0,
+        min(9.0, (fig_w_target - inter_panel * max(0, n - 1)) / n),
+    )
+    fig_w = w_per_facet * n + inter_panel * max(0, n - 1)
+    fig_w = max(9.0, fig_w)
+    # Leyenda más ancha en figuras anchas — pero respetando el cap de 5 cols.
     if max_leg_label_len <= 40:
         leg_ncol = min(
             n_leg_items,
-            max(leg_ncol, min(9, 3 + max(0, int(fig_w // 2.6)))),
+            max(leg_ncol, min(LEG_NCOL_MAX, 3 + max(0, int(fig_w // 2.6)))),
         )
         n_leg_rows = max(1, (n_leg_items + leg_ncol - 1) // leg_ncol)
 
-    # Altura extra para leyenda grande + más aire bajo los paneles.
-    fig_h = (
-        8.55
-        + 0.50 * max(0, n_leg_rows - 2)
-        + 0.0085 * max(0, max_leg_label_len - 22) * n_leg_rows
+    # `leg_font` se usa abajo para el cálculo de altura; lo derivamos aquí.
+    # Bump perceptual: la figura del facet es ~3× más ancha que un single,
+    # así que la leyenda visualmente se siente pequeña aunque su tamaño en pt
+    # sea mayor. Subimos +4pt sobre el cálculo previo para que en perspectiva
+    # se vea similar a la leyenda de los single-chart.
+    leg_font_estimate = (
+        21.0
+        if max_leg_label_len > 52 or n_leg_items > 14
+        else (21.6 if max_leg_label_len > 36 or n_leg_items > 10 else 22.8)
     )
-    fig_h = float(min(max(fig_h, 8.0), 19.0))
+    leg_font_estimate = float(min(leg_font_estimate, 23.5))
+
+    # Geometría en PULGADAS — las fracciones de figura se derivan de aquí
+    # para que paneles, x-labels y leyenda no se superpongan nunca.
+    title_band_inch = 1.05       # suptitle (24pt) + aire respecto a títulos de panel (20pt)
+    x_label_inch = 0.88          # años rotados 90° (≈17pt) + padding
+    gap_inch = 0.24              # separación x-labels ↔ leyenda
+    legend_pad_inch = 0.12       # padding leyenda ↔ borde inferior figura
+    line_h_inch = leg_font_estimate * 1.35 / 72.0
+    legend_h_inch = line_h_inch * n_leg_rows + 0.12
+
+    bottom_margin_inch = legend_pad_inch + legend_h_inch + gap_inch + x_label_inch
+
+    # Altura objetivo del panel (axes): ~55% del ancho del panel ⇒ ratio
+    # ancho:alto ≈ 1.8:1 (claramente más ancho que alto). Floor de 4.0″ para
+    # mantener legibilidad cuando hay muchos escenarios.
+    panel_h_inch = max(4.0, w_per_facet * 0.55)
+
+    fig_h = panel_h_inch + title_band_inch + bottom_margin_inch
+    fig_h = float(min(max(fig_h, 6.0), 14.0))
 
     fig, axes = plt.subplots(1, n, figsize=(fig_w, fig_h), squeeze=False)
     row_axes = axes[0]
@@ -2008,7 +2366,9 @@ def render_comparison_facet_figure_bytes(
         x = np.arange(n_cats, dtype=float)
         bottom = np.zeros(n_cats, dtype=float)
 
-        for s in facet.series:
+        # Iteramos en reverso: primer elemento de ``facet.series`` queda
+        # arriba del stack (igual a Highcharts).
+        for s in reversed(facet.series):
             values = np.array(s.data, dtype=float)
             if values.size < n_cats:
                 values = np.pad(values, (0, n_cats - int(values.size)))
@@ -2032,9 +2392,9 @@ def render_comparison_facet_figure_bytes(
         x_labels = _facet_x_ticklabels_thinned(categories, x_step)
         n_labeled = sum(1 for lb in x_labels if lb)
         x_fs = (
-            7
+            15
             if n_labeled > 14 or n_cats > 36
-            else (8 if n_cats > 22 or n_labeled > 11 else 9)
+            else (16 if n_cats > 22 or n_labeled > 11 else 17)
         )
         ax.set_xticklabels(
             x_labels,
@@ -2045,9 +2405,9 @@ def render_comparison_facet_figure_bytes(
         )
         ax.set_ylabel(
             y_label,
-            fontsize=11,
+            fontsize=19,
             color="#0f172a",
-            fontweight="600",
+            fontweight="bold",
             labelpad=8,
         )
         sim_lbl = (facet.display_name or facet.scenario_name or f"Job {facet.job_id}").strip()
@@ -2055,7 +2415,7 @@ def render_comparison_facet_figure_bytes(
         facet_title = f"{sim_lbl} — {tag_lbl}" if tag_lbl else sim_lbl
         ax.set_title(
             facet_title,
-            fontsize=12,
+            fontsize=20,
             fontweight="bold",
             color="#0f172a",
             pad=10,
@@ -2069,7 +2429,7 @@ def render_comparison_facet_figure_bytes(
             ax.spines[_side].set_linewidth(1.35)
         ax.tick_params(
             axis="y",
-            labelsize=10,
+            labelsize=18,
             colors="#0f172a",
             width=1.15,
             length=6,
@@ -2096,7 +2456,9 @@ def render_comparison_facet_figure_bytes(
 
     for ax, bottom in zip(row_axes, stack_tops):
         ax.set_ylim(0, y_top)
-        ax.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+        ax.yaxis.set_major_formatter(
+            FuncFormatter(lambda v, _p: format_axis_3sig(v))
+        )
         ax.yaxis.set_major_locator(
             MaxNLocator(nbins=7, min_n_ticks=5, steps=[1, 2, 2.5, 5, 10]),
         )
@@ -2136,87 +2498,88 @@ def render_comparison_facet_figure_bytes(
             continue
         n_cats = len(bottom)
         for i in range(n_cats):
+            # Mostrar el total solo cada 2 categorías (0, 2, 4, …).
+            if i % 2 != 0:
+                continue
             total = float(bottom[i])
             if total <= 0 or total < global_max * 0.018:
                 continue
             t = ax.text(
                 i,
                 total,
-                f"{total:,.0f}",
+                f"{total:,.1f}",
                 ha="center",
                 va="bottom",
-                fontsize=7.5,
+                fontsize=11.5,
                 color="#0f172a",
                 fontweight="600",
             )
             t.set_path_effects([pe.withStroke(linewidth=2.5, foreground="white")])
 
     fig.patch.set_facecolor("#ffffff")
+    # Suptitle: lo posicionamos ~0.30" desde el borde superior, lo que deja
+    # un aire claro respecto a los títulos por panel (que viven dentro de la
+    # banda reservada arriba).
+    suptitle_y = 1.0 - 0.28 / fig_h
     fig.suptitle(
         data.title,
-        fontsize=16,
+        fontsize=24,
         fontweight="bold",
         color="#020617",
-        y=0.97,
+        y=suptitle_y,
     )
 
-    leg_title = (legend_title or "").strip() or " " ## Titulo de la leyenda
+    # Markers circulares (estilo Highcharts) para coincidir con el chart
+    # individual y evitar la barra/cuadrado.
+    from matplotlib.lines import Line2D as _Line2D
+
     handles = [
-        Rectangle((0, 0), 1, 1, facecolor=c, edgecolor="#334155", linewidth=0.35)
+        _Line2D(
+            [0],
+            [0],
+            marker="o",
+            color=c,
+            linestyle="None",
+            markersize=10,
+            markerfacecolor=c,
+            markeredgecolor=c,
+        )
         for _name, c in legend_order
     ]
-    leg_font = (
-        9.0
-        if max_leg_label_len > 52 or n_leg_items > 14
-        else (9.6 if max_leg_label_len > 36 or n_leg_items > 10 else 10.8)
-    )
-    leg_font = float(min(leg_font, 11.5))
-    leg_title_fs = 11.0 if leg_font >= 9.8 else 10.0
+    leg_font = leg_font_estimate
 
-    # Margen bajo los paneles (espacio para la leyenda).
-    bottom_margin = max(
-        0.26,
-        min(
-            0.62,
-            0.18
-            + 0.058 * n_leg_rows
-            + 0.0045 * max(0, max_leg_label_len - 20) * n_leg_rows
-            + 0.012 * leg_font,
-        ),
-    )
-    # Leyenda centrada horizontalmente y más arriba (banda bajo los gráficos, no pegada al borde).
-    legend_anchor_y = max(0.08, min(0.24, bottom_margin * 0.48))
+    # Las fracciones de figura derivan directo de las pulgadas calculadas
+    # arriba — así el cálculo es coherente y no quedan superposiciones.
+    bottom_margin = bottom_margin_inch / fig_h
+    top_margin = 1.0 - title_band_inch / fig_h
+    legend_anchor_y = legend_pad_inch / fig_h
 
+    # Leyenda al estilo de las gráficas individuales: sin marco, sin título.
+    # Leyenda invertida respecto al stack (lectura abajo→arriba como las barras).
     fig.legend(
-        handles=handles,
-        labels=legend_labels_full,
+        handles=list(reversed(handles)),
+        labels=list(reversed(legend_labels_full)),
         loc="lower center",
         bbox_to_anchor=(0.5, legend_anchor_y),
         ncol=leg_ncol,
         fontsize=leg_font,
-        frameon=True,
-        fancybox=True,
-        shadow=False,
-        framealpha=0.98,
-        edgecolor="#64748b",
-        facecolor="#f1f5f9",
-        title=leg_title,
-        title_fontsize=leg_title_fs,
+        frameon=False,
         labelcolor="#0f172a",
-        handlelength=1.55,
-        handleheight=1.2,
+        handlelength=1.0,
+        handletextpad=0.6,
         columnspacing=1.85,
-        handletextpad=0.85,
-        borderpad=1.15,
-        labelspacing=0.75,
+        labelspacing=0.45,
     )
 
+    # `wspace` se reduce con menos paneles para que la separación entre
+    # paneles no domine la figura (el ojo percibe huecos enormes con n=2-3).
+    wspace = 0.20 if n >= 4 else 0.16
     plt.subplots_adjust(
         left=0.07,
         right=0.995,
-        top=0.90,
+        top=top_margin,
         bottom=bottom_margin,
-        wspace=0.28,
+        wspace=wspace,
     )
 
     buf = io.BytesIO()
@@ -2227,7 +2590,7 @@ def render_comparison_facet_figure_bytes(
         facecolor="#ffffff",
         edgecolor="none",
         bbox_inches="tight",
-        pad_inches=0.45,
+        pad_inches=0.18,
     )
     plt.close(fig)
     return buf.getvalue()

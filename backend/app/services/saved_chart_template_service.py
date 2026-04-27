@@ -61,7 +61,16 @@ def _inject_synthetic_series(chart: ChartDataResponse, raw_series: list[dict]) -
             except (TypeError, ValueError, IndexError):
                 logger.debug("Serie sintética '%s': punto inválido %r, omitido", synth.get("name"), point)
                 continue
-        aligned = [data_map.get(int(cat), float("nan")) for cat in chart.categories]
+        # ``None`` (no NaN) → serializa a ``null`` en JSON, lo que crea un
+        # gap en líneas y "no hay barra/área" en columnas/áreas.
+        aligned: list[float | None] = []
+        for cat in chart.categories:
+            try:
+                year = int(str(cat))
+            except (TypeError, ValueError):
+                aligned.append(None)
+                continue
+            aligned.append(data_map.get(year))
         chart.series.append(
             ChartSeries(
                 name=synth.get("name") or "Serie manual",
@@ -120,6 +129,8 @@ def _chart_to_public_dict(
         "report_title": obj.report_title,
         "years_to_plot": obj.years_to_plot,
         "synthetic_series": obj.synthetic_series,
+        "table_period_years": getattr(obj, "table_period_years", None),
+        "table_cumulative": getattr(obj, "table_cumulative", None),
         "created_at": obj.created_at,
         "is_public": bool(getattr(obj, "is_public", False)),
         "owner_username": owner_username,
@@ -335,9 +346,15 @@ class SavedChartTemplateService:
             cleaned = (raw or "").strip() if isinstance(raw, str) else None
             obj.report_title = cleaned if cleaned else None
         if "view_mode" in data and data["view_mode"] in (
-            "column", "line", "area", "pareto",
+            "column", "line", "area", "pareto", "table",
         ):
             obj.view_mode = data["view_mode"]
+        if "table_period_years" in data:
+            v = data["table_period_years"]
+            obj.table_period_years = int(v) if v is not None else None  # type: ignore[assignment]
+        if "table_cumulative" in data:
+            v = data["table_cumulative"]
+            obj.table_cumulative = bool(v) if v is not None else None  # type: ignore[assignment]
         db.commit()
         db.refresh(obj)
         username = SavedChartTemplateService._resolve_owner_username(
@@ -577,8 +594,16 @@ class SavedChartTemplateService:
             raise ValueError(
                 f"Plantilla '{template.name}': sin datos con los filtros y escenario seleccionados."
             )
-        chart_service.filter_chart_by_year_range(chart, year_from, year_to)
         view_mode = template.view_mode or "column"
+        # ── Modo tabla: acumular ANTES de filtrar/recortar (para que el
+        # valor en cada año represente la suma desde el inicio del horizonte).
+        if view_mode == "table" and bool(getattr(template, "table_cumulative", False)):
+            chart_service.apply_cumulative_series(chart)
+        chart_service.filter_chart_by_year_range(chart, year_from, year_to)
+        if view_mode == "table":
+            tpy = getattr(template, "table_period_years", None)
+            if tpy and tpy >= 2:
+                chart_service.apply_period_years(chart, int(tpy))
         if template.synthetic_series and view_mode in _LINE_VIEW_MODES:
             _inject_synthetic_series(chart, template.synthetic_series)
         rt = (getattr(template, "report_title", None) or "").strip()
@@ -1371,6 +1396,8 @@ class ReportTemplateService:
                     num_scenarios=orig.num_scenarios,
                     legend_title=orig.legend_title,
                     filename_mode=orig.filename_mode,
+                    table_period_years=getattr(orig, "table_period_years", None),
+                    table_cumulative=getattr(orig, "table_cumulative", None),
                     is_public=False,  # privadas en la copia
                 )
                 db.add(clone)

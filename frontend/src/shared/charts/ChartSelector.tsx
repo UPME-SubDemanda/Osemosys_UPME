@@ -23,9 +23,13 @@ export interface ChartSelection {
   sub_filtro?: string;
   loc?: string;
   variable?: string;
-  viewMode?: 'column' | 'line' | 'area' | 'pareto' | 'porcentaje';
+  viewMode?: 'column' | 'line' | 'area' | 'pareto' | 'porcentaje' | 'table';
   /** Agrupación enviada al backend: 'TECNOLOGIA' | 'COMBUSTIBLE' | 'FUEL' | 'GROUP' */
   agrupar_por?: string;
+  /** Solo `viewMode === 'table'`: año-paso (5 = cada 5 años). null/undefined = todos. */
+  tablePeriodYears?: number | null;
+  /** Solo `viewMode === 'table'`: muestra valores acumulados. */
+  tableCumulative?: boolean;
 }
 
 interface Props {
@@ -156,6 +160,12 @@ interface ChartItem {
   soportaPareto?: boolean;
   /** True si esta gráfica soporta vista Porcentaje (normaliza cada año a 100%). */
   soportaPorcentaje?: boolean;
+  /**
+   * True si esta gráfica soporta vista Tabla (matriz con categorías × años,
+   * con períodos opcionales y acumulado). Default `true` — la mayoría de los
+   * charts con `categories` tienen sentido como tabla.
+   */
+  soportaTabla?: boolean;
 }
 
 interface Subsector {
@@ -461,6 +471,11 @@ export function ChartSelector({
     }
     // Si el viewMode actual es 'pareto' y la nueva gráfica no lo soporta, resetear a 'column'
     if (newViewMode === 'pareto' && !item.soportaPareto) {
+      newViewMode = 'column';
+    }
+    // Si el viewMode actual es 'table' y la nueva gráfica lo desactiva
+    // explícitamente (soportaTabla=false), resetear a 'column'.
+    if (newViewMode === 'table' && item.soportaTabla === false) {
       newViewMode = 'column';
     }
 
@@ -789,10 +804,101 @@ export function ChartSelector({
                       ▧ Pareto
                     </button>
                   )}
+                  {/* Tabla — soporte por defecto en todos los charts (a menos
+                      que se desactive explícitamente con soportaTabla=false). */}
+                  {currentItem?.soportaTabla !== false && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onChange({
+                          ...value,
+                          viewMode: 'table',
+                          // defaults razonables para la primera vez
+                          tablePeriodYears: value.tablePeriodYears ?? 5,
+                          tableCumulative: value.tableCumulative ?? false,
+                        })
+                      }
+                      style={{
+                        ...viewBtnStyle,
+                        ...(currentVm === 'table'
+                          ? viewBtnActiveStyle
+                          : viewBtnInactiveStyle),
+                      }}
+                    >
+                      ▤ Tabla
+                    </button>
+                  )}
                 </>
               );
             })()}
           </div>
+          {/* Controles específicos del modo tabla. */}
+          {value.viewMode === 'table' && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 12,
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                marginTop: 6,
+                padding: '6px 8px',
+                borderRadius: 6,
+                background: 'rgba(34, 211, 238, 0.06)',
+                border: '1px solid rgba(34, 211, 238, 0.25)',
+              }}
+            >
+              <label
+                style={{
+                  display: 'flex',
+                  gap: 6,
+                  alignItems: 'center',
+                  fontSize: 12,
+                  color: '#a5f3fc',
+                }}
+              >
+                <span>Cada</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={value.tablePeriodYears ?? 5}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    const n = raw === '' ? null : Number(raw);
+                    onChange({ ...value, tablePeriodYears: n });
+                  }}
+                  style={{
+                    width: 56,
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    border: '1px solid rgba(34, 211, 238, 0.4)',
+                    background: 'rgba(2, 6, 23, 0.7)',
+                    color: '#e0f2fe',
+                    fontSize: 12,
+                  }}
+                />
+                <span>años</span>
+              </label>
+              <label
+                style={{
+                  display: 'flex',
+                  gap: 6,
+                  alignItems: 'center',
+                  fontSize: 12,
+                  color: '#a5f3fc',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(value.tableCumulative)}
+                  onChange={(e) =>
+                    onChange({ ...value, tableCumulative: e.target.checked })
+                  }
+                />
+                <span>Acumulado</span>
+              </label>
+            </div>
+          )}
         </div>
 
         {currentItem?.hasSub === true && (

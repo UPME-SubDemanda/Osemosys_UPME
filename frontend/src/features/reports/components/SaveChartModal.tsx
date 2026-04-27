@@ -124,6 +124,10 @@ function signatureFromTemplate(t: SavedChartTemplate): string {
     t.facet_placement ?? "",
     t.facet_legend_mode ?? "",
     (t.years_to_plot ?? []).slice().sort((a, b) => a - b).join(","),
+    // Modo tabla: período/acumulado son parte de la "identidad" del template
+    // para que dos tablas con configuración distinta no se traten como duplicado.
+    t.view_mode === "table" ? String(t.table_period_years ?? "") : "",
+    t.view_mode === "table" ? (t.table_cumulative ? "1" : "0") : "",
   ].join("|");
 }
 
@@ -157,6 +161,8 @@ function signatureFromCandidate(params: {
     params.compareMode === "facet" ? params.facetPlacement : "",
     params.compareMode === "facet" ? params.facetLegendMode : "",
     years,
+    s.viewMode === "table" ? String(s.tablePeriodYears ?? "") : "",
+    s.viewMode === "table" ? (s.tableCumulative ? "1" : "0") : "",
   ].join("|");
 }
 
@@ -307,6 +313,17 @@ export function SaveChartModal({
           syntheticSeries &&
           syntheticSeries.length > 0
             ? syntheticSeries
+            : null,
+        // Solo modo tabla persiste período/acumulado.
+        table_period_years:
+          selection.viewMode === "table" &&
+          typeof selection.tablePeriodYears === "number" &&
+          selection.tablePeriodYears >= 1
+            ? selection.tablePeriodYears
+            : null,
+        table_cumulative:
+          selection.viewMode === "table"
+            ? Boolean(selection.tableCumulative)
             : null,
       };
       const created = await savedChartsApi.create(payload);

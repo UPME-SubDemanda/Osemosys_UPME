@@ -19,7 +19,9 @@ import { simulationApi } from "@/features/simulation/api/simulationApi";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { DataTable } from "@/shared/components/DataTable";
+import { RunTimingCell } from "@/shared/components/RunTimingCell";
 import { ScenarioTagChip } from "@/shared/components/ScenarioTagChip";
+import { JobLogsModal } from "@/features/simulation/components/JobLogsModal";
 import { RunDisplayNameEditor } from "@/features/simulation/components/RunDisplayNameEditor";
 import { FavoriteStarButton } from "@/features/simulation/components/FavoriteStarButton";
 import { VisibilityToggle } from "@/features/simulation/components/VisibilityToggle";
@@ -48,6 +50,9 @@ export function ResultsPage() {
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [reportsLoaded, setReportsLoaded] = useState(false);
+
+  /** Job cuyo modal de registros está abierto. */
+  const [logsOpenForJob, setLogsOpenForJob] = useState<number | null>(null);
 
   /** Carga jobs y escenarios en paralelo para tener nombres de escenario */
   const fetchRuns = useCallback(async () => {
@@ -447,9 +452,17 @@ export function ResultsPage() {
             },
           },
           {
-            key: "date",
-            header: "Fecha",
-            render: (r) => new Date(r.queued_at).toLocaleString(),
+            key: "timing",
+            header: "Tiempo",
+            render: (r) => (
+              <RunTimingCell
+                startedAt={r.started_at ?? null}
+                finishedAt={r.finished_at ?? null}
+                queuedAt={r.queued_at}
+                onClick={() => setLogsOpenForJob(r.id)}
+                title="Ver registros (logs) de la ejecución"
+              />
+            ),
           },
           {
             key: "open",
@@ -563,6 +576,8 @@ export function ResultsPage() {
           }
         />
       ) : null}
+
+      <JobLogsModal jobId={logsOpenForJob} onClose={() => setLogsOpenForJob(null)} />
     </section>
   );
 }

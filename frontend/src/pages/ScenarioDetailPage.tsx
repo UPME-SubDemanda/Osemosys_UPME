@@ -133,6 +133,18 @@ export function ScenarioDetailPage() {
   } | null>(null);
   const [cellDraft, setCellDraft] = useState("");
   const [cellSaving, setCellSaving] = useState(false);
+  // Celda seleccionada (NO en edición). Habilita navegación con teclado tipo Excel.
+  const [selectedCell, setSelectedCell] = useState<{
+    rowIdx: number;
+    yearKey: string;
+  } | null>(null);
+  // Extremo opuesto del rango (Shift+flecha). null = selección de 1 sola celda.
+  const [selectionEnd, setSelectionEnd] = useState<{
+    rowIdx: number;
+    yearKey: string;
+  } | null>(null);
+  // Ref del contenedor scrollable de la tabla para scrollIntoView de la celda activa.
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
 
   const [openExcelUpdateModal, setOpenExcelUpdateModal] = useState(false);
   const [excelUpdateFile, setExcelUpdateFile] = useState<File | null>(null);
@@ -438,6 +450,265 @@ export function ScenarioDetailPage() {
     [columnFilters, yearRules],
   );
 
+  // ── Navegación tipo Excel ────────────────────────────────────────────
+  // `cellKeysShown` = orden visible de columnas editables (escalar + años).
+  // Lo usan tanto el render de la tabla como las funciones de navegación.
+  const cellKeysShown = useMemo<string[]>(() => {
+    const filterYearsSet = new Set(filterYears);
+    const yearsShown =
+      filterYears.length > 0
+        ? osemosysWideYears.filter((y) => filterYearsSet.has(String(y)))
+        : osemosysWideYears;
+    const scalarShown = osemosysHasScalar && filterYears.length === 0;
+    const keys: string[] = [];
+    if (scalarShown) keys.push("scalar");
+    for (const y of yearsShown) keys.push(String(y));
+    return keys;
+  }, [filterYears, osemosysWideYears, osemosysHasScalar]);
+
+  /** Mueve la selección (colapsa rango). */
+  const moveSelection = useCallback(
+    (drow: number, dcol: number) => {
+      setSelectionEnd(null);
+      setSelectedCell((prev) => {
+        if (!prev) return prev;
+        const nRows = osemosysWideRows.length;
+        if (nRows === 0 || cellKeysShown.length === 0) return prev;
+        const colIdx = cellKeysShown.indexOf(prev.yearKey);
+        if (colIdx < 0) return prev;
+        const newRow = Math.max(0, Math.min(nRows - 1, prev.rowIdx + drow));
+        const newCol = Math.max(0, Math.min(cellKeysShown.length - 1, colIdx + dcol));
+        return { rowIdx: newRow, yearKey: cellKeysShown[newCol]! };
+      });
+    },
+    [osemosysWideRows.length, cellKeysShown],
+  );
+
+  /** Extiende el rango (Shift+flecha) sin mover el ancla `selectedCell`. */
+  const extendSelection = useCallback(
+    (drow: number, dcol: number) => {
+      const nRows = osemosysWideRows.length;
+      if (nRows === 0 || cellKeysShown.length === 0 || !selectedCell) return;
+      const cur = selectionEnd ?? selectedCell;
+      const colIdx = cellKeysShown.indexOf(cur.yearKey);
+      if (colIdx < 0) return;
+      const newRow = Math.max(0, Math.min(nRows - 1, cur.rowIdx + drow));
+      const newCol = Math.max(0, Math.min(cellKeysShown.length - 1, colIdx + dcol));
+      setSelectionEnd({ rowIdx: newRow, yearKey: cellKeysShown[newCol]! });
+    },
+    [osemosysWideRows.length, cellKeysShown, selectedCell, selectionEnd],
+  );
+
+  /** Rectángulo normalizado (r1≤r2, c1≤c2) o null. */
+  const selectionRect = useMemo(() => {
+    if (!selectedCell) return null;
+    const end = selectionEnd ?? selectedCell;
+    const c1raw = cellKeysShown.indexOf(selectedCell.yearKey);
+    const c2raw = cellKeysShown.indexOf(end.yearKey);
+    if (c1raw < 0 || c2raw < 0) return null;
+    return {
+      r1: Math.min(selectedCell.rowIdx, end.rowIdx),
+      r2: Math.max(selectedCell.rowIdx, end.rowIdx),
+      c1: Math.min(c1raw, c2raw),
+      c2: Math.max(c1raw, c2raw),
+    };
+  }, [selectedCell, selectionEnd, cellKeysShown]);
+
+  const isCellInSelection = useCallback(
+    (rowIdx: number, yearKey: string) => {
+      if (!selectionRect) return false;
+      const c = cellKeysShown.indexOf(yearKey);
+      return (
+        rowIdx >= selectionRect.r1 &&
+        rowIdx <= selectionRect.r2 &&
+        c >= selectionRect.c1 &&
+        c <= selectionRect.c2
+      );
+    },
+    [selectionRect, cellKeysShown],
+  );
+
+  /** Construye TSV (\t entre celdas, \n entre filas) del rango actual. */
+  const buildTsvFromSelection = useCallback((): string | null => {
+    if (!selectionRect) return null;
+    const lines: string[] = [];
+    for (let r = selectionRect.r1; r <= selectionRect.r2; r++) {
+      const row = osemosysWideRows[r];
+      if (!row) continue;
+      const cells: string[] = [];
+      for (let c = selectionRect.c1; c <= selectionRect.c2; c++) {
+        const yk = cellKeysShown[c]!;
+        const cell = row.cells[yk];
+        cells.push(cell ? formatCellValue(cell.value) : "");
+      }
+      lines.push(cells.join("\t"));
+    }
+    return lines.join("\n");
+  }, [selectionRect, osemosysWideRows, cellKeysShown]);
+
+  /** Inicia edición en la celda seleccionada. `prefill` reemplaza el valor inicial
+   *  (útil para "type to edit": escribir un dígito empieza a editar con ese valor). */
+  const startEditFromSelected = useCallback(
+    (prefill?: string) => {
+      if (!selectedCell || !canManageValues) return;
+      const row = osemosysWideRows[selectedCell.rowIdx];
+      if (!row) return;
+      const cell = row.cells[selectedCell.yearKey];
+      if (!cell) return; // No hay celda — usar "+ Año" para crear.
+      setEditingCell({
+        rowKey: row.group_key,
+        yearKey: selectedCell.yearKey,
+        valueId: cell.id,
+        original: cell.value,
+      });
+      setCellDraft(prefill !== undefined ? prefill : String(cell.value));
+    },
+    [selectedCell, canManageValues, osemosysWideRows],
+  );
+
+  /** Listener global de teclado cuando hay celda seleccionada y no se está editando. */
+  useEffect(() => {
+    if (!selectedCell || editingCell) return;
+    const onKey = (e: KeyboardEvent) => {
+      // Si el foco está en otro input/select (modal, búsqueda, etc.), no robar.
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (target?.isContentEditable) return;
+
+      // Ctrl/Cmd + C/V se manejan en otro listener (eventos copy/paste nativos).
+      // Aquí sólo flechas/Tab/Enter/F2/Escape y "type-to-edit".
+      switch (e.key) {
+        case "ArrowUp":
+          e.preventDefault();
+          if (e.shiftKey) extendSelection(-1, 0);
+          else moveSelection(-1, 0);
+          return;
+        case "ArrowDown":
+          e.preventDefault();
+          if (e.shiftKey) extendSelection(1, 0);
+          else moveSelection(1, 0);
+          return;
+        case "ArrowLeft":
+          e.preventDefault();
+          if (e.shiftKey) extendSelection(0, -1);
+          else moveSelection(0, -1);
+          return;
+        case "ArrowRight":
+          e.preventDefault();
+          if (e.shiftKey) extendSelection(0, 1);
+          else moveSelection(0, 1);
+          return;
+        case "Tab":
+          e.preventDefault();
+          moveSelection(0, e.shiftKey ? -1 : 1);
+          return;
+        case "Enter":
+          e.preventDefault();
+          if (canManageValues) startEditFromSelected();
+          return;
+        case "F2":
+          e.preventDefault();
+          if (canManageValues) startEditFromSelected();
+          return;
+        case "Escape":
+          e.preventDefault();
+          setSelectionEnd(null);
+          setSelectedCell(null);
+          return;
+        default:
+          // Pasamos atajos del navegador (Ctrl/Cmd + algo) para que copy/paste/etc. funcionen.
+          if (e.ctrlKey || e.metaKey || e.altKey) return;
+          // "Type to edit": cualquier carácter imprimible numérico arranca edición
+          // sustituyendo el valor (comportamiento Excel).
+          if (
+            canManageValues &&
+            e.key.length === 1 &&
+            /[0-9.\-,]/.test(e.key)
+          ) {
+            e.preventDefault();
+            startEditFromSelected(e.key);
+          }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [
+    selectedCell,
+    editingCell,
+    moveSelection,
+    extendSelection,
+    startEditFromSelected,
+    canManageValues,
+  ]);
+
+  /** Mantiene visible la celda activa: scroll automático al navegar o tras refresh.
+   *
+   * Se dispara con cambios en `selectedCell` (navegación) y en `osemosysWideRows`
+   * (refresh post-paste). `block: "nearest"` evita scroll innecesario; `inline:
+   * "nearest"` lo hace también horizontal. La extremidad del rango (`selectionEnd`)
+   * también se considera para que extender con Shift+flecha siga visible.
+   */
+  useEffect(() => {
+    const target = selectionEnd ?? selectedCell;
+    if (!target) return;
+    const root = tableScrollRef.current;
+    if (!root) return;
+    // Buscar la celda real por data-attrs. Usamos la API de selector con escape
+    // por si yearKey contuviera caracteres especiales (no es el caso hoy).
+    const sel = `td[data-cell-row="${target.rowIdx}"][data-cell-key="${CSS.escape(target.yearKey)}"]`;
+    const el = root.querySelector<HTMLElement>(sel);
+    if (el) {
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [selectedCell, selectionEnd, osemosysWideRows]);
+
+  /** Listener global de copiar/pegar para celdas seleccionadas (sin estar en edit). */
+  useEffect(() => {
+    if (!selectedCell || editingCell) return;
+    const isFocusInInput = () => {
+      const tag = (document.activeElement as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      const el = document.activeElement as HTMLElement | null;
+      return !!el?.isContentEditable;
+    };
+
+    const onCopy = (e: ClipboardEvent) => {
+      if (isFocusInInput()) return; // No interferir con copy del navegador.
+      const tsv = buildTsvFromSelection();
+      if (tsv === null) return;
+      e.preventDefault();
+      e.clipboardData?.setData("text/plain", tsv);
+    };
+
+    const onPaste = (e: ClipboardEvent) => {
+      if (isFocusInInput()) return;
+      if (!canManageValues) return;
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      if (!text) return;
+      e.preventDefault();
+      // Soporta tanto valor simple como TSV multi-celda.
+      const cleaned = text.replace(/\r\n?/g, "\n");
+      const matrix = cleaned.split("\n").map((line) => line.split("\t"));
+      while (matrix.length > 0 && matrix[matrix.length - 1]!.every((c) => c === "")) {
+        matrix.pop();
+      }
+      if (matrix.length === 0) return;
+      void pasteMatrixAt(matrix, {
+        rowIdx: selectedCell.rowIdx,
+        yearKey: selectedCell.yearKey,
+      });
+    };
+
+    document.addEventListener("copy", onCopy);
+    document.addEventListener("paste", onPaste);
+    return () => {
+      document.removeEventListener("copy", onCopy);
+      document.removeEventListener("paste", onPaste);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCell, editingCell, selectionRect, canManageValues]);
+
   // Carga escenario, permisos, valores OSeMOSYS y solicitudes pendientes al montar
   useEffect(() => {
     if (!Number.isFinite(scenarioId) || !user) return;
@@ -595,8 +866,12 @@ export function ScenarioDetailPage() {
     setCellDraft("");
   }
 
-  /** Persiste la edición inline de una celda. Sin cambio si el valor no varía. */
-  async function commitEditCell() {
+  /** Persiste la edición inline de una celda. Sin cambio si el valor no varía.
+   *
+   * `advance`: tras commit, mueve la selección al vecino indicado. Permite que
+   *  Enter avance hacia abajo y Tab a la derecha (comportamiento Excel).
+   */
+  async function commitEditCell(advance: "down" | "up" | "right" | "left" | null = null) {
     if (!editingCell || !scenario) return;
     const trimmed = cellDraft.trim();
     const nextValue = Number(trimmed);
@@ -604,8 +879,26 @@ export function ScenarioDetailPage() {
       push("El valor debe ser numérico.", "error");
       return;
     }
+
+    // Calcula la celda a la que avanzar (antes de cerrar la edición para tener acceso a editingCell).
+    const computeAdvance = (): { rowIdx: number; yearKey: string } | null => {
+      if (!advance) return null;
+      const rowIdx = osemosysWideRows.findIndex((g) => g.group_key === editingCell.rowKey);
+      if (rowIdx < 0) return null;
+      const colIdx = cellKeysShown.indexOf(editingCell.yearKey);
+      if (colIdx < 0) return null;
+      const drow = advance === "down" ? 1 : advance === "up" ? -1 : 0;
+      const dcol = advance === "right" ? 1 : advance === "left" ? -1 : 0;
+      const newRow = Math.max(0, Math.min(osemosysWideRows.length - 1, rowIdx + drow));
+      const newCol = Math.max(0, Math.min(cellKeysShown.length - 1, colIdx + dcol));
+      return { rowIdx: newRow, yearKey: cellKeysShown[newCol]! };
+    };
+    const nextSel = computeAdvance();
+
     if (nextValue === editingCell.original) {
+      // No-op: cancela y avanza si corresponde.
       cancelEditCell();
+      if (nextSel) setSelectedCell(nextSel);
       return;
     }
     const group = osemosysWideRows.find((g) => g.group_key === editingCell.rowKey);
@@ -639,8 +932,175 @@ export function ScenarioDetailPage() {
       push("Valor actualizado.", "success");
       setEditingCell(null);
       setCellDraft("");
+      if (nextSel) setSelectedCell(nextSel);
     } catch (err) {
       push(err instanceof Error ? err.message : "No se pudo guardar el valor.", "error");
+    } finally {
+      setCellSaving(false);
+    }
+  }
+
+  /** Parsea texto del portapapeles como TSV (filas: `\n`, celdas: `\t`).
+   *
+   * Limpia retornos `\r`, descarta filas/celdas finales completamente vacías.
+   * Retorna `null` si el texto es de una sola celda (no hay tab ni salto).
+   */
+  function parseTsvMatrix(text: string): string[][] | null {
+    if (!text) return null;
+    const cleaned = text.replace(/\r\n?/g, "\n");
+    if (!cleaned.includes("\t") && !cleaned.includes("\n")) return null;
+    const rows = cleaned.split("\n").map((line) => line.split("\t"));
+    // Quitar filas finales totalmente vacías (algunos copy de Excel agregan).
+    while (rows.length > 0 && rows[rows.length - 1]!.every((c) => c === "")) {
+      rows.pop();
+    }
+    return rows.length > 0 ? rows : null;
+  }
+
+  /** Aplica una matriz TSV a partir de la celda en edición como ancla superior-izquierda.
+   *
+   * Para cada celda destino:
+   *  - Parsea el valor; si no es numérico, salta.
+   *  - Si la celda destino existe en la BD → PUT (update).
+   *  - Si está vacía → POST (create) con las dims de la fila destino.
+   * Llamadas en paralelo con concurrencia 6. Toast con resumen al terminar.
+   */
+  async function pasteMatrixAt(
+    matrix: string[][],
+    anchorOverride?: { rowIdx: number; yearKey: string },
+  ) {
+    if (!scenario || !canManageValues) return;
+    // Anchor: explícito (paste por selección) o derivado de editingCell (paste durante edición).
+    let anchorRowIdx: number;
+    let anchorYearKey: string;
+    if (anchorOverride) {
+      anchorRowIdx = anchorOverride.rowIdx;
+      anchorYearKey = anchorOverride.yearKey;
+    } else if (editingCell) {
+      anchorRowIdx = osemosysWideRows.findIndex((r) => r.group_key === editingCell.rowKey);
+      anchorYearKey = editingCell.yearKey;
+    } else {
+      return;
+    }
+    if (anchorRowIdx < 0) return;
+
+    const cellKeys = cellKeysShown;
+    const anchorColIdx = cellKeys.indexOf(anchorYearKey);
+    if (anchorColIdx < 0) return;
+
+    type Task = () => Promise<{ kind: "ok"; isNew: boolean } | { kind: "skip" } | { kind: "err"; msg: string }>;
+    const tasks: Task[] = [];
+    let outOfBounds = 0;
+    let nonNumeric = 0;
+
+    for (let di = 0; di < matrix.length; di++) {
+      const targetRow = osemosysWideRows[anchorRowIdx + di];
+      if (!targetRow) {
+        outOfBounds += matrix[di]!.length;
+        continue;
+      }
+      const cells = matrix[di]!;
+      for (let dj = 0; dj < cells.length; dj++) {
+        const targetYearKey = cellKeys[anchorColIdx + dj];
+        if (!targetYearKey) {
+          outOfBounds++;
+          continue;
+        }
+        const raw = (cells[dj] ?? "").trim();
+        if (raw === "") continue; // Celda vacía en TSV: ignorar (sin sobrescribir).
+        const numeric = Number(raw.replace(",", "."));
+        if (!Number.isFinite(numeric)) {
+          nonNumeric++;
+          continue;
+        }
+
+        const groupForTask = targetRow;
+        const yearKeyForTask = targetYearKey;
+        const existingCell = groupForTask.cells[yearKeyForTask];
+        const payload = {
+          param_name: groupForTask.param_name,
+          ...(groupForTask.region_name ? { region_name: groupForTask.region_name } : {}),
+          ...(groupForTask.technology_name ? { technology_name: groupForTask.technology_name } : {}),
+          ...(groupForTask.fuel_name ? { fuel_name: groupForTask.fuel_name } : {}),
+          ...(groupForTask.emission_name ? { emission_name: groupForTask.emission_name } : {}),
+          ...(groupForTask.udc_name ? { udc_name: groupForTask.udc_name } : {}),
+          ...(yearKeyForTask !== "scalar" ? { year: Number(yearKeyForTask) } : {}),
+          value: numeric,
+        };
+
+        if (existingCell) {
+          // Skip si el valor no cambia.
+          if (existingCell.value === numeric) continue;
+          tasks.push(async () => {
+            try {
+              await scenariosApi.updateOsemosysValue(scenario.id, existingCell.id, payload);
+              return { kind: "ok", isNew: false };
+            } catch (e) {
+              return { kind: "err", msg: e instanceof Error ? e.message : "update fail" };
+            }
+          });
+        } else {
+          tasks.push(async () => {
+            try {
+              await scenariosApi.createOsemosysValue(scenario.id, payload);
+              return { kind: "ok", isNew: true };
+            } catch (e) {
+              return { kind: "err", msg: e instanceof Error ? e.message : "create fail" };
+            }
+          });
+        }
+      }
+    }
+
+    if (tasks.length === 0) {
+      const parts: string[] = [];
+      if (outOfBounds > 0) parts.push(`${outOfBounds} fuera de la tabla`);
+      if (nonNumeric > 0) parts.push(`${nonNumeric} no numéricas`);
+      push(parts.length ? `Nada que pegar (${parts.join(", ")}).` : "Nada que pegar.", "info");
+      return;
+    }
+
+    if (tasks.length > 500) {
+      const ok = window.confirm(
+        `Vas a actualizar ${tasks.length} celdas. Esto tomará varios segundos. ¿Continuar?`,
+      );
+      if (!ok) return;
+    }
+
+    setCellSaving(true);
+    try {
+      // Pool de concurrencia 6 — equilibrio entre throughput y carga al backend.
+      const CONCURRENCY = 6;
+      let updated = 0;
+      let created = 0;
+      let failed = 0;
+      let cursor = 0;
+      const workers = Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, async () => {
+        while (cursor < tasks.length) {
+          const idx = cursor++;
+          const res = await tasks[idx]!();
+          if (res.kind === "ok") {
+            if (res.isNew) created++;
+            else updated++;
+          } else if (res.kind === "err") {
+            failed++;
+          }
+        }
+      });
+      await Promise.all(workers);
+
+      const parts: string[] = [];
+      if (updated > 0) parts.push(`${updated} actualizada(s)`);
+      if (created > 0) parts.push(`${created} creada(s)`);
+      if (failed > 0) parts.push(`${failed} fallida(s)`);
+      if (nonNumeric > 0) parts.push(`${nonNumeric} no numéricas`);
+      if (outOfBounds > 0) parts.push(`${outOfBounds} fuera de tabla`);
+      push(`Pegado: ${parts.join(", ")}.`, failed > 0 ? "error" : "success");
+
+      // Refresca tabla y header para reflejar todo (ids nuevos, total de combinaciones).
+      await refreshOsemosysData(scenario.id);
+      await refreshScenarioHeader(scenario.id);
+      cancelEditCell();
     } finally {
       setCellSaving(false);
     }
@@ -1213,7 +1673,15 @@ export function ScenarioDetailPage() {
                 const totalCols =
                   dimHeaders.length + (scalarShown ? 1 : 0) + yearsShown.length + 1;
                 return (
-                  <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12 }}>
+                  <div
+                    ref={tableScrollRef}
+                    style={{
+                      overflow: "auto",
+                      maxHeight: "70vh",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      borderRadius: 12,
+                    }}
+                  >
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
                       <thead style={{ background: "rgba(255,255,255,0.03)" }}>
                         <tr>
@@ -1251,6 +1719,8 @@ export function ScenarioDetailPage() {
                                 padding: "10px 12px",
                                 color: "var(--muted)",
                                 background: "rgba(20,20,24,0.95)",
+                                position: "sticky",
+                                top: 0,
                               }}
                             >
                               Valor (no temporal)
@@ -1266,6 +1736,8 @@ export function ScenarioDetailPage() {
                                 color: "var(--muted)",
                                 background: "rgba(20,20,24,0.95)",
                                 whiteSpace: "nowrap",
+                                position: "sticky",
+                                top: 0,
                               }}
                             >
                               <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
@@ -1285,6 +1757,8 @@ export function ScenarioDetailPage() {
                               padding: "10px 12px",
                               color: "var(--muted)",
                               background: "rgba(20,20,24,0.95)",
+                              position: "sticky",
+                              top: 0,
                             }}
                           >
                             Acciones
@@ -1299,7 +1773,7 @@ export function ScenarioDetailPage() {
                             </td>
                           </tr>
                         ) : (
-                          osemosysWideRows.map((g) => {
+                          osemosysWideRows.map((g, rowIdx) => {
                             const cellKeys: string[] = [];
                             if (scalarShown) cellKeys.push("scalar");
                             for (const y of yearsShown) cellKeys.push(String(y));
@@ -1315,9 +1789,24 @@ export function ScenarioDetailPage() {
                                   const cell = g.cells[yearKey];
                                   const isEditing =
                                     editingCell?.rowKey === g.group_key && editingCell.yearKey === yearKey;
+                                  const isAnchor =
+                                    !isEditing &&
+                                    selectedCell?.rowIdx === rowIdx &&
+                                    selectedCell.yearKey === yearKey;
+                                  const inRange = !isEditing && isCellInSelection(rowIdx, yearKey);
                                   const canEdit = canManageValues && !!cell;
                                   const canPropose = !canManageValues && !!access?.can_propose && !!cell;
-                                  const onClick = () => {
+                                  // Click: marca selección + colapsa rango. Si tiene celda y es editable, inicia edit.
+                                  // Shift+Click: extiende rango sin entrar a edit.
+                                  const onClick = (ev: React.MouseEvent) => {
+                                    if (ev.shiftKey) {
+                                      // Extender rango si ya hay ancla; si no, fija ancla.
+                                      if (selectedCell) setSelectionEnd({ rowIdx, yearKey });
+                                      else setSelectedCell({ rowIdx, yearKey });
+                                      return;
+                                    }
+                                    setSelectionEnd(null);
+                                    setSelectedCell({ rowIdx, yearKey });
                                     if (!cell) return;
                                     if (canManageValues) {
                                       startEditCell(g.group_key, yearKey, cell);
@@ -1329,20 +1818,32 @@ export function ScenarioDetailPage() {
                                   return (
                                     <td
                                       key={yearKey}
+                                      // data-attrs para que el efecto de scrollIntoView pueda
+                                      // localizar la celda activa por consulta DOM.
+                                      data-cell-row={rowIdx}
+                                      data-cell-key={yearKey}
                                       style={{
                                         padding: "2px 8px",
                                         textAlign: "right",
                                         fontSize: 13,
                                         fontVariantNumeric: "tabular-nums",
-                                        cursor: canEdit || canPropose ? "pointer" : "default",
-                                        background: isEditing ? "rgba(80,140,255,0.08)" : undefined,
+                                        cursor: "pointer",
+                                        background: isEditing
+                                          ? "rgba(80,140,255,0.08)"
+                                          : isAnchor
+                                            ? "rgba(80,140,255,0.10)"
+                                            : inRange
+                                              ? "rgba(80,140,255,0.05)"
+                                              : undefined,
+                                        outline: isAnchor ? "2px solid rgba(80,140,255,0.8)" : undefined,
+                                        outlineOffset: isAnchor ? "-2px" : undefined,
                                       }}
                                       onClick={isEditing ? undefined : onClick}
                                       title={
                                         cell
                                           ? `Valor: ${cell.value}${
                                               canEdit
-                                                ? " · Click para editar"
+                                                ? " · Click para editar · ↑↓←→ para navegar"
                                                 : canPropose
                                                   ? " · Click para proponer cambio"
                                                   : ""
@@ -1355,18 +1856,34 @@ export function ScenarioDetailPage() {
                                       ) : isEditing ? (
                                         <input
                                           autoFocus
-                                          type="number"
-                                          step="any"
+                                          // type="text" en vez de "number" para que el navegador
+                                          // entregue al onPaste el contenido COMPLETO (number
+                                          // sólo deja pasar el primer dígito de TSV multi-celda).
+                                          type="text"
+                                          inputMode="decimal"
                                           value={cellDraft}
                                           disabled={cellSaving}
                                           onChange={(e) => setCellDraft(e.target.value)}
+                                          onPaste={(e) => {
+                                            const text = e.clipboardData.getData("text/plain");
+                                            const matrix = parseTsvMatrix(text);
+                                            if (matrix === null) return; // single-cell paste: deja al input.
+                                            // Multi-celda: interceptamos.
+                                            e.preventDefault();
+                                            void pasteMatrixAt(matrix);
+                                          }}
                                           onKeyDown={(e) => {
+                                            // Excel-style: Enter↓, Shift+Enter↑, Tab→, Shift+Tab←, Esc cancela.
                                             if (e.key === "Enter") {
                                               e.preventDefault();
-                                              void commitEditCell();
+                                              void commitEditCell(e.shiftKey ? "up" : "down");
+                                            } else if (e.key === "Tab") {
+                                              e.preventDefault();
+                                              void commitEditCell(e.shiftKey ? "left" : "right");
                                             } else if (e.key === "Escape") {
                                               e.preventDefault();
                                               cancelEditCell();
+                                              setSelectedCell({ rowIdx, yearKey });
                                             }
                                           }}
                                           onBlur={() => {

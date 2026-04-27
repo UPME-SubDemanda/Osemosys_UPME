@@ -13,6 +13,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 import zipfile
 from io import BytesIO
@@ -43,6 +44,9 @@ from app.schemas.scenario import (
     SandIntegrationResponse,
     ScenarioClone,
     ScenarioCreate,
+    ScenarioDeleteImpact,
+    ScenarioDetachChildrenRequest,
+    ScenarioDetachChildrenResponse,
     ScenarioExcelImportResponse,
     ScenarioExcelPreviewResponse,
     ScenarioExcelUpdateResponse,
@@ -659,6 +663,135 @@ def update_scenario(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
+def _scenario_delete_children_payload(db: Session, *, scenario_id: int) -> list[dict]:
+    children = (
+        db.query(Scenario)
+        .filter(Scenario.base_scenario_id == scenario_id)
+        .order_by(Scenario.created_at.desc(), Scenario.id.desc())
+        .all()
+    )
+    if not children:
+        return []
+
+    child_ids = [int(child.id) for child in children]
+    child_counts = {
+        int(row[0]): int(row[1])
+        for row in (
+            db.query(Scenario.base_scenario_id, func.count(Scenario.id))
+            .filter(Scenario.base_scenario_id.in_(child_ids))
+            .group_by(Scenario.base_scenario_id)
+            .all()
+        )
+    }
+    job_counts = {
+        int(row[0]): int(row[1])
+        for row in (
+            db.query(SimulationJob.scenario_id, func.count(SimulationJob.id))
+            .filter(SimulationJob.scenario_id.in_(child_ids))
+            .group_by(SimulationJob.scenario_id)
+            .all()
+        )
+    }
+    return [
+        {
+            "id": int(child.id),
+            "name": child.name,
+            "owner": child.owner,
+            "edit_policy": child.edit_policy,
+            "simulation_type": getattr(child, "simulation_type", "NATIONAL"),
+            "child_count": child_counts.get(int(child.id), 0),
+            "simulation_job_count": job_counts.get(int(child.id), 0),
+            "created_at": child.created_at,
+        }
+        for child in children
+    ]
+
+
+def _raise_if_scenario_has_children(db: Session, *, scenario: Scenario) -> None:
+    children = _scenario_delete_children_payload(db, scenario_id=int(scenario.id))
+    if not children:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "scenario_has_children",
+            "message": (
+                "No se puede eliminar el escenario porque tiene escenarios hijos. "
+                "Primero elimínalos o independízalos."
+            ),
+            "scenario_id": int(scenario.id),
+            "scenario_name": scenario.name,
+            "children": children,
+        },
+    )
+
+
+@router.get("/{scenario_id}/delete-impact", response_model=ScenarioDeleteImpact)
+def get_scenario_delete_impact(
+    scenario_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    scenario = db.get(Scenario, scenario_id)
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Escenario no encontrado.")
+    is_scenario_admin = bool(getattr(current_user, "can_manage_scenarios", False))
+    if scenario.owner != current_user.username and not is_scenario_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para eliminar este escenario.",
+        )
+    return {
+        "scenario_id": int(scenario.id),
+        "scenario_name": scenario.name,
+        "direct_children": _scenario_delete_children_payload(db, scenario_id=scenario_id),
+    }
+
+
+@router.post(
+    "/{scenario_id}/children/detach",
+    response_model=ScenarioDetachChildrenResponse,
+)
+def detach_scenario_children(
+    scenario_id: int,
+    payload: ScenarioDetachChildrenRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    scenario = db.get(Scenario, scenario_id)
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Escenario no encontrado.")
+    is_scenario_admin = bool(getattr(current_user, "can_manage_scenarios", False))
+    if scenario.owner != current_user.username and not is_scenario_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para independizar hijos de este escenario.",
+        )
+
+    unique_child_ids = sorted({int(child_id) for child_id in payload.child_ids})
+    children = (
+        db.query(Scenario)
+        .filter(Scenario.id.in_(unique_child_ids), Scenario.base_scenario_id == scenario_id)
+        .all()
+    )
+    found_ids = {int(child.id) for child in children}
+    missing_ids = [child_id for child_id in unique_child_ids if child_id not in found_ids]
+    if missing_ids:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "invalid_scenario_children",
+                "message": "Algunos escenarios seleccionados ya no son hijos directos.",
+                "child_ids": missing_ids,
+            },
+        )
+
+    for child in children:
+        child.base_scenario_id = None
+    db.commit()
+    return {"detached_child_ids": unique_child_ids}
+
+
 @router.delete("/{scenario_id}", status_code=204)
 def delete_scenario(
     scenario_id: int,
@@ -681,6 +814,7 @@ def delete_scenario(
             status_code=403,
             detail="No tienes permisos para eliminar este escenario.",
         )
+    _raise_if_scenario_has_children(db, scenario=scenario)
 
     # Snapshot del escenario antes de eliminar — lo usamos para `details_json`
     # del DeletionLog y para dejar un label humano en `entity_name`.

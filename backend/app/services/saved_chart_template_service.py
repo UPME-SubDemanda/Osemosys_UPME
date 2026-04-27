@@ -45,6 +45,10 @@ def _inject_synthetic_series(chart: ChartDataResponse, raw_series: list[dict]) -
 
     Convierte cada serie (pares [año, valor]) a ChartSeries alineada a las
     categorías del chart. Años sin dato quedan como NaN (gap en línea).
+
+    Conserva el styling configurado por el usuario (``lineStyle``,
+    ``markerSymbol``, ``markerRadius``, ``lineWidth``) y marca la serie con
+    ``is_synthetic=True`` para que el renderer matplotlib pueda aplicarlo.
     """
     for synth in raw_series:
         if synth.get("active", True) is False:
@@ -64,6 +68,19 @@ def _inject_synthetic_series(chart: ChartDataResponse, raw_series: list[dict]) -
                 data=aligned,
                 color=synth.get("color") or "#999999",
                 stack=None,
+                is_synthetic=True,
+                lineStyle=synth.get("lineStyle"),
+                markerSymbol=synth.get("markerSymbol"),
+                markerRadius=(
+                    float(synth["markerRadius"])
+                    if synth.get("markerRadius") is not None
+                    else None
+                ),
+                lineWidth=(
+                    float(synth["lineWidth"])
+                    if synth.get("lineWidth") is not None
+                    else None
+                ),
             )
         )
 
@@ -395,8 +412,14 @@ class SavedChartTemplateService:
         fmt: str,
         job_display_overrides: dict[int, str] | None = None,
         scenario_alias_for_title: str | None = None,
+        year_from: int | None = None,
+        year_to: int | None = None,
     ) -> tuple[bytes, str]:
-        """Renderiza una plantilla y devuelve (bytes, extensión-sin-punto)."""
+        """Renderiza una plantilla y devuelve (bytes, extensión-sin-punto).
+
+        Si ``year_from`` o ``year_to`` están dados, las categorías-año (y los
+        valores de cada serie) se recortan al rango antes de renderizar.
+        """
         # Líneas totales multi-escenario: una línea por escenario sobre el mismo eje.
         if template.compare_mode == "line-total":
             if len(job_ids) < 2:
@@ -416,6 +439,7 @@ class SavedChartTemplateService:
                 raise ValueError(
                     f"Plantilla '{template.name}': sin datos para líneas totales."
                 )
+            chart_service.filter_chart_by_year_range(chart, year_from, year_to)
             if template.synthetic_series:
                 _inject_synthetic_series(chart, template.synthetic_series)
             rt = (getattr(template, "report_title", None) or "").strip()
@@ -436,6 +460,19 @@ class SavedChartTemplateService:
                     f"La plantilla '{template.name}' requiere al menos 2 escenarios."
                 )
             years = list(template.years_to_plot or [])
+            # Recortar la lista de años explícita al rango, si aplica.
+            if year_from is not None or year_to is not None:
+                years = [
+                    y for y in years
+                    if (year_from is None or y >= year_from)
+                    and (year_to is None or y <= year_to)
+                ]
+                if not years:
+                    raise ValueError(
+                        f"Plantilla '{template.name}': el rango de años "
+                        f"[{year_from}, {year_to}] no incluye ninguno de "
+                        f"los años de la plantilla."
+                    )
             cmp_data = chart_service.build_comparison_data(
                 db=db,
                 job_ids=job_ids,
@@ -484,6 +521,7 @@ class SavedChartTemplateService:
                 raise ValueError(
                     f"Plantilla '{template.name}': sin datos con los filtros y escenarios seleccionados."
                 )
+            chart_service.filter_chart_by_year_range(facet_payload, year_from, year_to)
             rt = (getattr(template, "report_title", None) or "").strip()
             if rt:
                 facet_payload.title = rt
@@ -539,6 +577,7 @@ class SavedChartTemplateService:
             raise ValueError(
                 f"Plantilla '{template.name}': sin datos con los filtros y escenario seleccionados."
             )
+        chart_service.filter_chart_by_year_range(chart, year_from, year_to)
         view_mode = template.view_mode or "column"
         if template.synthetic_series and view_mode in _LINE_VIEW_MODES:
             _inject_synthetic_series(chart, template.synthetic_series)
@@ -594,6 +633,8 @@ class SavedChartTemplateService:
         organize_by_category: bool = False,
         categories: list[ReportCategoryExport] | None = None,
         job_display_overrides: dict[str, str] | None = None,
+        year_from: int | None = None,
+        year_to: int | None = None,
     ) -> tuple[io.BytesIO, str]:
         """Construye un ZIP con una imagen por plantilla.
 
@@ -604,6 +645,13 @@ class SavedChartTemplateService:
         """
         if fmt not in ("png", "svg"):
             raise ValueError("fmt debe ser 'png' o 'svg'")
+
+        # Validar rango de años (si ambos están dados, year_from <= year_to).
+        if year_from is not None and year_to is not None and year_from > year_to:
+            raise ValueError(
+                f"Rango de años inválido: year_from ({year_from}) > "
+                f"year_to ({year_to})."
+            )
 
         structured = organize_by_category and bool(categories)
         if structured:
@@ -632,13 +680,24 @@ class SavedChartTemplateService:
             overrides_int = tmp or None
 
         # Validar todas las plantillas (incluyendo públicas) y accesos antes de renderizar.
+        # Pasamos ``current_user`` para que la rama de Admin Reportes/Admin
+        # Escenarios active el escape hatch y pueda exportar reportes que
+        # referencien plantillas privadas ajenas.
         rendered_by_template: dict[int, tuple[SavedChartTemplate, list[int]]] = {}
         alias_by_template: dict[int, str] = {}
         all_jobs: set[int] = set()
+        missing_ids: list[int] = []
         for item in effective_items:
-            template, _owner = SavedChartTemplateService.get_accessible(
-                db, user_id=current_user.id, template_id=item.template_id
-            )
+            try:
+                template, _owner = SavedChartTemplateService.get_accessible(
+                    db,
+                    user_id=current_user.id,
+                    template_id=item.template_id,
+                    current_user=current_user,
+                )
+            except NotFoundError:
+                missing_ids.append(item.template_id)
+                continue
             if len(item.job_ids) != template.num_scenarios:
                 raise ValueError(
                     f"Plantilla '{template.name}' requiere {template.num_scenarios} escenario(s); "
@@ -649,6 +708,15 @@ class SavedChartTemplateService:
             alias = (getattr(item, "scenario_alias_for_title", None) or "").strip()
             if alias:
                 alias_by_template[item.template_id] = alias
+
+        if missing_ids:
+            unique_missing = sorted(set(missing_ids))
+            raise NotFoundError(
+                "No se pudieron cargar las siguientes plantillas (eliminadas, "
+                f"privadas o sin acceso): {unique_missing}. "
+                "Edita el reporte para reemplazarlas o pide al dueño que las "
+                "vuelva a hacer públicas."
+            )
 
         SavedChartTemplateService._validate_access_jobs(
             db, current_user=current_user, job_ids=sorted(all_jobs)
@@ -684,6 +752,8 @@ class SavedChartTemplateService:
                     fmt=fmt,
                     job_display_overrides=overrides_int,
                     scenario_alias_for_title=alias_by_template.get(template.id),
+                    year_from=year_from,
+                    year_to=year_to,
                 )
             except ValueError as e:
                 logger.warning("Skip plantilla %s durante reporte: %s", template.id, e)
@@ -784,6 +854,8 @@ def _report_to_public_dict(
         "layout": getattr(obj, "layout", None),
         "scenario_aliases": getattr(obj, "scenario_aliases", None),
         "default_job_ids": getattr(obj, "default_job_ids", None),
+        "year_from": getattr(obj, "year_from", None),
+        "year_to": getattr(obj, "year_to", None),
         "is_favorite": bool(is_favorite),
     }
 
@@ -1000,6 +1072,8 @@ class ReportTemplateService:
         layout: dict | None = None,
         scenario_aliases: list[str] | None = None,
         default_job_ids: list[int | None] | None = None,
+        year_from: int | None = None,
+        year_to: int | None = None,
     ) -> dict:
         if is_official and not ReportTemplateService._is_admin_reports(current_user):
             raise ForbiddenError(
@@ -1019,6 +1093,8 @@ class ReportTemplateService:
             layout=layout,
             scenario_aliases=(list(scenario_aliases) if scenario_aliases else None),
             default_job_ids=(list(default_job_ids) if default_job_ids else None),
+            year_from=year_from,
+            year_to=year_to,
         )
         db.add(obj)
         # Si el reporte es compartido (público u oficial), promovemos las
@@ -1055,6 +1131,8 @@ class ReportTemplateService:
         layout: dict | None | object = ...,
         scenario_aliases: list[str] | None | object = ...,
         default_job_ids: list[int | None] | None | object = ...,
+        year_from: int | None | object = ...,
+        year_to: int | None | object = ...,
     ) -> dict:
         """Actualiza el reporte con reglas de acceso granulares.
 
@@ -1108,6 +1186,8 @@ class ReportTemplateService:
                 (layout is not ..., "layout"),
                 (scenario_aliases is not ..., "scenario_aliases"),
                 (default_job_ids is not ..., "default_job_ids"),
+                (year_from is not ..., "year_from"),
+                (year_to is not ..., "year_to"),
             ]
             bad = [n for (flag, n) in disallowed if flag]
             if bad:
@@ -1142,6 +1222,10 @@ class ReportTemplateService:
             obj.default_job_ids = (
                 list(default_job_ids) if default_job_ids else None
             )
+        if year_from is not ...:
+            obj.year_from = year_from  # type: ignore[assignment]
+        if year_to is not ...:
+            obj.year_to = year_to  # type: ignore[assignment]
         # Si el reporte quedó compartido (público u oficial), promovemos sus
         # plantillas a públicas.
         if obj.is_public or obj.is_official:
@@ -1329,6 +1413,8 @@ class ReportTemplateService:
             is_public=False,
             is_official=False,
             layout=_remap_layout(src.layout),
+            year_from=getattr(src, "year_from", None),
+            year_to=getattr(src, "year_to", None),
         )
         db.add(copy)
         db.commit()

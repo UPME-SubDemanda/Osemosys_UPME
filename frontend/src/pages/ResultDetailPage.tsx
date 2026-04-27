@@ -27,6 +27,7 @@ import { getDefaultChartSelection } from '../shared/charts/defaultChartSelection
 import { ScenarioComparer, type CompareViewMode } from '../shared/charts/ScenarioComparer';
 import { HighchartsChart } from '../shared/charts/HighchartsChart';
 import { LineChart } from '../shared/charts/LineChart';
+import { ChartDataTable } from '../shared/charts/ChartDataTable';
 import { CompareChart } from '../shared/charts/CompareChart';
 import { CompareChartFacet } from '../shared/charts/CompareChartFacet';
 import { ParetoChart } from '../shared/charts/ParetoChart';
@@ -1582,6 +1583,13 @@ export function ResultDetailPage() {
             ) : chartSelection.viewMode === 'pareto' && paretoData ? (
               <ParetoChart
                 data={paretoData}
+                serverExport={{ jobId: currentRunId, selection: chartSelection }}
+              />
+            ) : chartSelection.viewMode === 'table' && singleChartData ? (
+              <ChartDataTable
+                data={singleChartData}
+                periodYears={chartSelection.tablePeriodYears ?? null}
+                cumulative={Boolean(chartSelection.tableCumulative)}
                 serverExport={{ jobId: currentRunId, selection: chartSelection }}
               />
             ) : singleChartData ? (

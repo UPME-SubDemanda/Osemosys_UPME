@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 CompareMode = Literal["off", "facet", "by-year", "line-total"]
-ViewMode = Literal["column", "line", "area", "pareto"]
+ViewMode = Literal["column", "line", "area", "pareto", "table"]
 BarOrientation = Literal["vertical", "horizontal"]
 FacetPlacement = Literal["inline", "stacked"]
 FacetLegendMode = Literal["shared", "perFacet"]
@@ -78,6 +78,12 @@ class SavedChartTemplateBase(BaseModel):
     synthetic_series: list[SyntheticSeries] | None = Field(
         default=None, max_length=20
     )
+    #: Cuando ``view_mode == "table"``: muestra solo años cada N (1=todos los años,
+    #: 5=cada 5 años…). ``None`` = todos los años. Solo aplica al modo tabla.
+    table_period_years: int | None = Field(default=None, ge=1, le=100)
+    #: Cuando ``view_mode == "table"``: si ``True`` los valores se muestran
+    #: como suma acumulada por serie (útil para "capacidad acumulada", etc.).
+    table_cumulative: bool | None = None
 
 
 class SavedChartTemplateCreate(SavedChartTemplateBase):
@@ -106,10 +112,12 @@ class SavedChartTemplateUpdate(BaseModel):
     is_public: bool | None = None
     #: Título al renderizar en reportes. Enviar "" o null limpia el override.
     report_title: str | None = Field(default=None, max_length=255)
-    #: Tipo de trazo (column / line / area / pareto). Cambiarlo desde el reporte
-    #: permite alternar entre columnas apiladas y áreas apiladas sin editar
-    #: toda la plantilla.
+    #: Tipo de trazo (column / line / area / pareto / table). Cambiarlo desde
+    #: el reporte permite alternar entre formatos sin editar toda la plantilla.
     view_mode: ViewMode | None = None
+    #: Solo aplica si ``view_mode == "table"``. Enviar ``null`` resetea.
+    table_period_years: int | None = Field(default=None, ge=1, le=100)
+    table_cumulative: bool | None = None
 
     @model_validator(mode="after")
     def _any_field(self):
@@ -119,9 +127,11 @@ class SavedChartTemplateUpdate(BaseModel):
             and self.is_public is None
             and self.report_title is None
             and self.view_mode is None
+            and self.table_period_years is None
+            and self.table_cumulative is None
         ):
             raise ValueError(
-                "Debes enviar al menos name, description, is_public, report_title o view_mode."
+                "Debes enviar al menos un campo a actualizar."
             )
         return self
 

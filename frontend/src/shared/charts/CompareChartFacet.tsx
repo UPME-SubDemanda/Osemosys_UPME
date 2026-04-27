@@ -17,6 +17,7 @@ import {
   remapSvgFragmentIds,
 } from "./mergeFacetChartsSvg";
 import { buildLineTooltipOptions, buildStackedTooltipOptions } from "./chartTooltips";
+import { formatAxis3Sig } from "./numberFormat";
 import {
   createLegendDblclickState,
   dispatchLegendClick,
@@ -435,7 +436,13 @@ function FacetChart({
           text: yAxisLabel,
           style: { color: "#94a3b8", fontSize: `${FACET_Y_LABEL_FONT_PX + 1}px` },
         },
-        labels: { style: { color: "#94a3b8", fontSize: `${FACET_Y_LABEL_FONT_PX}px` } },
+        labels: {
+          style: { color: "#94a3b8", fontSize: `${FACET_Y_LABEL_FONT_PX}px` },
+          // Mínimo 3 cifras significativas (sin notación científica).
+          formatter: function (this: Highcharts.AxisLabelsFormatterContextObject) {
+            return formatAxis3Sig(this.value as number);
+          },
+        },
         gridLineColor: "#334155",
         stackLabels: isLine
           ? { enabled: false }
@@ -541,6 +548,8 @@ function FacetChart({
         align: "center",
         verticalAlign: "bottom",
         layout: "horizontal",
+        // Leyenda invertida respecto al stack (lectura abajo→arriba).
+        reversed: true,
         itemStyle: { color: "#94a3b8", fontWeight: "normal", fontSize: "13px" },
         itemHoverStyle: { color: "#f8fafc" },
       },

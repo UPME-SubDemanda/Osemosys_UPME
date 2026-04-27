@@ -153,6 +153,8 @@ def generate_report(
             organize_by_category=payload.organize_by_category,
             categories=payload.categories,
             job_display_overrides=payload.job_display_overrides,
+            year_from=payload.year_from,
+            year_to=payload.year_to,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -214,6 +216,8 @@ def create_report(
             ),
             scenario_aliases=payload.scenario_aliases,
             default_job_ids=payload.default_job_ids,
+            year_from=payload.year_from,
+            year_to=payload.year_to,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -271,6 +275,12 @@ def update_report(
     defaults_arg: object = ...
     if "default_job_ids" in data:
         defaults_arg = data["default_job_ids"]
+    year_from_arg: object = ...
+    if "year_from" in data:
+        year_from_arg = data["year_from"]
+    year_to_arg: object = ...
+    if "year_to" in data:
+        year_to_arg = data["year_to"]
     try:
         row = ReportTemplateService.update(
             db,
@@ -285,6 +295,8 @@ def update_report(
             layout=layout_arg,
             scenario_aliases=aliases_arg,
             default_job_ids=defaults_arg,
+            year_from=year_from_arg,
+            year_to=year_to_arg,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

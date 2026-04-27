@@ -135,6 +135,15 @@ COLOR_MAP_PWR = construir_color_map_por_familias(
     COLOR_BASE_FAMILIA,
 )
 
+# Swap de colores entre Solar Rooftop (RTP) y Solar Utility + Batería.
+# Decisión de producto: el color oscuro original de RTP queda asignado a la
+# tecnología con baterías; RTP toma el tono más claro que tenía la BAT.
+_orig_rtp = COLOR_MAP_PWR["PWRSOLRTP"]
+_orig_bat = COLOR_MAP_PWR["PWRSOLUGE_BAT"]
+COLOR_MAP_PWR["PWRSOLRTP"] = _orig_bat
+COLOR_MAP_PWR["PWRSOLUGE_BAT"] = _orig_rtp
+del _orig_rtp, _orig_bat
+
 _TECHS_CLASIFICADAS: frozenset[str] = frozenset(
     t for fam in FAMILIAS_TEC.values() for t in fam
 )
@@ -292,23 +301,55 @@ def _color_por_grupo_fijo(df, columna: str = "COLOR"):
 # 5. PALETAS FIJAS POR TECNOLOGÍA (gráficas con tecnologías específicas)
 # ══════════════════════════════════════════════════════════════════════════
 
+# Electrólisis (H₂ verde). Los electrolizadores siempre van en tonos verdes.
 COLOR_MAP_ELECTROLISIS: dict[str, str] = {
-    "UPSALK": "#4472c4",  # Electrólisis Alcalina — azul
-    "UPSPEM": "#e82020",  # Electrólisis PEM — rojo
+    "UPSALK": "#16a34a",  # Electrólisis Alcalina — verde medio
+    "UPSPEM": "#22c55e",  # Electrólisis PEM — verde claro
 }
 
+# Producción de H₂ por tipo (clasificación cromática del H₂):
+#   • verde  → electrólisis con renovables (UPSALK, UPSPEM)
+#   • azul   → SMR con captura (UPSSMRCCS)
+#   • gris   → SMR sin captura (UPSSMR)
+COLOR_MAP_PRODUCCION_H2: dict[str, str] = {
+    # H₂ verde
+    "UPSALK":    "#16a34a",  # Electrólisis Alcalina — verde medio
+    "UPSPEM":    "#22c55e",  # Electrólisis PEM — verde claro
+    # H₂ azul
+    "UPSSMRCCS": "#1d4ed8",  # SMR + CCS — azul oscuro
+    # H₂ gris
+    "UPSSMR":    "#6b7280",  # SMR sin captura — gris medio
+}
+
+# Consumo de H₂ por sector/uso. Paleta categórica (cool=industria,
+# warm=transporte) — el color NO codifica green/blue (eso aplica solo a
+# producción) sino el sector que demanda el H₂.
 COLOR_MAP_H2_CONSUMO: dict[str, str] = {
-    "DEMINDHDGBOI_HIG":  "#4472c4",  # Petroquímica H2 — azul oscuro
-    "DEMINDHDGBOI_LOW":  "#17c0e8",  # Industria calor directo — cian
-    "DEMTRAHDGTCK_CSG":  "#2ecc71",  # Tractocamiones — verde
-    "DEMTRAHDGBUS_URB":  "#e04040",  # Estaciones servicio H2 — rojo
-    "DEMTRAHDGFWD":      "#e04040",
-    "DEMTRAHDGLDV":      "#e04040",
-    "DEMTRAHDGMIC":      "#e04040",
-    "DEMTRAHDGSTT":      "#e04040",
-    "DEMTRAHDGTAX":      "#e04040",
-    "UPSHDGRST":         "#f47c14",  # Exportación H2 — naranja
-    "UPSSAF":            "#a8d878",  # SAF Hidroprocesado — verde claro
+    # ── Industria / Petroquímica (cool tones) ─────────────────────────────
+    "DEMDERHDG":         "#831843",  # H₂ Petroquímica (derivados) — magenta oscuro
+    "DEMINDHDGBOI_HIG":  "#1e40af",  # Industria caldera alta — azul oscuro
+    "DEMINDHDGBOI_LOW":  "#3b82f6",  # Industria caldera baja — azul medio
+    "DEMINDHDGFUR":      "#06b6d4",  # Industria horno — cian
+    # ── Transporte (warm tones — gama rojo→amarillo dorado) ───────────────
+    "DEMTRAHDGTCK_CSG":  "#dc2626",  # Tractocamión — rojo intenso
+    "DEMTRAHDGSTT":      "#ef4444",  # Semitractor (FCEV) — rojo
+    "DEMTRAHDGBUS_IMU":  "#f97316",  # Bus intermunicipal — naranja
+    "DEMTRAHDGBUS_URB":  "#fb923c",  # Bus urbano — naranja claro
+    "DEMTRAHDGMIC":      "#f59e0b",  # Microbús — ámbar
+    "DEMTRAHDGFWD":      "#fbbf24",  # Vehículo 4x4 — amarillo-ámbar
+    "DEMTRAHDGLDV":      "#facc15",  # Vehículo ligero (FCEV) — amarillo
+    "DEMTRAHDGTAX":      "#eab308",  # Taxi — amarillo dorado
+    # ── Otros usos ────────────────────────────────────────────────────────
+    "UPSHDGRST":         "#7c3aed",  # Exportación H₂ — violeta vibrante
+    # Las técnicas de producción pueden aparecer también en UseByTechnology
+    # (consumo eléctrico de los electrolizadores). Mantenemos los colores de
+    # producción para que la lectura sea consistente entre los dos charts.
+    "UPSALK":    "#16a34a",  # verde medio
+    "UPSPEM":    "#22c55e",  # verde claro
+    "UPSSMR":    "#6b7280",  # gris
+    "UPSSMRCCS": "#1d4ed8",  # azul oscuro
+    # SAF (no es H₂ puro pero a veces aparece en filtros relacionados)
+    "UPSSAF":    "#a3e635",  # lima — diferenciado del verde de electrólisis
 }
 
 COLOR_MAP_BIOENERGIA: dict[str, str] = {
@@ -348,6 +389,7 @@ def _make_color_fn_fija(color_map: dict[str, str]):
 
 
 _color_electrolisis    = _make_color_fn_fija(COLOR_MAP_ELECTROLISIS)
+_color_h2_produccion   = _make_color_fn_fija(COLOR_MAP_PRODUCCION_H2)
 _color_h2_consumo      = _make_color_fn_fija(COLOR_MAP_H2_CONSUMO)
 _color_bioenergia      = _make_color_fn_fija(COLOR_MAP_BIOENERGIA)
 _color_gas_produccion  = _make_color_fn_fija(COLOR_MAP_GAS_PROD)
@@ -368,15 +410,20 @@ def _color_electricidad(df, columna: str = "COLOR"):
     """
     tecnologias_presentes = df[columna].unique()
 
-    # Ordenar tecnologías por familia para mejor visualización
+    # Orden de stack para gráficas del sector eléctrico, **de abajo a arriba**:
+    #   viento → solar → hídrica → nuclear → térmicas (fósiles) → biomasa → otras.
+    # Highcharts (convención por defecto) y nuestros renders matplotlib
+    # apilan la PRIMERA serie en la parte de ARRIBA del stack. Por tanto,
+    # para que viento aparezca abajo, la lista se enumera en orden inverso
+    # (térmicas primero = top; eólica última visible = bottom).
     orden_familias = [
-        "SOLAR",
-        "HIDRO",
-        "EOLICA",
+        "OTRAS",
+        "BIOMASA_RESIDUOS",
         "TERMICA_FOSIL",
         "NUCLEAR",
-        "BIOMASA_RESIDUOS",
-        "OTRAS",
+        "HIDRO",
+        "SOLAR",
+        "EOLICA",
     ]
 
     # Crear orden basado en familias
@@ -394,3 +441,120 @@ def _color_electricidad(df, columna: str = "COLOR"):
     colores = [COLOR_MAP_PWR.get(t, "#CCCCCC") for t in orden_final]
 
     return colores, orden_final
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 4. CHART "ref_import" — REFINERÍAS (gama por refinería × combustible)
+# ══════════════════════════════════════════════════════════════════════════
+#
+# Cada refinería tiene un color base (alta saturación, distinto entre sí) y
+# cada combustible producido por esa refinería usa una gama (tono) de ese color
+# base. Las importaciones conservan su color fijo de ``COLOR_MAP_LIQUIDOS_IMPORT``.
+#
+# Para modificar los colores manualmente: editar este diccionario.
+#   • Cambiar la clave de una refinería → cambia su gama (color base).
+#   • Cambiar la lista de FUELS_REF_ORDER → cambia el orden y, por tanto, la
+#     intensidad asignada a cada combustible (más tarde en la lista = tono más
+#     claro). Cuanto más alto el índice del fuel, más claro el tono.
+
+REF_GAMA_BASE: dict[str, str] = {
+    # Cartagena → azul saturado profundo.
+    "UPSREF_CAR": "#0d3a8c",
+    # Barrancabermeja → rojo carmín saturado (alto contraste con el azul).
+    "UPSREF_BAR": "#b8001d",
+}
+
+# Orden esperado de combustibles producidos por una refinería. Determina la
+# variación de luminosidad: el primero de la lista usa el tono más oscuro,
+# el último el más claro. Combustibles no listados se agregan al final por
+# orden alfabético.
+FUELS_REF_ORDER: list[str] = [
+    "DSL",   # Diésel
+    "GSL",   # Gasolina
+    "JET",   # Jet Fuel
+    "LPG",   # GLP
+    "FUO",   # Fuel Oil
+    "OIL",   # Crudo / nafta
+    "NGS",   # Gas natural
+]
+
+
+#: Orden de stack vertical de las refinerías de **abajo hacia arriba**.
+#: La convención visual sigue a Highcharts: el PRIMER elemento del array de
+#: series queda arriba. Así que insertamos las series en color_map en orden
+#: top→bottom, y este listado se interpreta bottom→top para la lógica humana.
+REF_STACK_BOTTOM_TO_TOP: list[str] = [
+    "UPSREF_CAR",   # Cartagena → abajo
+    "UPSREF_BAR",   # Barrancabermeja → al medio
+]
+
+
+def _color_ref_import(df, columna: str = "COLOR"):
+    """Color function para ``ref_import``.
+
+    Acepta valores de COLOR de tres formas:
+      • ``IMP*`` → color fijo desde ``COLOR_MAP_LIQUIDOS_IMPORT``.
+      • ``UPSREF_XXX::FUEL`` → tono de la gama de esa refinería.
+      • ``UPSREF_XXX`` (sin fuel) → color base de la refinería.
+
+    Orden de stack (abajo → arriba): según ``REF_STACK_ORDER`` para refinerías
+    y luego las importaciones (IMP*).
+    """
+    grupos = list(df[columna].unique())
+
+    # Particiona por refinería para asignar un tono distinto a cada fuel.
+    refs_to_fuels: dict[str, list[str]] = {}
+    for g in grupos:
+        if "::" in g:
+            ref_id, fuel = g.split("::", 1)
+            if ref_id.startswith("UPSREF"):
+                refs_to_fuels.setdefault(ref_id, []).append(fuel)
+
+    # En Highcharts, el primer elemento de series[] queda en la parte de arriba.
+    # ``REF_STACK_BOTTOM_TO_TOP`` lista las refinerías de abajo hacia arriba —
+    # así que para insertar en color_map en orden top→bottom, lo recorremos en
+    # reverso. Otras refinerías no listadas se agregan al final (más abajo).
+    ordered_ref_ids: list[str] = []
+    for r in reversed(REF_STACK_BOTTOM_TO_TOP):
+        if r in refs_to_fuels:
+            ordered_ref_ids.append(r)
+    for r in refs_to_fuels.keys():
+        if r not in ordered_ref_ids:
+            ordered_ref_ids.append(r)
+
+    color_map: dict[str, str] = {}
+    # Importaciones primero → quedan arriba. El usuario las quiere encima de
+    # las refinerías. Solo poblamos las claves que existan en grupos.
+    for g in grupos:
+        if g in COLOR_MAP_LIQUIDOS_IMPORT and not g.startswith("UPSREF"):
+            color_map[g] = COLOR_MAP_LIQUIDOS_IMPORT[g]
+    for ref_id in ordered_ref_ids:
+        fuels = refs_to_fuels[ref_id]
+        base = REF_GAMA_BASE.get(ref_id, COLOR_MAP_LIQUIDOS_IMPORT.get(ref_id, "#999999"))
+        ordered_fuels: list[str] = []
+        seen: set[str] = set()
+        # Primero los fuels del orden canónico que estén presentes
+        for f in FUELS_REF_ORDER:
+            if f in fuels and f not in seen:
+                ordered_fuels.append(f)
+                seen.add(f)
+        # Luego los no listados, alfabético
+        for f in sorted(fuels):
+            if f not in seen:
+                ordered_fuels.append(f)
+                seen.add(f)
+        tonos = generar_tonos(base, max(2, len(ordered_fuels)))
+        # Tomamos los tonos del medio/oscuro hacia el más claro para mantener
+        # contraste fuerte; saltamos el más claro extremo.
+        for i, f in enumerate(ordered_fuels):
+            color_map[f"{ref_id}::{f}"] = tonos[i % len(tonos)]
+        # Color base sin fuel (defensivo) → tono más oscuro.
+        color_map[ref_id] = tonos[0]
+
+    # Cualquier serie restante (no importación, no refinería listada) se
+    # agrega al final con un color fallback gris.
+    for g in grupos:
+        if g not in color_map:
+            color_map[g] = "#999999"
+
+    return _ordered_color_list(color_map, df, columna)

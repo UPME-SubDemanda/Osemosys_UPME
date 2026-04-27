@@ -188,6 +188,10 @@ class ReportRequest(BaseModel):
     #: Alias por job_id solo para este export; no muta ``SimulationJob.display_name``.
     #: Claves como str (JSON); el service convierte a int al aplicar.
     job_display_overrides: dict[str, str] | None = None
+    #: Rango de años: filtra las categorías-año del chart antes de renderizar.
+    #: ``None`` en cualquier extremo = sin tope por ese lado.
+    year_from: int | None = Field(default=None, ge=1900, le=2200)
+    year_to: int | None = Field(default=None, ge=1900, le=2200)
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +246,9 @@ class ReportSavedBase(BaseModel):
     #: Job IDs por defecto por slot (0-based). ``None`` en una posición = slot
     #: sin asignar. Lista vacía o null = sin defaults.
     default_job_ids: list[int | None] | None = Field(default=None, max_length=20)
+    #: Rango de años persistido. ``None`` = sin filtro por ese lado.
+    year_from: int | None = Field(default=None, ge=1900, le=2200)
+    year_to: int | None = Field(default=None, ge=1900, le=2200)
 
 
 class ReportSavedCreate(ReportSavedBase):
@@ -263,6 +270,8 @@ class ReportSavedUpdate(BaseModel):
     layout: ReportLayout | None = None
     scenario_aliases: list[str] | None = Field(default=None, max_length=20)
     default_job_ids: list[int | None] | None = Field(default=None, max_length=20)
+    year_from: int | None = Field(default=None, ge=1900, le=2200)
+    year_to: int | None = Field(default=None, ge=1900, le=2200)
 
 
 class ReportSavedPublic(ReportSavedBase):

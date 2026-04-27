@@ -939,6 +939,10 @@ function ReportGeneratorTab({
 
   const [fmt, setFmt] = useState<"png" | "svg">("png");
   const [organizeFolders, setOrganizeFolders] = useState(false);
+  // Rango de años aplicado al export (no persistido aquí — el reporte guardado
+  // tiene su propio rango persistido editable desde el dashboard).
+  const [yearFrom, setYearFrom] = useState<number | null>(null);
+  const [yearTo, setYearTo] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
   /** Alias por job_id solo para el export (no muta display_name real). */
   const [renameOverrides, setRenameOverrides] = useState<Record<number, string>>({});
@@ -1044,6 +1048,17 @@ function ReportGeneratorTab({
     setFmt(loadReportRequest.fmt);
     setCurrentReportId(loadReportRequest.id);
     setLoadedReport(loadReportRequest);
+    // Heredar el rango de años persistido en el reporte.
+    setYearFrom(
+      typeof loadReportRequest.year_from === "number"
+        ? loadReportRequest.year_from
+        : null,
+    );
+    setYearTo(
+      typeof loadReportRequest.year_to === "number"
+        ? loadReportRequest.year_to
+        : null,
+    );
     // Restaurar aliases persistidos del reporte.
     setScenarioAliases(
       Array.isArray(loadReportRequest.scenario_aliases)
@@ -1831,6 +1846,10 @@ function ReportGeneratorTab({
         if (v) overridesForPayload[String(jid)] = v;
       }
       const hasOverrides = Object.keys(overridesForPayload).length > 0;
+      if (yearFrom != null && yearTo != null && yearFrom > yearTo) {
+        setGenerateError("El año inicial no puede ser mayor que el año final.");
+        return;
+      }
       const { blob, filename } = await savedChartsApi.generateReport({
         items,
         fmt,
@@ -1838,6 +1857,8 @@ function ReportGeneratorTab({
           ? { organize_by_category: true, categories: categoriesPayload }
           : {}),
         ...(hasOverrides ? { job_display_overrides: overridesForPayload } : {}),
+        ...(yearFrom != null ? { year_from: yearFrom } : {}),
+        ...(yearTo != null ? { year_to: yearTo } : {}),
       });
       downloadBlob(blob, filename);
     } catch (err: unknown) {
@@ -2595,6 +2616,52 @@ function ReportGeneratorTab({
           </div>
         ) : null}
 
+        {/* Rango de años (solo este export) */}
+        <div className="rounded-lg border border-cyan-500/25 bg-cyan-500/5 p-3 space-y-2">
+          <div>
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-wider text-cyan-300/80">
+              Rango de años (opcional)
+            </p>
+            <p className="m-0 text-[10px] text-cyan-200/70">
+              Filtra los años incluidos en el ZIP. Vacío = todos los años.
+            </p>
+          </div>
+          <div className="flex items-end gap-2">
+            <label className="grid gap-0.5 flex-1">
+              <span className="text-[10px] text-cyan-300/80">Desde</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1900}
+                max={2200}
+                value={yearFrom ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setYearFrom(v === "" ? null : Number(v));
+                }}
+                placeholder="todos"
+                className="rounded border border-cyan-500/40 bg-slate-950/60 px-2 py-1 text-xs text-cyan-100 placeholder:text-cyan-700"
+              />
+            </label>
+            <label className="grid gap-0.5 flex-1">
+              <span className="text-[10px] text-cyan-300/80">Hasta</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1900}
+                max={2200}
+                value={yearTo ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setYearTo(v === "" ? null : Number(v));
+                }}
+                placeholder="todos"
+                className="rounded border border-cyan-500/40 bg-slate-950/60 px-2 py-1 text-xs text-cyan-100 placeholder:text-cyan-700"
+              />
+            </label>
+          </div>
+        </div>
+
         {generateError ? (
           <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
             {generateError}
@@ -2690,6 +2757,8 @@ function ReportGeneratorTab({
         layout={viewMode === "categories" ? pendingLayout : null}
         scenarioAliases={scenarioAliases}
         defaultJobIds={globalScenarios}
+        yearFrom={yearFrom}
+        yearTo={yearTo}
         onSaved={(saved) => {
           setCurrentReportId(saved.id);
           setLoadedReport(saved);
@@ -2887,6 +2956,8 @@ function SaveReportModal({
   layout,
   scenarioAliases,
   defaultJobIds,
+  yearFrom,
+  yearTo,
 }: {
   open: boolean;
   onClose: () => void;
@@ -2901,6 +2972,9 @@ function SaveReportModal({
   scenarioAliases?: string[];
   /** Job IDs actualmente seleccionados; se persisten como default al guardar. */
   defaultJobIds?: (number | null)[];
+  /** Rango de años seleccionado; se persiste con el reporte. */
+  yearFrom?: number | null;
+  yearTo?: number | null;
 }) {
   const existing = existingReportId
     ? existingReports.find((r) => r.id === existingReportId) ?? null
@@ -2937,6 +3011,8 @@ function SaveReportModal({
           layout: layout ?? null,
           scenario_aliases: (scenarioAliases ?? []).map((s) => s ?? ""),
           default_job_ids: defaultJobIds ?? null,
+          year_from: yearFrom ?? null,
+          year_to: yearTo ?? null,
         });
         onSaved(updated);
       } else {
@@ -2948,6 +3024,8 @@ function SaveReportModal({
           layout: layout ?? null,
           scenario_aliases: (scenarioAliases ?? []).map((s) => s ?? ""),
           default_job_ids: defaultJobIds ?? null,
+          year_from: yearFrom ?? null,
+          year_to: yearTo ?? null,
         });
         onSaved(created);
       }

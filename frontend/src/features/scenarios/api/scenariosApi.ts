@@ -95,6 +95,23 @@ export type OsemosysWideFilters = {
   year_rules?: string;
 };
 
+export type ScenarioDeleteChild = {
+  id: number;
+  name: string;
+  owner: string;
+  edit_policy: ScenarioEditPolicy;
+  simulation_type: SimulationType;
+  child_count: number;
+  simulation_job_count: number;
+  created_at: string;
+};
+
+export type ScenarioDeleteImpact = {
+  scenario_id: number;
+  scenario_name: string;
+  direct_children: ScenarioDeleteChild[];
+};
+
 /** Sentinel que el backend usa para representar "(vacío)" en las listas. */
 export const WIDE_NULL_SENTINEL = "__NULL__";
 
@@ -916,6 +933,18 @@ export const scenariosApi = {
 
   deleteScenario: (scenarioId: number) =>
     httpClient.delete(`/scenarios/${scenarioId}`),
+
+  getScenarioDeleteImpact: (scenarioId: number) =>
+    httpClient
+      .get<ScenarioDeleteImpact>(`/scenarios/${scenarioId}/delete-impact`)
+      .then((r) => r.data),
+
+  detachScenarioChildren: (scenarioId: number, childIds: number[]) =>
+    httpClient
+      .post<{ detached_child_ids: number[] }>(`/scenarios/${scenarioId}/children/detach`, {
+        child_ids: childIds,
+      })
+      .then((r) => r.data),
 
   cloneScenario: (scenarioId: number, input: { name: string; description?: string; edit_policy?: ScenarioEditPolicy }) =>
     httpClient.post<Scenario>(`/scenarios/${scenarioId}/clone`, input, { timeout: 600_000 }).then((r) => r.data),

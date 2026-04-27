@@ -376,7 +376,12 @@ export type ScenarioOperationLog = {
 
 export type ChartSeries = {
   name: string;
-  data: number[];
+  /**
+   * `null` representa "no hay dato aquí" — produce un gap en líneas y
+   * "no hay barra" en columnas. Se usa cuando se unifica el eje X entre
+   * facets de distinto rango de años.
+   */
+  data: (number | null)[];
   color: string;
   stack?: string | null;
   /** True si es overlay manual del usuario (synthetic series). */
@@ -531,12 +536,16 @@ export type SavedChartTemplate = {
   loc: string | null;
   variable: string | null;
   agrupar_por: string | null;
-  view_mode: "column" | "line" | "area" | "pareto" | "porcentaje" | null;
+  view_mode: "column" | "line" | "area" | "pareto" | "porcentaje" | "table" | null;
   compare_mode: "off" | "facet" | "by-year" | "line-total";
   /** Años a graficar cuando `compare_mode === "by-year"`. Null en otros modos. */
   years_to_plot: number[] | null;
   /** Series manuales overlay (línea). */
   synthetic_series: SyntheticSeries[] | null;
+  /** Solo `view_mode === "table"`: muestra años cada N (5=cada 5 años). */
+  table_period_years?: number | null;
+  /** Solo `view_mode === "table"`: si true muestra valores acumulados. */
+  table_cumulative?: boolean | null;
   bar_orientation: "vertical" | "horizontal" | null;
   facet_placement: "inline" | "stacked" | null;
   facet_legend_mode: "shared" | "perFacet" | null;
@@ -568,7 +577,9 @@ export type SavedChartTemplateUpdate = {
   /** Enviar "" o null limpia el override. */
   report_title?: string | null;
   /** Tipo de trazo. Permite alternar columnas/áreas desde el reporte. */
-  view_mode?: "column" | "line" | "area" | "pareto" | "porcentaje" | null;
+  view_mode?: "column" | "line" | "area" | "pareto" | "porcentaje" | "table" | null;
+  table_period_years?: number | null;
+  table_cumulative?: boolean | null;
 };
 
 export type ReportTemplateItem = {

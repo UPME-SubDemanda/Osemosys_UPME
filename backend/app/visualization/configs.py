@@ -103,6 +103,24 @@ def _filtro_pwr(df, **kw):
     return df[df["TECHNOLOGY"].str.startswith("PWR")]
 
 
+def _filtro_pwr_liquidos(df, **kw):
+    """Tecnologías de generación eléctrica que usan líquidos.
+
+    PWRDSL: Gen. Diésel
+    PWRSTD: Gen. Diésel Independiente
+    PWRFOL: Gen. Fuel Oil
+    PWRJET: Gen. Jet A1
+    PWRLPG: Gen. GLP
+    """
+    return df[
+        df["TECHNOLOGY"].str.startswith("PWRDSL")
+        | df["TECHNOLOGY"].str.startswith("PWRSTD")
+        | df["TECHNOLOGY"].str.startswith("PWRFOL")
+        | df["TECHNOLOGY"].str.startswith("PWRJET")
+        | df["TECHNOLOGY"].str.startswith("PWRLPG")
+    ]
+
+
 def _filtro_gas_consumo(df, **kw):
     """Tecnologías que usan gas natural (contienen NGS)."""
     return df[df["TECHNOLOGY"].str.contains("NGS")]
@@ -330,9 +348,9 @@ def _filtro_consumo_liquidos(df, **kw):
     if "TECHNOLOGY" not in df.columns:
         return df.iloc[0:0]
 
-    demanda_mask = df["TECHNOLOGY"].str.startswith((
-        "DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ"
-    ))
+    demanda_mask = df["TECHNOLOGY"].str.startswith(
+        ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
+    )
 
     df = df[demanda_mask]
 
@@ -351,12 +369,12 @@ def _filtro_demanda_exportaciones_liquidos(df, **kw):
     if "TECHNOLOGY" not in df.columns:
         return df.iloc[0:0]
 
-    demanda_mask = df["TECHNOLOGY"].str.startswith((
-        "DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ"
-    ))
-    export_mask = df["TECHNOLOGY"].str.startswith((
-        "EXPDSL", "EXPGSL", "EXPJET", "EXPLPG"
-    ))
+    demanda_mask = df["TECHNOLOGY"].str.startswith(
+        ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
+    )
+    export_mask = df["TECHNOLOGY"].str.startswith(
+        ("EXPDSL", "EXPGSL", "EXPJET", "EXPLPG")
+    )
 
     df = df[demanda_mask | export_mask]
 
@@ -642,6 +660,18 @@ CONFIGS = {
         "print_base": "CAPACIDAD - MATRIZ ELÉCTRICA",
         "filtro": _filtro_pwr,
         "msg_sin_datos": "Sin tecnologías de generación eléctrica (PWR)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": _color_electricidad,
+        "es_capacidad": True,
+        "variable_default": "TotalCapacityAnnual",
+    },
+    "cap_electricidad_liquidos": {
+        "titulo_base": "Capacidad de Líquidos (Matriz Eléctrica)",
+        "figura_base": "CAP-ELEC-LIQ",
+        "filename_base": "Cap_Electricidad_Liquidos",
+        "print_base": "CAPACIDAD DE LÍQUIDOS — MATRIZ ELÉCTRICA",
+        "filtro": _filtro_pwr_liquidos,
+        "msg_sin_datos": "Sin tecnologías de generación de líquidos (PWRDSL, PWRSTD, PWRFOL, PWRJET, PWRLPG)",
         "agrupar_por": "TECNOLOGIA",
         "color_fn": _color_electricidad,
         "es_capacidad": True,

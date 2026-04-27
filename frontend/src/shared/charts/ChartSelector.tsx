@@ -190,6 +190,7 @@ const MENU: Module[] = [
     charts: [
       { id: 'elec_produccion',  label: 'Producción de Electricidad - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
       { id: 'cap_electricidad', label: 'Matriz Eléctrica (Capacidad) - TotalCapacityAnnual', isCapacity: true },
+      { id: 'cap_electricidad_liquidos', label: 'Capacidad de Líquidos (Matriz Eléctrica)', isCapacity: false, allowedGroupings: ['TECNOLOGIA'], soportaPareto: true },
       { id: 'factor_planta',    label: 'Factor de Planta (%)' },
     ],
   },

@@ -10,6 +10,7 @@ import {
   createLegendDblclickState,
   dispatchLegendClick,
 } from './chartLegendInteractions';
+import { formatAxis3Sig } from './numberFormat';
 import HighchartsReact from 'highcharts-react-official';
 import type { ChartDataResponse } from '../../types/domain';
 import type { ChartSelection } from './ChartSelector';
@@ -113,7 +114,13 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
           text: data.yAxisLabel,
           style: { color: '#94a3b8', fontSize: '14px' },
         },
-        labels: { style: { color: '#94a3b8', fontSize: '13px' } },
+        labels: {
+          style: { color: '#94a3b8', fontSize: '13px' },
+          // Mínimo 3 cifras significativas (sin notación científica).
+          formatter: function (this: Highcharts.AxisLabelsFormatterContextObject) {
+            return formatAxis3Sig(this.value as number);
+          },
+        },
         gridLineColor: '#334155',
         stackLabels: {
           enabled: true,
@@ -124,9 +131,11 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
             fontSize: '10px',
           },
           // Highcharts invoca el formatter con `this` como StackItemObject; no usar flecha.
+          // Mostrar solo cada 2 categorías (0, 2, 4, …) con 1 decimal máximo.
           // eslint-disable-next-line react-hooks/unsupported-syntax -- API de Highcharts
           formatter: function (this: Highcharts.StackItemObject) {
-            return Highcharts.numberFormat(this.total, 2, '.', ',');
+            if (typeof this.x === 'number' && this.x % 2 !== 0) return '';
+            return Highcharts.numberFormat(this.total, 1, '.', ',');
           },
         },
       },
@@ -185,6 +194,10 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
         align: 'center',
         verticalAlign: 'bottom',
         layout: 'horizontal',
+        // Invierte el orden de la leyenda respecto al stack: la primera serie
+        // (que queda arriba del stack) aparece al final de la leyenda. Así la
+        // leyenda se lee de abajo hacia arriba igual que las barras.
+        reversed: true,
         itemStyle: { color: '#94a3b8', fontWeight: 'normal', fontSize: '13px' },
         itemHoverStyle: { color: '#f8fafc' },
       },

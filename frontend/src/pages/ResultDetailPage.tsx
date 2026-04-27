@@ -11,6 +11,7 @@ import {
 import { simulationApi } from '../features/simulation/api/simulationApi';
 import type {
   ResultSummaryResponse,
+  ChartCatalogItem,
   ChartDataResponse,
   CompareChartResponse,
   CompareChartFacetResponse,
@@ -247,6 +248,27 @@ export function ResultDetailPage() {
 
   // Chart selector (tipo por defecto = primera gráfica del catálogo)
   const [chartSelection, setChartSelection] = useState<ChartSelection>(() => getDefaultChartSelection());
+
+  /**
+   * Catálogo de gráficas (incluye ``data_explorer_filters`` por chart) para
+   * construir el URL del Data Explorer cuando el usuario hace click en
+   * "Ver Datos de Resultados".
+   */
+  const [chartCatalog, setChartCatalog] = useState<ChartCatalogItem[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    simulationApi
+      .getChartCatalog()
+      .then((items) => {
+        if (!cancelled) setChartCatalog(items);
+      })
+      .catch(() => {
+        if (!cancelled) setChartCatalog([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Comparison state: la selección de escenarios vive 100% en la tabla superior
   // (`selectedCompareColumnJobIds`). Aquí solo se guarda el modo de vista y los
@@ -1474,6 +1496,49 @@ export function ResultDetailPage() {
                 Agregando al reporte #{addToReportId}
               </span>
             ) : null}
+            {chartCompareMode === 'off' && currentRunId ? (() => {
+              const catalogItem = chartCatalog.find((c) => c.id === chartSelection.tipo);
+              const baseFilters = catalogItem?.data_explorer_filters ?? null;
+              // Variables: prioriza la variable explícita seleccionada por el
+              // usuario sobre la default del chart, para que el Data Explorer
+              // muestre exactamente lo que el chart está mostrando.
+              const explorerVariableNames =
+                chartSelection.variable && chartSelection.variable !== 'auto'
+                  ? [chartSelection.variable]
+                  : baseFilters?.variable_names && baseFilters.variable_names.length > 0
+                    ? baseFilters.variable_names
+                    : catalogItem
+                      ? [catalogItem.variable_default]
+                      : undefined;
+              const filters: Parameters<typeof paths.resultsDataExplorer>[1] = {};
+              if (explorerVariableNames && explorerVariableNames.length > 0) {
+                filters.variable_names = explorerVariableNames;
+              }
+              if (baseFilters?.technology_prefixes && baseFilters.technology_prefixes.length > 0) {
+                filters.technology_prefixes = baseFilters.technology_prefixes;
+              }
+              if (baseFilters?.fuel_prefixes && baseFilters.fuel_prefixes.length > 0) {
+                filters.fuel_prefixes = baseFilters.fuel_prefixes;
+              }
+              if (baseFilters?.fuel_names && baseFilters.fuel_names.length > 0) {
+                filters.fuel_names = baseFilters.fuel_names;
+              }
+              if (baseFilters?.emission_names && baseFilters.emission_names.length > 0) {
+                filters.emission_names = baseFilters.emission_names;
+              }
+              return (
+                <Link
+                  to={paths.resultsDataExplorer(currentRunId, filters)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20"
+                  title="Abre el Data Explorer mostrando las filas que se grafican (incluyendo las que se suman bajo cada agrupación)"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-6h13v6M9 11V5h13v6M3 5h2v14H3z" />
+                  </svg>
+                  Ver Datos de Resultados
+                </Link>
+              );
+            })() : null}
             <button
               type="button"
               onClick={() => setShowSaveChartModal(true)}

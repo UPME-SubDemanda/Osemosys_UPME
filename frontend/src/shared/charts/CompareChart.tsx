@@ -6,6 +6,7 @@ import {
   onHighchartsExportError,
 } from './chartExportingShared';
 import { buildStackedSinglePointTooltipOptions } from './chartTooltips';
+import { formatAxis3Sig } from './numberFormat';
 import {
   createLegendDblclickState,
   dispatchLegendClick,
@@ -106,7 +107,12 @@ export const CompareChart: React.FC<CompareChartProps> = ({
         height: '86%',
         min: 0,
         gridLineColor: '#334155',
-        labels: { style: { color: '#94a3b8', fontSize: '13px' } },
+        labels: {
+          style: { color: '#94a3b8', fontSize: '13px' },
+          formatter: function (this: Highcharts.AxisLabelsFormatterContextObject) {
+            return formatAxis3Sig(this.value as number);
+          },
+        },
         stackLabels: {
           enabled: true,
           style: {

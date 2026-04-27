@@ -76,7 +76,11 @@ from app.visualization.colors import (
     _color_por_emision,
 )
 from app.visualization.labels import get_label
-from app.visualization.configs import CONFIGS, TITULOS_VARIABLES_CAPACIDAD, NOMBRES_COMBUSTIBLES
+from app.visualization.configs import (
+    CONFIGS,
+    TITULOS_VARIABLES_CAPACIDAD,
+    NOMBRES_COMBUSTIBLES,
+)
 from app.visualization.configs_comparacion import CONFIGS_COMPARACION
 from app.visualization.catalog_reader import (
     get_colores_emisiones,
@@ -94,6 +98,7 @@ _MAIN_TYPED_VARIABLES = {"Dispatch", "NewCapacity", "UnmetDemand", "AnnualEmissi
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. DATA LOADING
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def _load_variable_data(
     db: Session,
@@ -140,12 +145,14 @@ def _load_variable_data(
     if variable_name in _MAIN_TYPED_VARIABLES:
         records = []
         for r in rows:
-            records.append({
-                "TECHNOLOGY": r.technology_name or "",
-                "FUEL": r.fuel_name or "",
-                "YEAR": r.year,
-                "VALUE": float(r.value),
-            })
+            records.append(
+                {
+                    "TECHNOLOGY": r.technology_name or "",
+                    "FUEL": r.fuel_name or "",
+                    "YEAR": r.year,
+                    "VALUE": float(r.value),
+                }
+            )
         df = pd.DataFrame(records)
 
     else:
@@ -175,12 +182,14 @@ def _load_variable_data(
                 # [REGION, TECH, YEAR]  (3-element index)
                 year = _safe_int(idx[2])
 
-            records.append({
-                "TECHNOLOGY": technology,
-                "FUEL": fuel,
-                "YEAR": year,
-                "VALUE": float(r.value),
-            })
+            records.append(
+                {
+                    "TECHNOLOGY": technology,
+                    "FUEL": fuel,
+                    "YEAR": year,
+                    "VALUE": float(r.value),
+                }
+            )
         df = pd.DataFrame(records)
 
     # Limpiar: descartar filas sin YEAR útil
@@ -389,6 +398,7 @@ def filter_chart_by_year_range(
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. HELPERS DE TRANSFORMACIÓN (ports de graficas_comparacion.py)
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def _fuel_to_group(row) -> str:
     """Normaliza una fila (FUEL + TECHNOLOGY) al código base de grupo.
@@ -606,19 +616,24 @@ def _build_factor_planta_data(
         df_tech = df[df["COLOR"] == tech]
         valor_por_año = {int(row["YEAR"]): row["CF"] for _, row in df_tech.iterrows()}
         data = [round(valor_por_año.get(a, 0.0), 4) for a in años]
-        series.append(ChartSeries(
-            name=get_label(str(tech)),
-            data=data,
-            color=color_dict.get(tech, "#999999"),
-            stack="default",
-        ))
+        series.append(
+            ChartSeries(
+                name=get_label(str(tech)),
+                data=data,
+                color=color_dict.get(tech, "#999999"),
+                stack="default",
+            )
+        )
 
-    return ChartDataResponse(categories=categories, series=series, title=title, yAxisLabel="%")
+    return ChartDataResponse(
+        categories=categories, series=series, title=title, yAxisLabel="%"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 3. build_chart_data — SINGLE ESCENARIO
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def build_chart_data(
     db: Session,
@@ -693,7 +708,10 @@ def build_chart_data(
 
     if df.empty:
         return ChartDataResponse(
-            categories=[], series=[], title=title, yAxisLabel=un,
+            categories=[],
+            series=[],
+            title=title,
+            yAxisLabel=un,
         )
 
     # ── Filtrar ──────────────────────────────────────────────────────────
@@ -703,7 +721,10 @@ def build_chart_data(
 
     if df.empty:
         return ChartDataResponse(
-            categories=[], series=[], title=title, yAxisLabel=un,
+            categories=[],
+            series=[],
+            title=title,
+            yAxisLabel=un,
         )
 
     # ── Agrupación ───────────────────────────────────────────────────────
@@ -714,19 +735,19 @@ def build_chart_data(
         # mientras dejan el resto agrupado por tecnología (típicamente imports).
         if cfg.get("split_refineries_by_fuel") and "FUEL" in df.columns:
             df["COLOR"] = df.apply(
-                lambda r: f"{r['TECHNOLOGY']}::{r['FUEL']}"
-                if str(r.get("TECHNOLOGY", "")).startswith("UPSREF")
-                and str(r.get("FUEL", "")).strip() != ""
-                else r["TECHNOLOGY"],
+                lambda r: (
+                    f"{r['TECHNOLOGY']}::{r['FUEL']}"
+                    if str(r.get("TECHNOLOGY", "")).startswith("UPSREF")
+                    and str(r.get("FUEL", "")).strip() != ""
+                    else r["TECHNOLOGY"]
+                ),
                 axis=1,
             )
         else:
             df["COLOR"] = df["TECHNOLOGY"]
     elif agrupar_col == "GROUP":
         if "FUEL" in df.columns:
-            df["COLOR"] = (
-                df["TECHNOLOGY"] + "_" + df["FUEL"]
-            ).apply(asignar_grupo)
+            df["COLOR"] = (df["TECHNOLOGY"] + "_" + df["FUEL"]).apply(asignar_grupo)
         else:
             df["COLOR"] = df["TECHNOLOGY"].apply(asignar_grupo)
     elif agrupar_col == "FUEL":
@@ -752,7 +773,10 @@ def build_chart_data(
 
     if df_agg.empty:
         return ChartDataResponse(
-            categories=[], series=[], title=title, yAxisLabel=un,
+            categories=[],
+            series=[],
+            title=title,
+            yAxisLabel=un,
         )
 
     # ── Conversión de unidades ───────────────────────────────────────────
@@ -778,7 +802,11 @@ def build_chart_data(
         elif agrupar_col == "EMISION":
             color_fn = _color_por_emision
         else:
-            color_fn = cfg.get("color_fn") if cfg.get("color_fn") == _color_electricidad else generar_colores_tecnologias
+            color_fn = (
+                cfg.get("color_fn")
+                if cfg.get("color_fn") == _color_electricidad
+                else generar_colores_tecnologias
+            )
     else:
         color_fn = cfg.get("color_fn")
     if color_fn is not None:
@@ -804,7 +832,9 @@ def build_chart_data(
     series: list[ChartSeries] = []
     for tech in orden_color:
         df_tech = df_agg[df_agg["COLOR"] == tech]
-        valor_por_año = {int(row["YEAR"]): row["VALUE"] for _, row in df_tech.iterrows()}
+        valor_por_año = {
+            int(row["YEAR"]): row["VALUE"] for _, row in df_tech.iterrows()
+        }
         data = [round(valor_por_año.get(a, 0.0), 6) for a in años]
         series.append(
             ChartSeries(
@@ -819,8 +849,11 @@ def build_chart_data(
         categories=categories,
         series=series,
         title=title,
-        yAxisLabel="%" if es_porcentaje else (_emision_unit_label(un, es_emision_kt) if es_emision else un),
+        yAxisLabel="%"
+        if es_porcentaje
+        else (_emision_unit_label(un, es_emision_kt) if es_emision else un),
     )
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. build_comparison_data — MULTI-ESCENARIO
@@ -864,7 +897,7 @@ def build_comparison_data(
         "res_total": "res_comparacion",
         "ter_total": "ter_comparacion",
     }
-    
+
     es_generico = False
     if tipo in MAPEO_COMPARACION:
         tipo = MAPEO_COMPARACION[tipo]
@@ -875,7 +908,9 @@ def build_comparison_data(
             cfg = CONFIGS[tipo]
             es_emision = cfg.get("es_emision", False)
         else:
-            raise ValueError(f"tipo='{tipo}' no existe ni en CONFIGS ni en CONFIGS_COMPARACION.")
+            raise ValueError(
+                f"tipo='{tipo}' no existe ni en CONFIGS ni en CONFIGS_COMPARACION."
+            )
     else:
         cfg = CONFIGS_COMPARACION[tipo]
 
@@ -892,10 +927,10 @@ def build_comparison_data(
             agrupacion_usar = agrupacion
         else:
             agrupacion_usar = cfg["agrupacion_default"]
-            
+
         usa_historico = cfg["año_historico_unico"]
         año_historico = years_to_plot[0] if years_to_plot else 2024
-        
+
         label_agrupacion = {
             "TECNOLOGIA": "Tecnologías",
             "COMBUSTIBLE": "Combustibles",
@@ -905,7 +940,7 @@ def build_comparison_data(
     else:
         usa_historico = False
         año_historico = years_to_plot[0] if years_to_plot else 2024
-        agrupacion_usar = "TECNOLOGIA" # Fallback a agrupar por tecnología para cualquier otra gráfica
+        agrupacion_usar = "TECNOLOGIA"  # Fallback a agrupar por tecnología para cualquier otra gráfica
         title_base = cfg.get("titulo", cfg.get("titulo_base", tipo)) + " (Comparación)"
 
     title = title_base
@@ -950,8 +985,13 @@ def build_comparison_data(
 
         if not df_var.empty:
             df_hist = _procesar_bloque_comparacion(
-                df_var, prefijo, sub_filtro, loc,
-                agrupacion_usar, [año_historico], un,
+                df_var,
+                prefijo,
+                sub_filtro,
+                loc,
+                agrupacion_usar,
+                [año_historico],
+                un,
             )
             if df_hist is not None and not df_hist.empty:
                 df_hist["SCENARIO"] = str(año_historico)
@@ -971,8 +1011,13 @@ def build_comparison_data(
 
         if not es_generico:
             df = _procesar_bloque_comparacion(
-                df_var, prefijo, sub_filtro, loc,
-                agrupacion_usar, años_a_procesar, un,
+                df_var,
+                prefijo,
+                sub_filtro,
+                loc,
+                agrupacion_usar,
+                años_a_procesar,
+                un,
             )
         else:
             df = _procesar_bloque_single(
@@ -992,7 +1037,9 @@ def build_comparison_data(
 
     # ── Porcentaje override ──────────────────────────────────────────────
     if es_porcentaje_override:
-        total_por_año_escenario = df_final.groupby(["YEAR", "SCENARIO"])["VALUE"].transform("sum")
+        total_por_año_escenario = df_final.groupby(["YEAR", "SCENARIO"])[
+            "VALUE"
+        ].transform("sum")
         df_final["VALUE"] = df_final["VALUE"] / total_por_año_escenario * 100.0
 
     # ── Colores ──────────────────────────────────────────────────────────
@@ -1027,9 +1074,13 @@ def build_comparison_data(
 
             valor_por_escenario = {
                 row["SCENARIO"]: row["VALUE"]
-                for _, row in df_cat.groupby("SCENARIO", as_index=False)["VALUE"].sum().iterrows()
+                for _, row in df_cat.groupby("SCENARIO", as_index=False)["VALUE"]
+                .sum()
+                .iterrows()
             }
-            data = [round(valor_por_escenario.get(esc, 0.0), 6) for esc in escenarios_en_año]
+            data = [
+                round(valor_por_escenario.get(esc, 0.0), 6) for esc in escenarios_en_año
+            ]
 
             series.append(
                 ChartSeries(
@@ -1048,12 +1099,15 @@ def build_comparison_data(
             )
         )
 
-    return CompareChartResponse(title=title, subplots=subplots, yAxisLabel="%" if es_porcentaje_override else un)
+    return CompareChartResponse(
+        title=title, subplots=subplots, yAxisLabel="%" if es_porcentaje_override else un
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4b. build_comparison_facet_data — ESCENARIOS COMPLETOS (FACETS)
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def build_comparison_facet_data(
     db: Session,
@@ -1107,15 +1161,12 @@ def build_comparison_facet_data(
             continue
         scenario = None
         if job.scenario_id is not None:
-            scenario = (
-                db.query(Scenario)
-                .filter(Scenario.id == job.scenario_id)
-                .first()
-            )
+            scenario = db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
         scenario_name = scenario.name if scenario else (job.input_name or f"Job {jid}")
         tag_name = None
         if scenario is not None:
             from app.services.simulation_service import SimulationService as _SS
+
             primary = _SS._batch_scenario_tags_by_scenario_ids(
                 db, {int(scenario.id)}
             ).get(int(scenario.id))
@@ -1126,13 +1177,16 @@ def build_comparison_facet_data(
         )
         has_alias_override = isinstance(override, str) and bool(override.strip())
         job_display = (
-            override.strip() if has_alias_override
+            override.strip()
+            if has_alias_override
             else (getattr(job, "display_name", None) or None)
         )
         # Cuando el alias reemplaza el nombre del escenario, no queremos
         # concatenar la etiqueta al subtítulo (quedaría "Alias — Tag").
         effective_tag_name = None if has_alias_override else tag_name
-        effective_scenario_name = override.strip() if has_alias_override else scenario_name
+        effective_scenario_name = (
+            override.strip() if has_alias_override else scenario_name
+        )
 
         chart = build_chart_data(
             db=db,
@@ -1229,6 +1283,7 @@ def _align_facet_x_axis(facets: list[FacetData]) -> None:
                     fv = float(v)
                     # NaN/Infinity también se representan como None.
                     import math as _math
+
                     new_data[target] = None if not _math.isfinite(fv) else fv
                 except (TypeError, ValueError):
                     new_data[target] = None
@@ -1275,7 +1330,7 @@ def _procesar_bloque_comparacion(
         return None
 
     # df = _convertir_unidades(df, un)
-    
+
     if not es_emision:
         df = _convertir_unidades(df, un)
 
@@ -1296,22 +1351,22 @@ def _procesar_bloque_single(
 
     if "TECHNOLOGY" not in df_var.columns or "YEAR" not in df_var.columns:
         return None
-        
+
     df = df_var.copy()
-    
+
     filtro_fn = cfg.get("filtro")
     if filtro_fn is not None:
         df = filtro_fn(df, sub_filtro=sub_filtro, loc=loc)
-        
+
     if df.empty:
         return None
-        
+
     df = df[df["YEAR"].isin(años)]
     if df.empty:
         return None
-        
+
     agrupar_col = cfg["agrupar_por"]
-    
+
     if agrupar_col == "TECNOLOGIA":
         df["CATEGORIA"] = df["TECHNOLOGY"]
     elif agrupar_col == "GROUP":
@@ -1350,14 +1405,21 @@ def _procesar_bloque_single(
     return df
 
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # 4c. build_comparison_line_data — LÍNEAS MULTI-ESCENARIO CONSOLIDADAS
 # ═══════════════════════════════════════════════════════════════════════════
 
 _SCENARIO_LINE_COLORS = [
-    "#3b82f6", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6",
-    "#06b6d4", "#f97316", "#84cc16", "#ec4899", "#6366f1",
+    "#3b82f6",
+    "#f59e0b",
+    "#10b981",
+    "#ef4444",
+    "#8b5cf6",
+    "#06b6d4",
+    "#f97316",
+    "#84cc16",
+    "#ec4899",
+    "#6366f1",
 ]
 
 
@@ -1420,7 +1482,9 @@ def build_comparison_line_data(
                 return filtro_fn(df, sub_filtro=sub_filtro, loc=loc)
             return df
     else:
-        raise ValueError(f"tipo='{tipo}' no existe en CONFIGS ni en CONFIGS_COMPARACION.")
+        raise ValueError(
+            f"tipo='{tipo}' no existe en CONFIGS ni en CONFIGS_COMPARACION."
+        )
 
     title = title_base
     if sub_filtro:
@@ -1435,9 +1499,11 @@ def build_comparison_line_data(
         job = db.query(SimulationJob).filter(SimulationJob.id == jid).first()
         if job:
             from app.models import Scenario
+
             scenario = (
                 db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
-                if job.scenario_id else None
+                if job.scenario_id
+                else None
             )
             base = scenario.name if scenario else (job.input_name or f"Job {jid}")
             disp = (getattr(job, "display_name", None) or "").strip()
@@ -1464,12 +1530,18 @@ def build_comparison_line_data(
         if not es_emision:
             df = _convertir_unidades(df, un)
         year_totals = df.groupby("YEAR")["VALUE"].sum()
-        totals_per_job[jid] = {int(y): round(float(v), 6) for y, v in year_totals.items()}
+        totals_per_job[jid] = {
+            int(y): round(float(v), 6) for y, v in year_totals.items()
+        }
         all_years.update(totals_per_job[jid].keys())
 
     if not all_years:
-        return ChartDataResponse(categories=[], series=[], title=title,
-                                 yAxisLabel=_emision_unit_label(un, es_emision_kt) if es_emision else un)
+        return ChartDataResponse(
+            categories=[],
+            series=[],
+            title=title,
+            yAxisLabel=_emision_unit_label(un, es_emision_kt) if es_emision else un,
+        )
 
     years_sorted = sorted(all_years)
     categories = [str(y) for y in years_sorted]
@@ -1480,20 +1552,27 @@ def build_comparison_line_data(
         if not year_data:
             continue
         data = [year_data.get(y, 0.0) for y in years_sorted]
-        series.append(ChartSeries(
-            name=scenario_names.get(jid, f"Job {jid}"),
-            data=data,
-            color=_SCENARIO_LINE_COLORS[idx % len(_SCENARIO_LINE_COLORS)],
-        ))
+        series.append(
+            ChartSeries(
+                name=scenario_names.get(jid, f"Job {jid}"),
+                data=data,
+                color=_SCENARIO_LINE_COLORS[idx % len(_SCENARIO_LINE_COLORS)],
+            )
+        )
 
-    es_emision_kt_line = CONFIGS.get(tipo, {}).get("es_emision_kt", False) if tipo in CONFIGS else False
+    es_emision_kt_line = (
+        CONFIGS.get(tipo, {}).get("es_emision_kt", False) if tipo in CONFIGS else False
+    )
     y_label = _emision_unit_label(un, es_emision_kt_line) if es_emision else un
-    return ChartDataResponse(categories=categories, series=series, title=title, yAxisLabel=y_label)
+    return ChartDataResponse(
+        categories=categories, series=series, title=title, yAxisLabel=y_label
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4d. build_pareto_data — PARETO POR TECNOLOGÍA
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def build_pareto_data(
     db: Session,
@@ -1538,16 +1617,22 @@ def build_pareto_data(
     df = _load_variable_data(db, job_id, variable_name)
     if df.empty:
         return ParetoChartResponse(
-            categories=[], values=[], cumulative_percent=[],
-            title=title, yAxisLabel=_emi_label if es_emision else un,
+            categories=[],
+            values=[],
+            cumulative_percent=[],
+            title=title,
+            yAxisLabel=_emi_label if es_emision else un,
         )
 
     if filtro_fn is not None:
         df = filtro_fn(df, sub_filtro=sub_filtro, loc=loc)
     if df.empty:
         return ParetoChartResponse(
-            categories=[], values=[], cumulative_percent=[],
-            title=title, yAxisLabel=_emi_label if es_emision else un,
+            categories=[],
+            values=[],
+            cumulative_percent=[],
+            title=title,
+            yAxisLabel=_emi_label if es_emision else un,
         )
 
     if not es_emision and not es_capacidad:
@@ -1556,12 +1641,17 @@ def build_pareto_data(
     # Agregar por tecnología (suma sobre todos los años)
     tech_totals = df.groupby("TECHNOLOGY")["VALUE"].sum().reset_index()
     tech_totals = tech_totals[tech_totals["VALUE"] > 1e-5]
-    tech_totals = tech_totals.sort_values("VALUE", ascending=False).reset_index(drop=True)
+    tech_totals = tech_totals.sort_values("VALUE", ascending=False).reset_index(
+        drop=True
+    )
 
     if tech_totals.empty:
         return ParetoChartResponse(
-            categories=[], values=[], cumulative_percent=[],
-            title=title, yAxisLabel="MtCO₂eq" if es_emision else un,
+            categories=[],
+            values=[],
+            cumulative_percent=[],
+            title=title,
+            yAxisLabel="MtCO₂eq" if es_emision else un,
         )
 
     total = tech_totals["VALUE"].sum()
@@ -1586,6 +1676,7 @@ def build_pareto_data(
 # 5. get_result_summary — KPIs
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def get_result_summary(
     db: Session,
     job_id: int,
@@ -1607,11 +1698,7 @@ def get_result_summary(
 
     scenario = None
     if job.scenario_id is not None:
-        scenario = (
-            db.query(Scenario)
-            .filter(Scenario.id == job.scenario_id)
-            .first()
-        )
+        scenario = db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
     scenario_name = scenario.name if scenario else job.input_name
     scenario_tag = None
     scenario_tags_list: list[ScenarioTagPublic] = []
@@ -1678,6 +1765,7 @@ def get_result_summary(
 # 6. get_chart_catalog — CATÁLOGO DE GRÁFICAS
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def get_chart_catalog() -> list[ChartCatalogItem]:
     """Devuelve la lista de gráficas disponibles para el selector del frontend."""
     from app.schemas.visualization import DataExplorerFilters
@@ -1688,7 +1776,11 @@ def get_chart_catalog() -> list[ChartCatalogItem]:
     for config_id, cfg in CONFIGS.items():
         label = cfg.get("titulo", cfg.get("titulo_base", config_id))
         de_raw = get_data_explorer_filters(config_id, cfg.get("variable_default"))
-        de_filters = DataExplorerFilters(**{k: v for k, v in de_raw.items() if v}) if de_raw else None
+        de_filters = (
+            DataExplorerFilters(**{k: v for k, v in de_raw.items() if v})
+            if de_raw
+            else None
+        )
         items.append(
             ChartCatalogItem(
                 id=config_id,
@@ -1761,7 +1853,21 @@ def _config_sub_filtros(cfg: dict) -> list[str] | None:
     if filtro_name == "_filtro_industrial":
         return ["BOI", "FUR", "MPW", "AIR", "REF", "ILU", "OTH"]
     if filtro_name == "_filtro_transporte":
-        return ["AVI", "BOT", "SHP", "LDV", "FWD", "BUS", "TCK_C2P", "TCK_CSG", "MOT", "MIC", "TAX", "STT", "MET"]
+        return [
+            "AVI",
+            "BOT",
+            "SHP",
+            "LDV",
+            "FWD",
+            "BUS",
+            "TCK_C2P",
+            "TCK_CSG",
+            "MOT",
+            "MIC",
+            "TAX",
+            "STT",
+            "MET",
+        ]
     if filtro_name == "_filtro_terciario":
         return ["AIR", "ILU", "OTH"]
     return None
@@ -1770,6 +1876,7 @@ def _config_sub_filtros(cfg: dict) -> list[str] | None:
 # ═══════════════════════════════════════════════════════════════════════════
 # 7. EXPORT ALL — ZIP con gráficas como imágenes
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def export_all_charts_zip(
     db: Session,
@@ -1786,6 +1893,7 @@ def export_all_charts_zip(
     import zipfile
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.ticker as mticker
@@ -1811,12 +1919,14 @@ def export_all_charts_zip(
             if es_capacidad:
                 for var_name, var_suffix in CAPACITY_VARIABLES:
                     chart = build_chart_data(
-                        db, job_id, config_id, un=un, variable=var_name,
+                        db,
+                        job_id,
+                        config_id,
+                        un=un,
+                        variable=var_name,
                     )
                     if chart.series:
-                        charts_to_render.append(
-                            (f"{label} — {var_suffix}", chart)
-                        )
+                        charts_to_render.append((f"{label} — {var_suffix}", chart))
             else:
                 chart = build_chart_data(db, job_id, config_id, un=un)
                 if chart.series:
@@ -1824,7 +1934,9 @@ def export_all_charts_zip(
 
             for chart_label, chart_data in charts_to_render:
                 img_buf = _render_stacked_bar(
-                    chart_data, chart_label, fmt=ext,
+                    chart_data,
+                    chart_label,
+                    fmt=ext,
                 )
                 safe_name = _safe_filename(chart_label)
                 zf.writestr(f"{safe_name}.{ext}", img_buf.getvalue())
@@ -1865,6 +1977,7 @@ def _render_stacked_bar(
     """Renderiza un ChartDataResponse como gráfica de barras apiladas con matplotlib."""
     import io
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
@@ -1908,8 +2021,13 @@ def _render_stacked_bar(
             continue
         if total > 0:
             ax.text(
-                i, total, f"{total:,.1f}",
-                ha="center", va="bottom", fontsize=11, color="#333",
+                i,
+                total,
+                f"{total:,.1f}",
+                ha="center",
+                va="bottom",
+                fontsize=11,
+                color="#333",
             )
 
     ax.set_xticks(x)
@@ -1919,14 +2037,22 @@ def _render_stacked_bar(
     # Leyenda invertida respecto al stack: la primera serie (top del stack)
     # aparece al final de la leyenda → lectura abajo→arriba como las barras.
     ax.legend(
-        list(reversed(bar_handles)), list(reversed(bar_labels)),
-        loc="upper center", bbox_to_anchor=(0.5, -0.15),
-        ncol=_legend_ncols_for_labels(bar_labels), fontsize=14, frameon=False,
-        handlelength=1.0, handletextpad=0.6, columnspacing=1.85, labelspacing=0.55,
+        list(reversed(bar_handles)),
+        list(reversed(bar_labels)),
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.15),
+        ncol=_legend_ncols_for_labels(bar_labels),
+        fontsize=14,
+        frameon=False,
+        handlelength=1.0,
+        handletextpad=0.6,
+        columnspacing=1.85,
+        labelspacing=0.55,
     )
     ax.grid(axis="y", alpha=0.3, linewidth=0.5)
     ax.tick_params(axis="y", labelsize=10)
     from matplotlib.ticker import FuncFormatter as _FuncFormatter
+
     ax.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -2052,6 +2178,7 @@ def _render_line_chart(
     ax.grid(axis="y", alpha=0.3, linewidth=0.5)
     ax.tick_params(axis="y", labelsize=10)
     from matplotlib.ticker import FuncFormatter as _FuncFormatter
+
     ax.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -2337,6 +2464,7 @@ def _render_stacked_area(
     ax.set_xticklabels(categories, rotation=90, ha="center", fontsize=12)
     ax.tick_params(axis="y", labelsize=10)
     from matplotlib.ticker import FuncFormatter as _FuncFormatter
+
     ax.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
     ax.set_ylabel(chart.yAxisLabel, fontsize=14, fontweight="bold")
     ax.set_title(title, fontsize=17, fontweight="bold", pad=12)
@@ -2361,7 +2489,9 @@ def _render_stacked_area(
     # y series manuales (sintéticas) SIEMPRE al final.
     _synth_flags = [bool(getattr(s, "is_synthetic", False)) for s in chart.series]
     _natural = [
-        (h, l) for (h, l, f) in zip(legend_handles, legend_labels, _synth_flags) if not f
+        (h, l)
+        for (h, l, f) in zip(legend_handles, legend_labels, _synth_flags)
+        if not f
     ]
     _synth = [
         (h, l) for (h, l, f) in zip(legend_handles, legend_labels, _synth_flags) if f
@@ -2467,9 +2597,8 @@ def render_comparison_by_year_bytes(
         ax.set_ylabel(data.yAxisLabel, fontsize=14, fontweight="bold")
         ax.tick_params(axis="y", labelsize=10)
         from matplotlib.ticker import FuncFormatter as _FuncFormatter
-        ax.yaxis.set_major_formatter(
-            _FuncFormatter(lambda v, _p: format_axis_3sig(v))
-        )
+
+        ax.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
         ax.grid(axis="y", alpha=0.3, linewidth=0.5)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -2477,9 +2606,7 @@ def render_comparison_by_year_bytes(
             ax.legend(
                 loc="upper center",
                 bbox_to_anchor=(0.5, -0.2),
-                ncol=_legend_ncols_for_labels(
-                    [s.name for s in sp.series], hard_cap=4
-                ),
+                ncol=_legend_ncols_for_labels([s.name for s in sp.series], hard_cap=4),
                 fontsize=14,
                 frameon=False,
                 handlelength=1.0,
@@ -2540,10 +2667,15 @@ def render_pareto_chart_bytes(
     # tecnología/sector). ``ha="right"`` ancla el final de la etiqueta al tick
     # para que no se solape con la barra siguiente.
     ax1.set_xticklabels(
-        categories, rotation=45, ha="right", rotation_mode="anchor", fontsize=12,
+        categories,
+        rotation=45,
+        ha="right",
+        rotation_mode="anchor",
+        fontsize=12,
     )
     ax1.tick_params(axis="y", labelsize=10)
     from matplotlib.ticker import FuncFormatter as _FuncFormatter
+
     ax1.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
     ax1.grid(axis="y", alpha=0.3, linewidth=0.5)
     ax1.spines["top"].set_visible(False)
@@ -2699,10 +2831,10 @@ def render_comparison_facet_figure_bytes(
 
     # Geometría en PULGADAS — las fracciones de figura se derivan de aquí
     # para que paneles, x-labels y leyenda no se superpongan nunca.
-    title_band_inch = 1.05       # suptitle (24pt) + aire respecto a títulos de panel (20pt)
-    x_label_inch = 0.88          # años rotados 90° (≈17pt) + padding
-    gap_inch = 0.24              # separación x-labels ↔ leyenda
-    legend_pad_inch = 0.12       # padding leyenda ↔ borde inferior figura
+    title_band_inch = 1.05  # suptitle (24pt) + aire respecto a títulos de panel (20pt)
+    x_label_inch = 0.88  # años rotados 90° (≈17pt) + padding
+    gap_inch = 0.24  # separación x-labels ↔ leyenda
+    legend_pad_inch = 0.12  # padding leyenda ↔ borde inferior figura
     line_h_inch = leg_font_estimate * 1.35 / 72.0
     legend_h_inch = line_h_inch * n_leg_rows + 0.12
 
@@ -2732,6 +2864,7 @@ def render_comparison_facet_figure_bytes(
         # arriba del stack (igual a Highcharts).
         for s in reversed(facet.series):
             values = np.array(s.data, dtype=float)
+            values = np.where(np.isfinite(values), values, 0.0)
             if values.size < n_cats:
                 values = np.pad(values, (0, n_cats - int(values.size)))
             elif values.size > n_cats:
@@ -2772,7 +2905,9 @@ def render_comparison_facet_figure_bytes(
             fontweight="bold",
             labelpad=8,
         )
-        sim_lbl = (facet.display_name or facet.scenario_name or f"Job {facet.job_id}").strip()
+        sim_lbl = (
+            facet.display_name or facet.scenario_name or f"Job {facet.job_id}"
+        ).strip()
         tag_lbl = (facet.scenario_tag_name or "").strip()
         facet_title = f"{sim_lbl} — {tag_lbl}" if tag_lbl else sim_lbl
         ax.set_title(
@@ -2807,9 +2942,13 @@ def render_comparison_facet_figure_bytes(
         ax.set_facecolor("#ffffff")
 
     global_max = 0.0
+    # Línea ~2809
+    global_max = 0.0
     for b in stack_tops:
         if b.size:
-            global_max = max(global_max, float(np.max(b)))
+            b_clean = b[np.isfinite(b)]  # ← ignorar nan/inf
+            if b_clean.size:
+                global_max = max(global_max, float(b_clean.max()))
     if global_max <= 0:
         global_max = 1.0
     y_top = global_max * 1.12
@@ -2818,9 +2957,7 @@ def render_comparison_facet_figure_bytes(
 
     for ax, bottom in zip(row_axes, stack_tops):
         ax.set_ylim(0, y_top)
-        ax.yaxis.set_major_formatter(
-            FuncFormatter(lambda v, _p: format_axis_3sig(v))
-        )
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: format_axis_3sig(v)))
         ax.yaxis.set_major_locator(
             MaxNLocator(nbins=7, min_n_ticks=5, steps=[1, 2, 2.5, 5, 10]),
         )
@@ -2986,9 +3123,7 @@ def pareto_data_to_csv_bytes(pareto: ParetoChartResponse) -> bytes:
     for i, cat in enumerate(pareto.categories):
         val = pareto.values[i] if i < len(pareto.values) else None
         cum = (
-            pareto.cumulative_percent[i]
-            if i < len(pareto.cumulative_percent)
-            else None
+            pareto.cumulative_percent[i] if i < len(pareto.cumulative_percent) else None
         )
         writer.writerow([cat, val, cum])
     return buffer.getvalue().encode("utf-8-sig")
@@ -3004,50 +3139,56 @@ def _safe_filename(name: str) -> str:
 # 8. EXPORT RAW DATA — Excel
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def export_raw_data_excel(
     db: Session,
     job_id: int,
 ) -> "io.BytesIO":
     """Exporta todos los datos crudos del job a un archivo Excel (.xlsx)."""
     import io
-    
+
     rows = (
         db.query(OsemosysOutputParamValue)
         .filter(OsemosysOutputParamValue.id_simulation_job == job_id)
         .all()
     )
-    
+
     if not rows:
         from fastapi import HTTPException
+
         raise HTTPException(
             status_code=404,
             detail="No hay datos crudos disponibles para este escenario. La simulación puede no haber guardado resultados en la base de datos.",
         )
-        
+
     records = []
     for r in rows:
-        records.append({
-            "VariableName": r.variable_name,
-            "Technology": r.technology_name or "",
-            "Fuel": r.fuel_name or "",
-            "Emission": r.emission_name or "",
-            "Year": r.year,
-            "Value": float(r.value),
-            "IndexJSON": str(r.index_json) if r.index_json else "",
-        })
-        
+        records.append(
+            {
+                "VariableName": r.variable_name,
+                "Technology": r.technology_name or "",
+                "Fuel": r.fuel_name or "",
+                "Emission": r.emission_name or "",
+                "Year": r.year,
+                "Value": float(r.value),
+                "IndexJSON": str(r.index_json) if r.index_json else "",
+            }
+        )
+
     df = pd.DataFrame(records)
-    
+
     output = io.BytesIO()
     from openpyxl.utils import get_column_letter
 
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Raw Data', index=False)
-        worksheet = writer.sheets['Raw Data']
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="Raw Data", index=False)
+        worksheet = writer.sheets["Raw Data"]
         # Autofit columns without depending on xlsxwriter.
         for idx, col in enumerate(df):
             series = df[col]
-            value_len_max = int(series.apply(lambda x: len(str(x)) if pd.notna(x) else 0).max())
+            value_len_max = int(
+                series.apply(lambda x: len(str(x)) if pd.notna(x) else 0).max()
+            )
             max_len = max(value_len_max, len(str(series.name))) + 2
             worksheet.column_dimensions[get_column_letter(idx + 1)].width = max_len
 
@@ -3074,7 +3215,13 @@ _LEGACY_TYPED_INDEX_NAMES: dict[str, tuple[str, ...]] = {
 _EXPORT_INDEX_OVERRIDES: dict[str, tuple[str, ...]] = {
     "ProductionByTechnology": ("REGION", "TIMESLICE", "TECHNOLOGY", "FUEL", "YEAR"),
     "UseByTechnology": ("REGION", "TIMESLICE", "TECHNOLOGY", "FUEL", "YEAR"),
-    "RateOfProductionByTechnology": ("REGION", "TIMESLICE", "TECHNOLOGY", "FUEL", "YEAR"),
+    "RateOfProductionByTechnology": (
+        "REGION",
+        "TIMESLICE",
+        "TECHNOLOGY",
+        "FUEL",
+        "YEAR",
+    ),
     "RateOfUseByTechnology": ("REGION", "TIMESLICE", "TECHNOLOGY", "FUEL", "YEAR"),
 }
 
@@ -3093,8 +3240,16 @@ def export_results_csv_zip(
     import zipfile
 
     from app.models import (
-        Dailytimebracket, Daytype, Emission, Fuel, ModeOfOperation,
-        Region, Season, StorageSet, Technology, Timeslice,
+        Dailytimebracket,
+        Daytype,
+        Emission,
+        Fuel,
+        ModeOfOperation,
+        Region,
+        Season,
+        StorageSet,
+        Technology,
+        Timeslice,
     )
     from app.simulation.core.results_processing import VARIABLE_INDEX_NAMES
 
@@ -3122,17 +3277,24 @@ def export_results_csv_zip(
         .outerjoin(Fuel, OsemosysOutputParamValue.id_fuel == Fuel.id)
         .outerjoin(Emission, OsemosysOutputParamValue.id_emission == Emission.id)
         .outerjoin(Timeslice, OsemosysOutputParamValue.id_timeslice == Timeslice.id)
-        .outerjoin(ModeOfOperation, OsemosysOutputParamValue.id_mode_of_operation == ModeOfOperation.id)
+        .outerjoin(
+            ModeOfOperation,
+            OsemosysOutputParamValue.id_mode_of_operation == ModeOfOperation.id,
+        )
         .outerjoin(StorageSet, OsemosysOutputParamValue.id_storage == StorageSet.id)
         .outerjoin(Season, OsemosysOutputParamValue.id_season == Season.id)
         .outerjoin(Daytype, OsemosysOutputParamValue.id_daytype == Daytype.id)
-        .outerjoin(Dailytimebracket, OsemosysOutputParamValue.id_dailytimebracket == Dailytimebracket.id)
+        .outerjoin(
+            Dailytimebracket,
+            OsemosysOutputParamValue.id_dailytimebracket == Dailytimebracket.id,
+        )
         .filter(OsemosysOutputParamValue.id_simulation_job == job_id)
         .all()
     )
 
     if not rows:
         from fastapi import HTTPException
+
         raise HTTPException(
             status_code=404,
             detail="No hay resultados para este escenario.",

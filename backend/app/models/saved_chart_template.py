@@ -60,6 +60,13 @@ class SavedChartTemplate(Base):
     #: Series manuales overlay (línea) — lista de dicts `{id, name, color, data: [[y, v], ...]}`.
     synthetic_series: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
 
+    #: Solo aplica cuando ``view_mode == "table"``: muestra años cada N
+    #: (5 = cada 5 años). ``None`` = todos los años.
+    table_period_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Solo aplica cuando ``view_mode == "table"``: si ``True`` los valores
+    #: por serie se acumulan a lo largo de las categorías visibles.
+    table_cumulative: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
     #: Si ``True``, la gráfica es visible (solo lectura) para otros usuarios,
     #: que pueden usarla en sus propios reportes. Solo el dueño puede editar.
     is_public: Mapped[bool] = mapped_column(

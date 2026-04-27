@@ -20,7 +20,11 @@ class ChartSeries(BaseModel):
     """Una serie individual dentro de una gráfica (e.g. una tecnología)."""
 
     name: str
-    data: list[float]
+    #: ``None`` representa "no hay dato aquí" — produce un *gap* en líneas
+    #: y "no hay barra" en columnas/áreas. Se usa cuando se unifica el eje X
+    #: entre facets de distinto rango de años o cuando una serie sintética
+    #: tiene huecos.
+    data: list[float | None]
     color: str
     stack: str | None = None
     #: True si la serie es manual (overlay agregado por el usuario sobre una

@@ -13,6 +13,7 @@ import { CompareChart } from "@/shared/charts/CompareChart";
 import { CompareChartFacet } from "@/shared/charts/CompareChartFacet";
 import { LineChart } from "@/shared/charts/LineChart";
 import { ParetoChart } from "@/shared/charts/ParetoChart";
+import { ChartDataTable } from "@/shared/charts/ChartDataTable";
 import type {
   ChartDataResponse,
   CompareChartFacetResponse,
@@ -29,6 +30,17 @@ function templateToSelection(t: SavedChartTemplate): ChartSelection {
   if (t.variable) sel.variable = t.variable;
   if (t.agrupar_por) sel.agrupar_por = t.agrupar_por;
   if (t.view_mode) sel.viewMode = t.view_mode;
+  // Propagamos los parámetros de tabla para que el endpoint de export
+  // (`/export-chart?view_mode=table&...`) reciba el período y acumulado
+  // configurados en la plantilla.
+  if (t.view_mode === "table") {
+    if (typeof t.table_period_years === "number") {
+      sel.tablePeriodYears = t.table_period_years;
+    }
+    if (typeof t.table_cumulative === "boolean") {
+      sel.tableCumulative = t.table_cumulative;
+    }
+  }
   return sel;
 }
 
@@ -461,6 +473,13 @@ export function DashboardChartCard({
         ) : template.view_mode === "pareto" && pareto ? (
           <ParetoChart
             data={pareto}
+            serverExport={{ jobId: jobIds[0]!, selection }}
+          />
+        ) : template.view_mode === "table" && single ? (
+          <ChartDataTable
+            data={single}
+            periodYears={template.table_period_years ?? null}
+            cumulative={Boolean(template.table_cumulative)}
             serverExport={{ jobId: jobIds[0]!, selection }}
           />
         ) : template.view_mode === "line" && single ? (

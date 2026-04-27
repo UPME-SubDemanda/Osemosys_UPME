@@ -54,6 +54,10 @@ class ReportTemplate(Base):
     #: se pre-rellenan los escenarios globales con estos valores. Null = sin
     #: defaults. Entries ``null`` significan slot sin asignar.
     default_job_ids: Mapped[object | None] = mapped_column(JSONB, nullable=True)
+    #: Rango de años a graficar (filtra categorías al renderizar y exportar).
+    #: Null = sin filtro (todos los años disponibles).
+    year_from: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    year_to: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

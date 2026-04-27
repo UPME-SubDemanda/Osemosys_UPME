@@ -23,6 +23,19 @@ class ChartSeries(BaseModel):
     data: list[float]
     color: str
     stack: str | None = None
+    #: True si la serie es manual (overlay agregado por el usuario sobre una
+    #: gráfica de líneas/áreas). Permite al renderer aplicar estilo distintivo.
+    is_synthetic: bool | None = None
+    #: Estilo de línea — coincide con ``SyntheticSeries.lineStyle``.
+    #:   "Solid" | "Dash" | "Dot" | "DashDot" | "ShortDash"
+    lineStyle: str | None = None
+    #: Símbolo de marker — coincide con ``SyntheticSeries.markerSymbol``.
+    #:   "circle" | "diamond" | "square" | "triangle" | "triangle-down" | "none"
+    markerSymbol: str | None = None
+    #: Radio del marker en px. None = default del renderer.
+    markerRadius: float | None = None
+    #: Grosor de línea en px. None = default del renderer.
+    lineWidth: float | None = None
 
 
 class ChartDataResponse(BaseModel):
@@ -89,6 +102,20 @@ class ParetoChartResponse(BaseModel):
     yAxisLabel: str
 
 
+class DataExplorerFilters(BaseModel):
+    """Filtros que reproducen las filas que un chart agrega.
+
+    Consumido por el botón "Ver Datos de Resultados" en cada chart para
+    abrir el Data Explorer ya filtrado a las filas que el chart suma/grafica.
+    """
+
+    variable_names: list[str] = []
+    technology_prefixes: list[str] = []
+    fuel_prefixes: list[str] = []
+    fuel_names: list[str] = []
+    emission_names: list[str] = []
+
+
 class ChartCatalogItem(BaseModel):
     """Metadatos de un tipo de gráfica disponible en el sistema."""
 
@@ -100,6 +127,7 @@ class ChartCatalogItem(BaseModel):
     sub_filtros: list[str] | None = None
     es_capacidad: bool = False
     soporta_pareto: bool = False
+    data_explorer_filters: DataExplorerFilters | None = None
 
 
 # ---------------------------------------------------------------------------

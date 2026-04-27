@@ -11,6 +11,7 @@ import { useToast } from "@/app/providers/useToast";
 import { officialImportApi } from "@/features/officialImport/api/officialImportApi";
 import {
   scenariosApi,
+  type ScenarioDeleteImpact,
   type SandExportVerification,
   type SandIntegrationSummary,
 } from "@/features/scenarios/api/scenariosApi";
@@ -199,6 +200,10 @@ export function ScenariosPage() {
   const [openExcel, setOpenExcel] = useState(false);
   /** Escenario candidato a eliminar (mostrado en modal de confirmación). */
   const [deleteCandidate, setDeleteCandidate] = useState<Scenario | null>(null);
+  const [deleteImpact, setDeleteImpact] = useState<ScenarioDeleteImpact | null>(null);
+  const [deleteImpactLoading, setDeleteImpactLoading] = useState(false);
+  const [selectedDeleteChildIds, setSelectedDeleteChildIds] = useState<number[]>([]);
+  const [resolvingDeleteChildren, setResolvingDeleteChildren] = useState(false);
   const [deletingScenarioId, setDeletingScenarioId] = useState<number | null>(null);
   const [openCsv, setOpenCsv] = useState(false);
   const [openConcatSand, setOpenConcatSand] = useState(false);
@@ -621,15 +626,98 @@ export function ScenariosPage() {
     }
   }
 
+  async function openDeleteScenario(row: Scenario) {
+    setDeleteCandidate(row);
+    setDeleteImpact(null);
+    setSelectedDeleteChildIds([]);
+    setDeleteImpactLoading(true);
+    try {
+      const impact = await scenariosApi.getScenarioDeleteImpact(row.id);
+      setDeleteImpact(impact);
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudo evaluar el impacto de eliminación.", "error");
+    } finally {
+      setDeleteImpactLoading(false);
+    }
+  }
+
+  function closeDeleteScenarioModal() {
+    if (deletingScenarioId || resolvingDeleteChildren) return;
+    setDeleteCandidate(null);
+    setDeleteImpact(null);
+    setSelectedDeleteChildIds([]);
+  }
+
+  function toggleDeleteChild(childId: number) {
+    setSelectedDeleteChildIds((prev) =>
+      prev.includes(childId)
+        ? prev.filter((id) => id !== childId)
+        : [...prev, childId],
+    );
+  }
+
+  async function refreshDeleteImpact(scId = deleteCandidate?.id) {
+    if (!scId) return;
+    const impact = await scenariosApi.getScenarioDeleteImpact(scId);
+    setDeleteImpact(impact);
+    setSelectedDeleteChildIds((prev) =>
+      prev.filter((id) => impact.direct_children.some((child) => child.id === id)),
+    );
+  }
+
+  async function detachSelectedDeleteChildren() {
+    if (!deleteCandidate || selectedDeleteChildIds.length === 0) return;
+    setResolvingDeleteChildren(true);
+    try {
+      await scenariosApi.detachScenarioChildren(deleteCandidate.id, selectedDeleteChildIds);
+      push(`${selectedDeleteChildIds.length} escenario(s) independizado(s).`, "success");
+      await refreshDeleteImpact(deleteCandidate.id);
+      await fetchScenarios();
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudieron independizar los escenarios hijos.", "error");
+    } finally {
+      setResolvingDeleteChildren(false);
+    }
+  }
+
+  async function deleteSelectedDeleteChildren() {
+    if (!deleteCandidate || selectedDeleteChildIds.length === 0) return;
+    setResolvingDeleteChildren(true);
+    try {
+      let deleted = 0;
+      for (const childId of selectedDeleteChildIds) {
+        await scenariosApi.deleteScenario(childId);
+        deleted += 1;
+      }
+      push(`${deleted} escenario(s) hijo(s) eliminado(s).`, "success");
+      await refreshDeleteImpact(deleteCandidate.id);
+      await fetchScenarios();
+    } catch (err) {
+      push(err instanceof Error ? err.message : "No se pudieron eliminar todos los escenarios hijos.", "error");
+      await refreshDeleteImpact(deleteCandidate.id).catch(() => undefined);
+    } finally {
+      setResolvingDeleteChildren(false);
+    }
+  }
+
   async function confirmDeleteScenario() {
     if (!deleteCandidate) return;
+    if (deleteImpact?.direct_children.length) {
+      push("Primero elimina o independiza los escenarios hijos.", "error");
+      return;
+    }
     setDeletingScenarioId(deleteCandidate.id);
     try {
       await scenariosApi.deleteScenario(deleteCandidate.id);
       push(`Escenario "${deleteCandidate.name}" eliminado.`, "success");
       setDeleteCandidate(null);
+      setDeleteImpact(null);
+      setSelectedDeleteChildIds([]);
       await fetchScenarios();
     } catch (err) {
+      if (isApiError(err) && err.status === 409) {
+        await refreshDeleteImpact(deleteCandidate.id).catch(() => undefined);
+      }
       push(err instanceof Error ? err.message : "No se pudo eliminar el escenario.", "error");
     } finally {
       setDeletingScenarioId(null);
@@ -1291,7 +1379,7 @@ export function ScenariosPage() {
                         <Button
                           variant="ghost"
                           type="button"
-                          onClick={() => setDeleteCandidate(row)}
+                          onClick={() => void openDeleteScenario(row)}
                           disabled={deletingScenarioId === row.id}
                           title={
                             row.owner === user?.username
@@ -1970,20 +2058,47 @@ export function ScenariosPage() {
       <Modal
         open={deleteCandidate !== null}
         title="Eliminar escenario"
-        onClose={() => (deletingScenarioId ? undefined : setDeleteCandidate(null))}
+        onClose={closeDeleteScenarioModal}
         footer={
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {deleteImpact?.direct_children.length ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    onClick={() => void detachSelectedDeleteChildren()}
+                    disabled={resolvingDeleteChildren || selectedDeleteChildIds.length === 0}
+                  >
+                    {resolvingDeleteChildren ? "Procesando..." : "Independizar seleccionados"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => void deleteSelectedDeleteChildren()}
+                    disabled={resolvingDeleteChildren || selectedDeleteChildIds.length === 0}
+                    style={{ color: "rgba(248,113,113,0.95)" }}
+                  >
+                    Borrar hijos seleccionados
+                  </Button>
+                </>
+              ) : null}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <Button
               variant="ghost"
-              onClick={() => setDeleteCandidate(null)}
-              disabled={deletingScenarioId !== null}
+              onClick={closeDeleteScenarioModal}
+              disabled={deletingScenarioId !== null || resolvingDeleteChildren}
             >
               Cancelar
             </Button>
             <Button
               variant="primary"
               onClick={() => void confirmDeleteScenario()}
-              disabled={deletingScenarioId !== null}
+              disabled={
+                deletingScenarioId !== null ||
+                resolvingDeleteChildren ||
+                deleteImpactLoading ||
+                Boolean(deleteImpact?.direct_children.length)
+              }
               style={{
                 background: "rgba(239,68,68,0.85)",
                 borderColor: "rgba(239,68,68,0.9)",
@@ -1991,6 +2106,7 @@ export function ScenariosPage() {
             >
               {deletingScenarioId !== null ? "Eliminando…" : "Eliminar definitivamente"}
             </Button>
+            </div>
           </div>
         }
       >
@@ -2016,6 +2132,68 @@ export function ScenariosPage() {
               Queda un registro en el Historial de eliminaciones (quién, cuándo
               y snapshot de los campos clave).
             </div>
+            {deleteImpactLoading ? (
+              <small style={{ opacity: 0.78 }}>Evaluando escenarios hijos...</small>
+            ) : deleteImpact?.direct_children.length ? (
+              <div
+                style={{
+                  border: "1px solid rgba(96,165,250,0.32)",
+                  background: "rgba(37,99,235,0.08)",
+                  borderRadius: 8,
+                  padding: 10,
+                  display: "grid",
+                  gap: 10,
+                }}
+              >
+                <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                  <strong>Este escenario tiene hijos directos.</strong> Para borrar el
+                  padre primero selecciona qué hijos quieres eliminar o
+                  independizar. Independizar solo quita la relación de lineage; no
+                  duplica datos ni ejecuta cálculos pesados.
+                </div>
+                <div style={{ display: "grid", gap: 8, maxHeight: 240, overflow: "auto" }}>
+                  {deleteImpact.direct_children.map((child) => (
+                    <label
+                      key={child.id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "auto 1fr",
+                        gap: 8,
+                        alignItems: "start",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        borderRadius: 8,
+                        padding: 8,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedDeleteChildIds.includes(child.id)}
+                        onChange={() => toggleDeleteChild(child.id)}
+                      />
+                      <span style={{ display: "grid", gap: 3 }}>
+                        <span>
+                          <strong>{child.name}</strong> (#{child.id})
+                        </span>
+                        <small style={{ opacity: 0.75 }}>
+                          Dueño: {child.owner} · {simulationTypeLabel[child.simulation_type]} ·{" "}
+                          {child.simulation_job_count} simulación(es)
+                          {child.child_count > 0 ? ` · ${child.child_count} hijo(s)` : ""}
+                        </small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <small style={{ opacity: 0.72 }}>
+                  Si un hijo seleccionado también tiene hijos, su borrado se
+                  bloqueará y podrás resolverlo en el mismo flujo al abrir ese
+                  escenario.
+                </small>
+              </div>
+            ) : (
+              <small style={{ color: "rgba(134,239,172,0.9)" }}>
+                No hay escenarios hijos bloqueando esta eliminación.
+              </small>
+            )}
           </div>
         ) : null}
       </Modal>

@@ -36,6 +36,8 @@ export interface ChartSelection {
   yAxisMin?: number | null;
   /** Override del valor máximo del eje Y. null = auto. */
   yAxisMax?: number | null;
+  /** Para Sector Eléctrico: filtra entre 'liquidos', 'todos', 'termica' */
+  tipo_electrico?: 'liquidos' | 'todos' | 'termica';
 }
 
 interface Props {
@@ -125,6 +127,8 @@ const FUEL_LABELS: Record<string, string> = {
   TV:  'TV',   // Televisor
   WHT: 'WHT',  // Calentador de agua (Water Heating)
   WSH: 'WSH',  // Lavadora (Washing)
+  'con_crudo': 'Con crudo',
+  'sin_crudo': 'Sin crudo',
 };
 /**
  * Opciones de agrupación disponibles para el backend.
@@ -213,9 +217,18 @@ const MENU: Module[] = [
     emoji: '⚡',
     label: 'Sector Eléctrico',
     charts: [
-      { id: 'elec_produccion',  label: 'Producción de Electricidad - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+      // Líquidos (3 gráficas)
+      { id: 'elec_produccion_liquidos', label: 'Generación Líquidos - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+      { id: 'elec_cap_liquidos', label: 'Matriz Líquidos (Capacidad) - TotalCapacityAnnual', isCapacity: true },
+      { id: 'elec_fp_liquidos', label: 'Factor de Planta - Líquidos (%)' },
+      // Todos (3 gráficas originales)
+      { id: 'elec_produccion', label: 'Producción de Electricidad - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
       { id: 'cap_electricidad', label: 'Matriz Eléctrica (Capacidad) - TotalCapacityAnnual', isCapacity: true },
-      { id: 'factor_planta',    label: 'Factor de Planta (%)' },
+      { id: 'factor_planta', label: 'Factor de Planta (%)' },
+      // Gen. Térmica (3 gráficas)
+      { id: 'elec_produccion_termica', label: 'Generación Térmica - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+      { id: 'elec_cap_termica', label: 'Matriz Térmica (Capacidad) - TotalCapacityAnnual', isCapacity: true },
+      { id: 'elec_fp_termica', label: 'Factor de Planta - Térmica (%)' },
     ],
   },
   {
@@ -283,17 +296,39 @@ const MENU: Module[] = [
     id: 'upstream',
     emoji: '🛢️',
     label: 'Upstream & Refinación',
-    charts: [
-      { id: 'gas_consumo',    label: 'Gas Natural - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
-      { id: 'gas_produccion', label: 'Gas Natural - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
-      { id: 'ref_total',      label: 'Refinerías - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
-      { id: 'ref_consumo',    label: 'Refinerías — Consumo Total por Tecnología', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
-      { id: 'ref_import',     label: 'Refinerías - Importaciones - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
-      { id: 'ref_cartagena',   label: 'Refinería de Cartagena - UseByTechnology', allowedGroupings: ['FUEL'], soportaPareto: true, soportaPorcentaje: true },
-      { id: 'ref_barrancabermeja', label: 'Refinería de Barrancabermeja - UseByTechnology', allowedGroupings: ['FUEL'], soportaPareto: true, soportaPorcentaje: true },
-      { id: 'liquidos_prod_import', label: 'Líquidos - Producción + Importación', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPorcentaje: true },
-      { id: 'ups_refinacion', label: 'Upstream Refinación - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
-      { id: 'saf_produccion', label: 'SAF - Producción - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+    subsectors: [
+      {
+        id: 'otros',
+        label: '🔧 Otros',
+        charts: [
+          { id: 'gas_consumo',    label: 'Gas Natural - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'gas_produccion', label: 'Gas Natural - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'ups_refinacion', label: 'Upstream Refinación - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'saf_produccion', label: 'SAF - Producción - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+        ],
+      },
+      {
+        id: 'liquidos',
+        label: '🛢️ Líquidos',
+        charts: [
+          { id: 'liquidos_prod_import', label: 'Líquidos - Producción + Importación', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+        ],
+      },
+      {
+        id: 'refinerias',
+        label: '🏭 Refinerías',
+        charts: [
+          { id: 'ref_total',      label: 'Refinerías - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'ref_import',     label: 'Refinerías - Importaciones - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'ref_consumo',    label: 'Refinerías — Consumo Total por Tecnología', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'ref_cartagena',   label: 'Refinería de Cartagena - UseByTechnology', allowedGroupings: ['FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'ref_barrancabermeja', label: 'Refinería de Barrancabermeja - UseByTechnology', allowedGroupings: ['FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'ref_ambas', label: 'Refinerías (Cartagena + Barrancabermeja) - UseByTechnology', 
+            hasSub: true, subFiltroLabel: 'Crudo', 
+            subFiltros: ['con_crudo', 'sin_crudo'],
+            allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+        ],
+      },
     ],
   },
   {
@@ -462,7 +497,25 @@ export function ChartSelector({
     return sub.charts ?? [];
   }, [activeModule, activeSubsector]);
 
-  const chartsToShow = subsectors.length > 0 ? subsectorCharts : flatCharts;
+  const chartsToShow = useMemo(() => {
+    // Para Sector Eléctrico: filtrar por tipo_electrico
+    if (currentModule.id === 'electrico') {
+      const tipoMap: Record<string, string[]> = {
+        'liquidos': ['elec_produccion_liquidos', 'elec_cap_liquidos', 'elec_fp_liquidos'],
+        'todos': ['elec_produccion', 'cap_electricidad', 'factor_planta'],
+        'termica': ['elec_produccion_termica', 'elec_cap_termica', 'elec_fp_termica'],
+      };
+      const tipo = value.tipo_electrico || 'todos';
+      const ids = tipoMap[tipo];
+      if (!ids) return [];
+      return flatCharts.filter((chart): boolean => {
+        const id = chart.id;
+        return typeof id === 'string' && ids.includes(id);
+      });
+    }
+    // Comportamiento normal para outros módulos
+    return subsectors.length > 0 ? subsectorCharts : flatCharts;
+  }, [currentModule, subsectors, subsectorCharts, flatCharts, value.tipo_electrico]);
 
   // Valores derivados seguros
   const activeVariable: string  = value.variable ?? '';
@@ -525,7 +578,7 @@ export function ChartSelector({
       tipo:       item.id,
       un:         newUn,
       variable:   item.isCapacity ? 'TotalCapacityAnnual' : '',
-      sub_filtro: '',
+      sub_filtro: item.id === 'ref_ambas' ? 'con_crudo' : '',
       loc:        '',
       ...(newViewMode != null ? { viewMode: newViewMode } : {}),
       ...(newGrouping != null ? { agrupar_por: newGrouping } : {}),
@@ -609,7 +662,7 @@ export function ChartSelector({
       </div>
 
       {/* ── NIVEL 2: Subsector (solo Demanda Final) ── */}
-      {subsectors.length > 0 && (
+      {subsectors.length > 0 && activeModule !== 'electrico' && (
         <div>
           <p style={labelStyle}>Sector</p>
           <div style={pillsContainerStyle}>
@@ -854,11 +907,45 @@ export function ChartSelector({
                       ▤ Tabla
                     </button>
                   )}
-                </>
-              );
-            })()}
-          </div>
-          {/* Controles específicos del modo tabla. */}
+                 </>
+               );
+             })()}
+           </div>
+
+           {/* ── Dropdown "Tipo" para Sector Eléctrico ── */}
+           {(() => {
+             const elecIds = [
+               'elec_produccion_liquidos', 'elec_cap_liquidos', 'elec_fp_liquidos',
+               'elec_produccion', 'cap_electricidad', 'factor_planta',
+               'elec_produccion_termica', 'elec_cap_termica', 'elec_fp_termica',
+             ];
+             if (!elecIds.includes(value.tipo)) return null;
+             return (
+               <div style={{ display: 'grid', gap: 6 }}>
+                 <p style={labelStyle}>Tipo</p>
+                 <select
+                   style={selectStyle}
+                   value={value.tipo_electrico || 'todos'}
+                   onChange={(e) => {
+                     const tipo = e.target.value as 'liquidos' | 'todos' | 'termica';
+                     const chartMap: Record<string, string> = {
+                       'liquidos': 'elec_produccion_liquidos',
+                       'todos': 'elec_produccion',
+                       'termica': 'elec_produccion_termica',
+                     };
+                     const chartId = chartMap[tipo] || 'elec_produccion';
+                     onChange({ ...value, tipo_electrico: tipo, tipo: chartId });
+                   }}
+                 >
+                   <option value="liquidos">🛢️ Líquido</option>
+                   <option value="todos">🔌 Todos</option>
+                   <option value="termica">🔥 Gen. Térmica</option>
+                 </select>
+               </div>
+             );
+           })()}
+
+           {/* Controles específicos del modo tabla. */}
           {value.viewMode === 'table' && (
             <div
               style={{
@@ -932,10 +1019,9 @@ export function ChartSelector({
             <p style={labelStyle}>{currentItem.subFiltroLabel ?? 'Sub-filtro'}</p>
             <select
               style={selectStyle}
-              value={value.sub_filtro ?? ''}
+              value={value.sub_filtro || (currentItem?.id === 'ref_ambas' ? 'con_crudo' : '')}
               onChange={(e) => onChange({ ...value, sub_filtro: e.target.value })}
             >
-              <option value="">Todos</option>
               {(currentItem.subFiltros ?? []).map((sf) => (
                 <option key={sf} value={sf}>{FUEL_LABELS[sf] ?? sf}</option>
               ))}

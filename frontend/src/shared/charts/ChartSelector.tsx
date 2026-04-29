@@ -30,6 +30,12 @@ export interface ChartSelection {
   tablePeriodYears?: number | null;
   /** Solo `viewMode === 'table'`: muestra valores acumulados. */
   tableCumulative?: boolean;
+  /** Override del orden de series (lista de nombres). null = orden natural. */
+  customSeriesOrder?: string[] | null;
+  /** Override del valor mínimo del eje Y. null = auto. */
+  yAxisMin?: number | null;
+  /** Override del valor máximo del eje Y. null = auto. */
+  yAxisMax?: number | null;
 }
 
 interface Props {
@@ -101,6 +107,24 @@ const FUEL_LABELS: Record<string, string> = {
   OIL: 'Petróleo',
   AFR: 'Residuos Agrícolas/Forestales',
   SAF: 'SAF',
+  // ── Códigos de uso (subfiltros de demanda) ────────────────────────────
+  // Mantenemos el código tal cual en la UI; el comentario documenta el
+  // significado para que el desarrollador (y futuros lectores) sepan qué
+  // representa cada uno sin necesidad de traducir en pantalla.
+  ACL: 'ACL',  // Aclimatación
+  AIR: 'AIR',  // Aire acondicionado
+  BOI: 'BOI',  // Caldera (Boiler)
+  CKN: 'CKN',  // Cocción / Estufa
+  DAT: 'DAT',  // Data Center
+  FAN: 'FAN',  // Ventilador
+  FUR: 'FUR',  // Horno (Furnace)
+  ILU: 'ILU',  // Iluminación
+  MPW: 'MPW',  // Motores (Motor Power)
+  OTH: 'OTH',  // Otros
+  REF: 'REF',  // Refrigeración
+  TV:  'TV',   // Televisor
+  WHT: 'WHT',  // Calentador de agua (Water Heating)
+  WSH: 'WSH',  // Lavadora (Washing)
 };
 /**
  * Opciones de agrupación disponibles para el backend.
@@ -204,8 +228,8 @@ const MENU: Module[] = [
       {
         id: 'residencial', label: '🏘️ Residencial',
         charts: [
-          { id: 'res_total', label: 'Sector Residencial - Consumo Total - UseByTechnology', hasSub: true, subFiltroLabel: 'Uso', hasLoc: true, subFiltros: ['CKN','WHT','AIR','REF','ILU','TV','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
-          { id: 'res_uso',   label: 'Sector Residencial - ProductionByTechnology',           hasSub: true, subFiltroLabel: 'Uso', hasLoc: true, subFiltros: ['CKN','WHT','AIR','REF','ILU','TV','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'res_total', label: 'Sector Residencial - Consumo Total - UseByTechnology', hasSub: true, subFiltroLabel: 'Uso', hasLoc: true, subFiltros: ['CKN','WHT','AIR','REF','ILU','TV','FAN','WSH','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'res_uso',   label: 'Sector Residencial - ProductionByTechnology',           hasSub: true, subFiltroLabel: 'Uso', hasLoc: true, subFiltros: ['CKN','WHT','AIR','REF','ILU','TV','FAN','WSH','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
         ],
       },
       {
@@ -225,8 +249,8 @@ const MENU: Module[] = [
       {
         id: 'terciario', label: '🏢 Terciario',
         charts: [
-          { id: 'ter_total', label: 'Sector Terciario - Consumo Total - UseByTechnology', hasSub: true, subFiltroLabel: 'Uso', subFiltros: ['AIR','ILU','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
-          { id: 'ter_uso',   label: 'Sector Terciario - ProductionByTechnology',           hasSub: true, subFiltroLabel: 'Uso', subFiltros: ['AIR','ILU','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'ter_total', label: 'Sector Terciario - Consumo Total - UseByTechnology', hasSub: true, subFiltroLabel: 'Uso', subFiltros: ['ACL','AIR','CKN','DAT','FAN','ILU','MPW','REF','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+          { id: 'ter_uso',   label: 'Sector Terciario - ProductionByTechnology',           hasSub: true, subFiltroLabel: 'Uso', subFiltros: ['ACL','AIR','CKN','DAT','FAN','ILU','MPW','REF','OTH'], allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
         ],
       },
       { id: 'construccion', label: '🔨 Construcción',      charts: [{ id: 'con_total',   label: 'Sector Construcción - Consumo Total - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true }] },

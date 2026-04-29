@@ -131,6 +131,9 @@ def _chart_to_public_dict(
         "synthetic_series": obj.synthetic_series,
         "table_period_years": getattr(obj, "table_period_years", None),
         "table_cumulative": getattr(obj, "table_cumulative", None),
+        "custom_series_order": getattr(obj, "custom_series_order", None),
+        "y_axis_min": getattr(obj, "y_axis_min", None),
+        "y_axis_max": getattr(obj, "y_axis_max", None),
         "created_at": obj.created_at,
         "is_public": bool(getattr(obj, "is_public", False)),
         "owner_username": owner_username,
@@ -355,6 +358,17 @@ class SavedChartTemplateService:
         if "table_cumulative" in data:
             v = data["table_cumulative"]
             obj.table_cumulative = bool(v) if v is not None else None  # type: ignore[assignment]
+        if "custom_series_order" in data:
+            v = data["custom_series_order"]
+            obj.custom_series_order = (
+                list(v) if isinstance(v, list) and v else None
+            )  # type: ignore[assignment]
+        if "y_axis_min" in data:
+            v = data["y_axis_min"]
+            obj.y_axis_min = float(v) if v is not None else None  # type: ignore[assignment]
+        if "y_axis_max" in data:
+            v = data["y_axis_max"]
+            obj.y_axis_max = float(v) if v is not None else None  # type: ignore[assignment]
         db.commit()
         db.refresh(obj)
         username = SavedChartTemplateService._resolve_owner_username(
@@ -436,7 +450,17 @@ class SavedChartTemplateService:
 
         Si ``year_from`` o ``year_to`` están dados, las categorías-año (y los
         valores de cada serie) se recortan al rango antes de renderizar.
+
+        Aplica los modificadores persistidos del template:
+          - ``custom_series_order``: reordena las series antes del render.
+          - ``y_axis_min`` / ``y_axis_max``: override del rango Y al renderer.
         """
+        # Modificadores persistidos en la plantilla.
+        custom_order: list[str] | None = list(
+            getattr(template, "custom_series_order", None) or []
+        ) or None
+        y_min = getattr(template, "y_axis_min", None)
+        y_max = getattr(template, "y_axis_max", None)
         # Líneas totales multi-escenario: una línea por escenario sobre el mismo eje.
         if template.compare_mode == "line-total":
             if len(job_ids) < 2:
@@ -457,6 +481,7 @@ class SavedChartTemplateService:
                     f"Plantilla '{template.name}': sin datos para líneas totales."
                 )
             chart_service.filter_chart_by_year_range(chart, year_from, year_to)
+            chart_service.reorder_chart_series(chart, custom_order)
             if template.synthetic_series:
                 _inject_synthetic_series(chart, template.synthetic_series)
             rt = (getattr(template, "report_title", None) or "").strip()
@@ -467,6 +492,7 @@ class SavedChartTemplateService:
                 chart.title = f"{chart.title} — {sx}"
             img_bytes = chart_service.render_chart_visualization_bytes(
                 chart, fmt=fmt, view_mode="line",
+                y_axis_min=y_min, y_axis_max=y_max,
             )
             return img_bytes, fmt
 
@@ -507,6 +533,10 @@ class SavedChartTemplateService:
                 raise ValueError(
                     f"Plantilla '{template.name}': sin datos para comparación por año."
                 )
+            # Reordenar series dentro de cada subplot.
+            if custom_order:
+                for sp in cmp_data.subplots:
+                    chart_service.reorder_chart_series(sp, custom_order)
             rt = (getattr(template, "report_title", None) or "").strip()
             if rt:
                 cmp_data.title = rt
@@ -515,6 +545,7 @@ class SavedChartTemplateService:
                 cmp_data.title = f"{cmp_data.title} — {sx}"
             img_bytes = chart_service.render_comparison_by_year_bytes(
                 cmp_data, fmt=fmt,
+                y_axis_min=y_min, y_axis_max=y_max,
             )
             return img_bytes, fmt
 
@@ -539,6 +570,10 @@ class SavedChartTemplateService:
                     f"Plantilla '{template.name}': sin datos con los filtros y escenarios seleccionados."
                 )
             chart_service.filter_chart_by_year_range(facet_payload, year_from, year_to)
+            # Reordenar series dentro de cada facet.
+            if custom_order:
+                for f in facet_payload.facets:
+                    chart_service.reorder_chart_series(f, custom_order)
             rt = (getattr(template, "report_title", None) or "").strip()
             if rt:
                 facet_payload.title = rt
@@ -549,6 +584,8 @@ class SavedChartTemplateService:
                 facet_payload,
                 fmt=fmt,
                 legend_title=template.legend_title,
+                y_axis_min=y_min,
+                y_axis_max=y_max,
             )
             return img_bytes, fmt
 
@@ -604,6 +641,8 @@ class SavedChartTemplateService:
             tpy = getattr(template, "table_period_years", None)
             if tpy and tpy >= 2:
                 chart_service.apply_period_years(chart, int(tpy))
+        # Reordenar series del chart single (column/line/area).
+        chart_service.reorder_chart_series(chart, custom_order)
         if template.synthetic_series and view_mode in _LINE_VIEW_MODES:
             _inject_synthetic_series(chart, template.synthetic_series)
         rt = (getattr(template, "report_title", None) or "").strip()
@@ -616,6 +655,8 @@ class SavedChartTemplateService:
             chart,
             fmt=fmt,
             view_mode=view_mode,
+            y_axis_min=y_min,
+            y_axis_max=y_max,
         )
         return img_bytes, fmt
 
@@ -708,31 +749,36 @@ class SavedChartTemplateService:
         # Pasamos ``current_user`` para que la rama de Admin Reportes/Admin
         # Escenarios active el escape hatch y pueda exportar reportes que
         # referencien plantillas privadas ajenas.
-        rendered_by_template: dict[int, tuple[SavedChartTemplate, list[int]]] = {}
-        alias_by_template: dict[int, str] = {}
+        #
+        # NOTA: este cache solo guarda el OBJETO ORM por ``template_id``, no
+        # los ``job_ids`` ni el alias. Esos son **por-item**: dos items con
+        # el mismo ``template_id`` pueden tener ``job_ids``/aliases distintos
+        # (caso típico: misma gráfica para 2 escenarios). En las loops de
+        # escritura recuperamos los valores desde cada ``item`` directamente.
+        templates_by_id: dict[int, SavedChartTemplate] = {}
         all_jobs: set[int] = set()
         missing_ids: list[int] = []
         for item in effective_items:
-            try:
-                template, _owner = SavedChartTemplateService.get_accessible(
-                    db,
-                    user_id=current_user.id,
-                    template_id=item.template_id,
-                    current_user=current_user,
-                )
-            except NotFoundError:
-                missing_ids.append(item.template_id)
-                continue
+            if item.template_id not in templates_by_id:
+                try:
+                    template, _owner = SavedChartTemplateService.get_accessible(
+                        db,
+                        user_id=current_user.id,
+                        template_id=item.template_id,
+                        current_user=current_user,
+                    )
+                except NotFoundError:
+                    missing_ids.append(item.template_id)
+                    continue
+                templates_by_id[item.template_id] = template
+            else:
+                template = templates_by_id[item.template_id]
             if len(item.job_ids) != template.num_scenarios:
                 raise ValueError(
                     f"Plantilla '{template.name}' requiere {template.num_scenarios} escenario(s); "
                     f"recibidos {len(item.job_ids)}."
                 )
             all_jobs.update(item.job_ids)
-            rendered_by_template[item.template_id] = (template, list(item.job_ids))
-            alias = (getattr(item, "scenario_alias_for_title", None) or "").strip()
-            if alias:
-                alias_by_template[item.template_id] = alias
 
         if missing_ids:
             unique_missing = sorted(set(missing_ids))
@@ -742,6 +788,14 @@ class SavedChartTemplateService:
                 "Edita el reporte para reemplazarlas o pide al dueño que las "
                 "vuelva a hacer públicas."
             )
+
+        # Helper para obtener (template, job_ids, alias) por item — siempre
+        # mira el item, no un cache compartido.
+        def _resolve_item(it: ReportTemplateItem) -> tuple[SavedChartTemplate, list[int], str | None]:
+            tpl = templates_by_id[it.template_id]
+            jobs = list(it.job_ids)
+            alias = (getattr(it, "scenario_alias_for_title", None) or "").strip() or None
+            return tpl, jobs, alias
 
         SavedChartTemplateService._validate_access_jobs(
             db, current_user=current_user, job_ids=sorted(all_jobs)
@@ -755,7 +809,7 @@ class SavedChartTemplateService:
             f"Fecha: {datetime.now(timezone.utc).isoformat()}",
             f"Formato: {fmt}",
             f"Estructura: {'carpetas por categoría' if structured else 'plana'}",
-            f"Plantillas: {len(rendered_by_template)}",
+            f"Plantillas únicas: {len(templates_by_id)} ({len(effective_items)} items)",
             "",
         ]
 
@@ -765,6 +819,7 @@ class SavedChartTemplateService:
             idx: int,
             template: SavedChartTemplate,
             job_ids: list[int],
+            scenario_alias: str | None,
             folder: str,
             depth_prefix: str,
         ) -> str | None:
@@ -776,7 +831,7 @@ class SavedChartTemplateService:
                     job_ids=job_ids,
                     fmt=fmt,
                     job_display_overrides=overrides_int,
-                    scenario_alias_for_title=alias_by_template.get(template.id),
+                    scenario_alias_for_title=scenario_alias,
                     year_from=year_from,
                     year_to=year_to,
                 )
@@ -811,12 +866,13 @@ class SavedChartTemplateService:
                     manifest_lines.append(f"[{c_idx:02d}] {cat.label}/")
                     # Ítems directos de la categoría
                     for i_idx, item in enumerate(cat.items, start=1):
-                        tpl, jobs = rendered_by_template[item.template_id]
+                        tpl, jobs, alias = _resolve_item(item)
                         _write_one(
                             zf,
                             idx=i_idx,
                             template=tpl,
                             job_ids=jobs,
+                            scenario_alias=alias,
                             folder=cat_folder,
                             depth_prefix="  ",
                         )
@@ -828,23 +884,25 @@ class SavedChartTemplateService:
                             f"  [{s_idx:02d}] {sub.label}/"
                         )
                         for i_idx, item in enumerate(sub.items, start=1):
-                            tpl, jobs = rendered_by_template[item.template_id]
+                            tpl, jobs, alias = _resolve_item(item)
                             _write_one(
                                 zf,
                                 idx=i_idx,
                                 template=tpl,
                                 job_ids=jobs,
+                                scenario_alias=alias,
                                 folder=sub_folder,
                                 depth_prefix="    ",
                             )
             else:
                 for idx, item in enumerate(items, start=1):
-                    tpl, jobs = rendered_by_template[item.template_id]
+                    tpl, jobs, alias = _resolve_item(item)
                     _write_one(
                         zf,
                         idx=idx,
                         template=tpl,
                         job_ids=jobs,
+                        scenario_alias=alias,
                         folder="",
                         depth_prefix="",
                     )
@@ -1398,6 +1456,9 @@ class ReportTemplateService:
                     filename_mode=orig.filename_mode,
                     table_period_years=getattr(orig, "table_period_years", None),
                     table_cumulative=getattr(orig, "table_cumulative", None),
+                    custom_series_order=getattr(orig, "custom_series_order", None),
+                    y_axis_min=getattr(orig, "y_axis_min", None),
+                    y_axis_max=getattr(orig, "y_axis_max", None),
                     is_public=False,  # privadas en la copia
                 )
                 db.add(clone)

@@ -22,6 +22,12 @@ import type {
   SavedChartTemplate,
 } from "@/types/domain";
 import type { ChartSelection } from "@/shared/charts/ChartSelector";
+import {
+  reorderChartSeries,
+  reorderFacetSeries,
+  reorderByYearSeries,
+} from "@/shared/charts/SeriesOrderModal";
+import { EditChartCardModal } from "./EditChartCardModal";
 
 function templateToSelection(t: SavedChartTemplate): ChartSelection {
   const sel: ChartSelection = { tipo: t.tipo, un: t.un };
@@ -41,6 +47,13 @@ function templateToSelection(t: SavedChartTemplate): ChartSelection {
       sel.tableCumulative = t.table_cumulative;
     }
   }
+  // Modificadores universales — fluyen al endpoint de export (B) cuando se
+  // descarga PNG/SVG/CSV/XLSX directo desde el dashboard.
+  if (t.custom_series_order && t.custom_series_order.length > 0) {
+    sel.customSeriesOrder = t.custom_series_order;
+  }
+  if (typeof t.y_axis_min === "number") sel.yAxisMin = t.y_axis_min;
+  if (typeof t.y_axis_max === "number") sel.yAxisMax = t.y_axis_max;
   return sel;
 }
 
@@ -63,6 +76,14 @@ type Props = {
   /** Filtro de rango de años aplicado en cliente al recibir los datos. */
   yearFrom?: number | null | undefined;
   yearTo?: number | null | undefined;
+  /**
+   * Habilita el botón "Editar gráfica" en este card. Cuando el usuario es
+   * dueño del template, el PATCH se aplica directo. Si no es dueño, se
+   * emite ``onTemplateReplaced(oldId, newTemplate)`` para que la página
+   * padre (ReportDashboardPage) reemplace la referencia en el reporte.
+   */
+  onTemplateUpdated?: (updated: SavedChartTemplate) => void;
+  onTemplateReplaced?: (oldId: number, newTemplate: SavedChartTemplate) => void;
 };
 
 /** Filtra in-place categorías-año y datos paralelos por [yearFrom, yearTo]. */
@@ -133,6 +154,8 @@ export function DashboardChartCard({
   scenarioNames,
   yearFrom,
   yearTo,
+  onTemplateUpdated,
+  onTemplateReplaced,
 }: Props) {
   const [single, setSingle] = useState<ChartDataResponse | null>(null);
   const [facet, setFacet] = useState<CompareChartFacetResponse | null>(null);
@@ -141,6 +164,30 @@ export function DashboardChartCard({
   const [pareto, setPareto] = useState<ParetoChartResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+
+  // Lista de series visibles AHORA, para el modal de orden.
+  const seriesNamesForEdit = useMemo<{ name: string; color?: string | null | undefined }[]>(() => {
+    const seen = new Map<string, string | null | undefined>();
+    const push = (name: string, color?: string | null) => {
+      if (!seen.has(name)) seen.set(name, color);
+    };
+    if (facet) {
+      for (const f of facet.facets) for (const s of f.series) push(s.name, s.color);
+    } else if (byYear) {
+      for (const sp of byYear.subplots) for (const s of sp.series) push(s.name, s.color);
+    } else if (lineTotal) {
+      for (const s of lineTotal.series) push(s.name, s.color);
+    } else if (single) {
+      for (const s of single.series) push(s.name, s.color);
+    }
+    return Array.from(seen.entries()).map(([name, color]) => ({ name, color }));
+  }, [single, facet, byYear, lineTotal]);
+  const canEdit = onTemplateUpdated != null || onTemplateReplaced != null;
+  // Pareto y "table" no soportan reorder en este modal por ahora; el botón
+  // se oculta para evitar confusión. Una iteración futura podría añadir
+  // edición específica para esos modos.
+  const editSupported = template.view_mode !== "pareto" && template.view_mode !== "table";
 
   const ready =
     jobIds.length === template.num_scenarios && jobIds.every((j) => j != null);
@@ -414,6 +461,29 @@ export function DashboardChartCard({
               : ""}
           </p>
         </div>
+        {canEdit && editSupported ? (
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            disabled={!ready || seriesNamesForEdit.length === 0}
+            className="inline-flex shrink-0 items-center gap-1 rounded border border-cyan-500/30 bg-cyan-500/5 px-2 py-1 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-500/15 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={
+              template.is_owner
+                ? "Editar configuración (orden de series, eje Y) — afecta a todos los reportes que la usen"
+                : "Crear copia con tu configuración personal (no modifica la original)"
+            }
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+            Editar
+            {!template.is_owner ? (
+              <span className="ml-0.5 rounded-full bg-amber-500/30 px-1 py-0.5 text-[8px] uppercase text-amber-200">
+                copia
+              </span>
+            ) : null}
+          </button>
+        ) : null}
       </div>
 
       <div className="rounded-lg border border-slate-800/70 bg-slate-950/30 p-3 min-h-[280px] relative">
@@ -440,7 +510,7 @@ export function DashboardChartCard({
           </div>
         ) : template.compare_mode === "facet" && facet ? (
           <CompareChartFacet
-            data={facet}
+            data={reorderFacetSeries(facet, template.custom_series_order ?? null)}
             barOrientation={
               (template.bar_orientation ?? "vertical") as "vertical" | "horizontal"
             }
@@ -453,22 +523,28 @@ export function DashboardChartCard({
             viewMode={template.view_mode === "line" ? "line" : "column"}
             serverFacetExport={{ jobIds, selection }}
             compactToolbar={compactToolbar}
+            yAxisMin={template.y_axis_min ?? null}
+            yAxisMax={template.y_axis_max ?? null}
           />
         ) : template.compare_mode === "by-year" && byYear ? (
           <CompareChart
-            data={byYear}
+            data={reorderByYearSeries(byYear, template.custom_series_order ?? null)}
             barOrientation={
               (template.bar_orientation ?? "vertical") as "vertical" | "horizontal"
             }
+            yAxisMin={template.y_axis_min ?? null}
+            yAxisMax={template.y_axis_max ?? null}
           />
         ) : template.compare_mode === "line-total" && lineTotal ? (
           <LineChart
-            data={lineTotal}
+            data={reorderChartSeries(lineTotal, template.custom_series_order ?? null)}
             syntheticSeries={
               template.synthetic_series
                 ? template.synthetic_series.filter((s) => s.active !== false)
                 : undefined
             }
+            yAxisMin={template.y_axis_min ?? null}
+            yAxisMax={template.y_axis_max ?? null}
           />
         ) : template.view_mode === "pareto" && pareto ? (
           <ParetoChart
@@ -484,22 +560,26 @@ export function DashboardChartCard({
           />
         ) : template.view_mode === "line" && single ? (
           <LineChart
-            data={single}
+            data={reorderChartSeries(single, template.custom_series_order ?? null)}
             serverExport={{ jobId: jobIds[0]!, selection }}
             syntheticSeries={
               template.synthetic_series
                 ? template.synthetic_series.filter((s) => s.active !== false)
                 : undefined
             }
+            yAxisMin={template.y_axis_min ?? null}
+            yAxisMax={template.y_axis_max ?? null}
           />
         ) : single ? (
           <HighchartsChart
-            data={single}
+            data={reorderChartSeries(single, template.custom_series_order ?? null)}
             barOrientation={
               (template.bar_orientation ?? "vertical") as "vertical" | "horizontal"
             }
             serverExport={{ jobId: jobIds[0]!, selection }}
             stackType={template.view_mode === "area" ? "area" : "column"}
+            yAxisMin={template.y_axis_min ?? null}
+            yAxisMax={template.y_axis_max ?? null}
           />
         ) : !loading ? (
           <div className="flex h-[260px] items-center justify-center text-xs text-slate-500">
@@ -507,6 +587,19 @@ export function DashboardChartCard({
           </div>
         ) : null}
       </div>
+
+      <EditChartCardModal
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        template={template}
+        seriesNames={seriesNamesForEdit}
+        onTemplateUpdated={(updated) => {
+          onTemplateUpdated?.(updated);
+        }}
+        onTemplateReplaced={(oldId, newTpl) => {
+          onTemplateReplaced?.(oldId, newTpl);
+        }}
+      />
     </div>
   );
 }

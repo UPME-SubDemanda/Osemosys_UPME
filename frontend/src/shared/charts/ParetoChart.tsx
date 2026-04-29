@@ -6,7 +6,7 @@ import {
   onHighchartsExportError,
 } from './chartExportingShared';
 import { TOOLTIP_BASE_OPTIONS, fmtValue } from './chartTooltips';
-import { formatAxis3Sig } from './numberFormat';
+import { bumpFontSize, formatAxis3Sig } from './numberFormat';
 import HighchartsReact from 'highcharts-react-official';
 import type { ParetoChartResponse } from '../../types/domain';
 import type { ChartSelection } from './ChartSelector';
@@ -14,22 +14,32 @@ import type { ChartSelection } from './ChartSelector';
 interface ParetoChartProps {
   data: ParetoChartResponse;
   serverExport?: { jobId: number; selection: ChartSelection };
+  /** Modo amplificado: fuentes +3pt. */
+  amplified?: boolean;
+  /** Altura explícita del chart en px. */
+  chartHeight?: number;
 }
 
-export const ParetoChart: React.FC<ParetoChartProps> = ({ data, serverExport }) => {
+export const ParetoChart: React.FC<ParetoChartProps> = ({
+  data,
+  serverExport,
+  amplified = false,
+  chartHeight,
+}) => {
   const options = useMemo<Highcharts.Options>(() => {
     const n = data.categories.length;
     const dynamicHeight = Math.max(420, Math.min(700, 300 + n * 14));
+    const fb = (s: string) => (amplified ? bumpFontSize(s, 3) ?? s : s);
 
     return {
       chart: {
-        height: dynamicHeight,
+        height: typeof chartHeight === 'number' ? chartHeight : dynamicHeight,
         style: { fontFamily: 'Verdana, sans-serif' },
         backgroundColor: 'transparent',
       },
       title: {
         text: data.title,
-        style: { fontSize: '16px', fontWeight: 'bold', color: '#f8fafc' },
+        style: { fontSize: fb('16px'), fontWeight: 'bold', color: '#f8fafc' },
       },
       xAxis: {
         categories: data.categories,
@@ -37,7 +47,7 @@ export const ParetoChart: React.FC<ParetoChartProps> = ({ data, serverExport }) 
         labels: {
           rotation: -45,
           align: 'right',
-          style: { color: '#94a3b8', fontSize: '11px' },
+          style: { color: '#94a3b8', fontSize: fb('11px') },
         },
         lineColor: '#334155',
         tickColor: '#334155',
@@ -47,10 +57,10 @@ export const ParetoChart: React.FC<ParetoChartProps> = ({ data, serverExport }) 
           min: 0,
           title: {
             text: data.yAxisLabel,
-            style: { color: '#94a3b8', fontSize: '13px' },
+            style: { color: '#94a3b8', fontSize: fb('13px') },
           },
           labels: {
-            style: { color: '#94a3b8', fontSize: '12px' },
+            style: { color: '#94a3b8', fontSize: fb('12px') },
             formatter: function (this: Highcharts.AxisLabelsFormatterContextObject) {
               return formatAxis3Sig(this.value as number);
             },
@@ -63,11 +73,11 @@ export const ParetoChart: React.FC<ParetoChartProps> = ({ data, serverExport }) 
           opposite: true,
           title: {
             text: '% Acumulado',
-            style: { color: '#f87171', fontSize: '13px' },
+            style: { color: '#f87171', fontSize: fb('13px') },
           },
           labels: {
             format: '{value}%',
-            style: { color: '#f87171', fontSize: '12px' },
+            style: { color: '#f87171', fontSize: fb('12px') },
           },
           gridLineWidth: 0,
         },
@@ -164,11 +174,11 @@ export const ParetoChart: React.FC<ParetoChartProps> = ({ data, serverExport }) 
         align: 'center',
         verticalAlign: 'bottom',
         layout: 'horizontal',
-        itemStyle: { color: '#94a3b8', fontWeight: 'normal', fontSize: '13px' },
+        itemStyle: { color: '#94a3b8', fontWeight: 'normal', fontSize: fb('13px') },
         itemHoverStyle: { color: '#f8fafc' },
       },
     };
-  }, [data, serverExport]);
+  }, [data, serverExport, amplified, chartHeight]);
 
   return (
     <div style={{ width: '100%' }}>

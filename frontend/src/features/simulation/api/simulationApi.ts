@@ -245,6 +245,16 @@ export const simulationApi = {
         params.table_cumulative = "true";
       }
     }
+    // Modificadores universales: orden custom de series + rango Y.
+    if (selection.customSeriesOrder && selection.customSeriesOrder.length > 0) {
+      params.series_order = selection.customSeriesOrder.join(",");
+    }
+    if (typeof selection.yAxisMin === "number") {
+      params.y_axis_min = String(selection.yAxisMin);
+    }
+    if (typeof selection.yAxisMax === "number") {
+      params.y_axis_max = String(selection.yAxisMax);
+    }
 
     const response = await httpClient.get(`/visualizations/${jobId}/export-chart`, {
       params,

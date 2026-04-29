@@ -17,11 +17,16 @@ import type { CompareChartResponse } from '../../types/domain';
 interface CompareChartProps {
   data: CompareChartResponse;
   barOrientation?: 'vertical' | 'horizontal';
+  /** Override del eje Y para todos los subplots. ``null``/undefined = auto. */
+  yAxisMin?: number | null;
+  yAxisMax?: number | null;
 }
 
 export const CompareChart: React.FC<CompareChartProps> = ({
   data,
   barOrientation = 'vertical',
+  yAxisMin,
+  yAxisMax,
 }) => {
   const inverted = barOrientation === 'horizontal';
   const legendDblclickStateRef = useRef(createLegendDblclickState());
@@ -105,7 +110,8 @@ export const CompareChart: React.FC<CompareChartProps> = ({
         // ceden espacio automáticamente a la leyenda cuando se fija width/left).
         top: '0%',
         height: '86%',
-        min: 0,
+        min: typeof yAxisMin === 'number' ? yAxisMin : 0,
+        ...(typeof yAxisMax === 'number' ? { max: yAxisMax } : null),
         gridLineColor: '#334155',
         labels: {
           style: { color: '#94a3b8', fontSize: '13px' },
@@ -210,7 +216,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, inverted, hiddenNames]);
+  }, [data, inverted, hiddenNames, yAxisMin, yAxisMax]);
 
   return (
     <div style={{ width: '100%' }}>

@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -66,6 +66,14 @@ class SavedChartTemplate(Base):
     #: Solo aplica cuando ``view_mode == "table"``: si ``True`` los valores
     #: por serie se acumulan a lo largo de las categorías visibles.
     table_cumulative: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    #: Override del orden de las series (lista de nombres). La primera entrada
+    #: queda arriba del stack. ``None`` = orden natural.
+    custom_series_order: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    #: Override del valor mínimo del eje Y. ``None`` = auto.
+    y_axis_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Override del valor máximo del eje Y. ``None`` = auto.
+    y_axis_max: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     #: Si ``True``, la gráfica es visible (solo lectura) para otros usuarios,
     #: que pueden usarla en sus propios reportes. Solo el dueño puede editar.

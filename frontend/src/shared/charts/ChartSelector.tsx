@@ -163,6 +163,7 @@ const CHARTS_SIN_AGRUPACION = new Set([
   'emisiones_sectorial',     // agrupa por SECTOR → fijo
   'emisiones_gei',           // agrupa por SECTOR (incluye PWR) → fijo
   'emisiones_contaminantes', // agrupa por EMISION → fijo
+  'h2_produccion_verde',     // H2_PRODUCCION fijo en backend
 ]);
 
 // ─── Estructura del menú ─────────────────────────────────────────────────────
@@ -308,16 +309,17 @@ const MENU: Module[] = [
       { id: 'solidos_flujos',     label: 'Sólidos - Importación/Exportación - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
     ],
   },
-  {
-    id: 'hidrogeno',
-    emoji: '💧',
-    label: 'Hidrógeno',
-    charts: [
-      { id: 'cap_h2',     label: 'Hidrógeno - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true , soportaPorcentaje: true },
-      { id: 'h2_consumo', label: 'Hidrógeno - Consumo - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
-      { id: 'cap_electrolisis_verde', label: 'Capacidad Total de Electrólisis Verde', isCapacity: true },
-    ],
-  },
+    {
+      id: 'hidrogeno',
+      emoji: '💧',
+      label: 'Hidrógeno',
+      charts: [
+        { id: 'cap_h2',     label: 'Hidrógeno - ProductionByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true , soportaPorcentaje: true },
+        { id: 'h2_consumo', label: 'Hidrógeno - Consumo - UseByTechnology', allowedGroupings: ['TECNOLOGIA', 'FUEL'], soportaPareto: true, soportaPorcentaje: true },
+        { id: 'cap_electrolisis_verde', label: 'Capacidad Total de Electrólisis Verde', isCapacity: true },
+        { id: 'h2_produccion_verde', label: 'Hidrógeno Producción (Verde/Azul/Gris)', soportaPareto: true, soportaPorcentaje: true },
+      ],
+    },
   {
     id: 'comercio',
     emoji: '🚢',

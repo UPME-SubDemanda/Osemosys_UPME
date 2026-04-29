@@ -914,7 +914,7 @@ def _parse_glpk_violations(output_path: Path) -> list[dict]:
 def _try_violations_glpk(
     lp_path: Path,
     *,
-    timeout_seconds: int = 600,
+    timeout_seconds: int = 1500,
 ) -> IISReport:
     """Diagnostica infactibilidades con GLPK usando ``glpsol --nopresol``.
 
@@ -943,8 +943,8 @@ def _try_violations_glpk(
     except subprocess.TimeoutExpired:
         return IISReport(
             available=False,
-            method=None,
-            unavailable_reason=f"glpsol --nopresol excedió el timeout de {timeout_seconds}s.",
+            method="glpk_nopresol",
+            unavailable_reason=f"glpsol --nopresol excedió el timeout de {timeout_seconds}s ({timeout_seconds // 60} min).",
         )
     except Exception as exc:
         return IISReport(

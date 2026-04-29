@@ -286,6 +286,41 @@ def _filtro_electrolisis_verde(df, **kw):
     ]
 
 
+def _map_h2_verde_azul_gris(tech):
+    """Map technology to H2 verde/azul/gris label."""
+    t = str(tech)
+    if t.startswith("UPSPEM") or t.startswith("UPSALK"):
+        return "Hidrógeno verde"
+    elif t.startswith("UPSSMRCCS"):
+        return "Hidrógeno azul"
+    elif t.startswith("UPSSMR"):
+        return "Hidrógeno gris"
+    return t
+
+
+def _filtro_h2_verde_azul_gris(df, **kw):
+    """Producción de H2: UPSSMR, UPSSMRCCS, UPSPEM, UPSALK."""
+    return df[
+        df["TECHNOLOGY"].str.startswith("UPSSMR")
+        | df["TECHNOLOGY"].str.startswith("UPSPEM")
+        | df["TECHNOLOGY"].str.startswith("UPSALK")
+    ]
+
+
+def _color_h2_verde_azul_gris(df, color_col):
+    """Verde → H2 verde, Azul → H2 azul, Gris → H2 gris."""
+    palette = {
+        "Hidrógeno verde": "#10b981",
+        "Hidrógeno azul": "#3b82f6",
+        "Hidrógeno gris": "#6b7280",
+    }
+    colors, order = [], []
+    for cat in sorted(df[color_col].unique()):
+        order.append(cat)
+        colors.append(palette.get(cat, "#999999"))
+    return colors, order
+
+
 def _filtro_min_hidrocarburos(df, **kw):
     """Minería petróleo y gas (MINOIL, MINNGS)."""
     return df[
@@ -885,6 +920,17 @@ CONFIGS = {
         "agrupar_por": "TECNOLOGIA",
         "color_fn": _color_h2_consumo,
         "variable_default": "UseByTechnology",
+    },
+    "h2_produccion_verde": {
+        "titulo": "Hidrógeno Producción (Verde/Azul/Gris) - ProductionByTechnology",
+        "figura": "Figura H2-V1",
+        "filename": "Fig_H2_Produccion_Verde",
+        "print": "PRODUCCIÓN DE HIDRÓGENO (VERDE/AZUL/GRIS)",
+        "filtro": _filtro_h2_verde_azul_gris,
+        "msg_sin_datos": "Sin tecnologías UPSSMR/UPSSMRCCS/UPSPEM/UPSALK",
+        "agrupar_por": "H2_PRODUCCION",
+        "color_fn": _color_h2_verde_azul_gris,
+        "variable_default": "ProductionByTechnology",
     },
     "ups_refinacion": {
         "titulo": "Upstream Refinación - ProductionByTechnology",

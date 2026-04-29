@@ -80,6 +80,7 @@ from app.visualization.configs import (
     CONFIGS,
     TITULOS_VARIABLES_CAPACIDAD,
     NOMBRES_COMBUSTIBLES,
+    _map_h2_verde_azul_gris,
 )
 from app.visualization.configs_comparacion import CONFIGS_COMPARACION
 from app.visualization.catalog_reader import (
@@ -788,6 +789,8 @@ def build_chart_data(
         df["COLOR"] = _sector_labels(df["TECHNOLOGY"])
     elif agrupar_col == "EMISION":
         df["COLOR"] = df["FUEL"] if "FUEL" in df.columns else "?"
+    elif agrupar_col == "H2_PRODUCCION":
+        df["COLOR"] = df["TECHNOLOGY"].apply(_map_h2_verde_azul_gris)
     elif agrupar_col == "YEAR":
         # emisiones_total: solo agrupa por año
         df["COLOR"] = "Total"

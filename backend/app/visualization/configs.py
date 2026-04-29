@@ -103,6 +103,32 @@ def _filtro_pwr(df, **kw):
     return df[df["TECHNOLOGY"].str.startswith("PWR")]
 
 
+def _filtro_pwr_liquidos(df, **kw):
+    """Generación eléctrica con combustibles líquidos (PWRDSL, PWRFOL, PWRGSL, PWRJET, PWRLPG).
+    
+    Filtra por prefijo de TECHNOLOGY porque el campo FUEL en ProductionByTechnology
+    contiene el combustible de salida (ELC), no el de entrada.
+    """
+    return df[
+        df["TECHNOLOGY"].str.startswith(
+            ("PWRDSL", "PWRFOL", "PWRGSL", "PWRJET", "PWRLPG")
+        )
+    ]
+
+
+def _filtro_pwr_termica(df, **kw):
+    """Generación eléctrica con combustibles térmicos (PWRNGS, PWRBGS, PWRCOA).
+    
+    Filtra por prefijo de TECHNOLOGY porque el campo FUEL en ProductionByTechnology
+    contiene el combustible de salida (ELC), no el de entrada.
+    """
+    return df[
+        df["TECHNOLOGY"].str.startswith(
+            ("PWRNGS", "PWRBGS", "PWRCOA")
+        )
+    ]
+
+
 def _filtro_gas_consumo(df, **kw):
     """Tecnologías que usan gas natural (contienen NGS)."""
     return df[df["TECHNOLOGY"].str.contains("NGS")]
@@ -129,6 +155,26 @@ def _filtro_ref_cartagena(df, **kw):
 def _filtro_ref_barrancabermeja(df, **kw):
     """Refinería de Barrancabermeja (UPSREF_BAR)."""
     return df[df["TECHNOLOGY"].str.startswith("UPSREF_BAR")]
+
+
+def _filtro_ref_ambas(df, sub_filtro=None, **kw):
+    """Refinerías Cartagena + Barrancabermeja (UseByTechnology).
+    
+    sub_filtro:
+      - None/'con_crudo': FUEL IN (DSL,GSL,JET,LPG,NGS,ELC,OIL,OIL_1LIV,OIL_2MID,OIL_3PES)
+      - 'sin_crudo':     FUEL IN (DSL,GSL,JET,LPG,NGS,ELC,OIL) [excluye OIL_*]
+    """
+    mask_tech = df["TECHNOLOGY"].str.startswith(("UPSREF_CAR", "UPSREF_BAR"))
+    
+    if sub_filtro == 'sin_crudo':
+        # Solo productos refinados (sin crudos)
+        mask_fuel = df["FUEL"].isin({"DSL", "GSL", "JET", "LPG", "NGS", "ELC", "OIL"})
+        # Excluir crudos (OIL_1LIV, OIL_2MID, OIL_3PES)
+        mask_excluir = ~df["FUEL"].str.startswith("OIL_", na=False)
+        return df[mask_tech & mask_fuel & mask_excluir]
+    
+    # Default: con crudo (incluye todos los combustibles)
+    return df[mask_tech]
 
 
 def _filtro_liquidos_produccion_importacion(df, **kw):
@@ -353,6 +399,7 @@ def _filtro_saf_produccion(df, **kw):
     return df[
         df["TECHNOLOGY"].str.startswith("UPSSAF")
         | df["TECHNOLOGY"].str.startswith("UPSBJS")
+        | df["TECHNOLOGY"].str.startswith("UPSATJ")
     ]
 
 
@@ -547,6 +594,21 @@ CONFIGS = {
         "agrupar_por": "FUEL",
         "color_fn": _color_por_grupo_fijo,
         "variable_default": "UseByTechnology",
+    },
+    "ref_ambas": {
+        "titulo": "Refinerías (Cartagena + Barrancabermeja) - UseByTechnology",
+        "figura": "Figura REF-AMB",
+        "filename": "Fig_Ref_Ambas",
+        "print": "REFINERÍAS (CARTAGENA + BARRANCABERMEJA)",
+        "filtro": _filtro_ref_ambas,
+        "msg_sin_datos": "Sin tecnologías de refinería (UPSREF_CAR / UPSREF_BAR)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": generar_colores_tecnologias,
+        "allowedGroupings": ["TECNOLOGIA", "FUEL"],
+        "variable_default": "UseByTechnology",
+        "has_sub": True,
+        "sub_filtro_label": "Crudo",
+        "sub_filtros": ["con_crudo", "sin_crudo"],
     },
     "liquidos_prod_import": {
         "titulo": "Líquidos - Producción + Importación - ProductionByTechnology",
@@ -763,13 +825,89 @@ CONFIGS = {
         "variable_default": "ProductionByTechnology",
     },
     "factor_planta": {
-        "titulo_base": "Factor de Planta - Generación Eléctrica",
+        "titulo": "Factor de Planta - Generación Eléctrica",
         "figura": "FAC-PLT",
         "filename": "Factor_Planta",
         "print": "FACTOR DE PLANTA",
         "es_factor_planta": True,
         "filtro": _filtro_pwr,
         "msg_sin_datos": "Sin datos de capacidad o producción eléctrica (PWR)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": _color_electricidad,
+        "variable_default": "TotalCapacityAnnual",
+    },
+    "elec_produccion_liquidos": {
+        "titulo": "Generación Líquidos - ProductionByTechnology",
+        "figura": "Figura ELEC-LIQ",
+        "filename": "Fig_Elec_Liquidos",
+        "print": "GENERACIÓN LÍQUIDOS",
+        "filtro": _filtro_pwr_liquidos,
+        "msg_sin_datos": "Sin generación eléctrica con combustibles líquidos (DSL/FOL/GSL/JET/LPG)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": _color_electricidad,
+        "variable_default": "ProductionByTechnology",
+        "soportaPareto": True,
+        "soportaPorcentaje": True,
+        "allowedGroupings": ["TECNOLOGIA", "FUEL"],
+    },
+    "elec_cap_liquidos": {
+        "titulo_base": "Matriz Líquidos (Capacidad) - TotalCapacityAnnual",
+        "figura_base": "CAP-ELEC-LIQ",
+        "filename_base": "Cap_Elec_Liquidos",
+        "print_base": "CAPACIDAD - LÍQUIDOS",
+        "filtro": _filtro_pwr_liquidos,
+        "msg_sin_datos": "Sin generación eléctrica con combustibles líquidos (DSL/FOL/GSL/JET/LPG)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": _color_electricidad,
+        "es_capacidad": True,
+        "variable_default": "TotalCapacityAnnual",
+    },
+    "elec_fp_liquidos": {
+        "titulo": "Factor de Planta - Líquidos",
+        "figura": "FAC-PLT-LIQ",
+        "filename": "Factor_Planta_Liquidos",
+        "print": "FACTOR DE PLANTA - LÍQUIDOS",
+        "es_factor_planta": True,
+        "filtro": _filtro_pwr_liquidos,
+        "msg_sin_datos": "Sin datos de capacidad o producción para líquidos (PWR + DSL/FOL/GSL/JET/LPG)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": _color_electricidad,
+        "variable_default": "TotalCapacityAnnual",
+    },
+    "elec_produccion_termica": {
+        "titulo": "Generación Térmica - ProductionByTechnology",
+        "figura": "Figura ELEC-TER",
+        "filename": "Fig_Elec_Termica",
+        "print": "GENERACIÓN TÉRMICA",
+        "filtro": _filtro_pwr_termica,
+        "msg_sin_datos": "Sin generación eléctrica con combustibles térmicos (NGS/BGS/COA)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": _color_electricidad,
+        "variable_default": "ProductionByTechnology",
+        "soportaPareto": True,
+        "soportaPorcentaje": True,
+        "allowedGroupings": ["TECNOLOGIA", "FUEL"],
+    },
+    "elec_cap_termica": {
+        "titulo_base": "Matriz Térmica (Capacidad) - TotalCapacityAnnual",
+        "figura_base": "CAP-ELEC-TER",
+        "filename_base": "Cap_Elec_Termica",
+        "print_base": "CAPACIDAD - TÉRMICA",
+        "filtro": _filtro_pwr_termica,
+        "msg_sin_datos": "Sin generación eléctrica con combustibles térmicos (NGS/BGS/COA)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": _color_electricidad,
+        "es_capacidad": True,
+        "variable_default": "TotalCapacityAnnual",
+    },
+    "elec_fp_termica": {
+        "titulo": "Factor de Planta - Térmica",
+        "figura": "FAC-PLT-TER",
+        "filename": "Factor_Planta_Termica",
+        "print": "FACTOR DE PLANTA - TÉRMICA",
+        "es_factor_planta": True,
+        "filtro": _filtro_pwr_termica,
+        "msg_sin_datos": "Sin datos de capacidad o producción para térmica (PWR + NGS/BGS/COA)",
         "agrupar_por": "TECNOLOGIA",
         "color_fn": _color_electricidad,
         "variable_default": "TotalCapacityAnnual",

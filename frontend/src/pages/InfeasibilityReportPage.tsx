@@ -1249,7 +1249,7 @@ export function InfeasibilityReportPage() {
           <strong style={{ fontSize: 14 }}>Diagnóstico aún no ejecutado.</strong>
           <p style={{ margin: "6px 0 10px", fontSize: 13, opacity: 0.9 }}>
             {isGlpk
-              ? "El diagnóstico ejecuta GLPK nuevamente sin preprocesamiento (--nopresol) para detectar qué restricciones no se pueden satisfacer. Puede tardar varios minutos en modelos grandes."
+              ? "El diagnóstico ejecuta GLPK nuevamente sin preprocesamiento (--nopresol) para detectar qué restricciones no se pueden satisfacer. Puede tardar hasta 25 minutos en modelos grandes."
               : "El análisis enriquecido (IIS + mapeo a parámetros OSeMOSYS + ranking de sospechosos) se ejecuta como una tarea aparte porque puede tardar varios segundos sobre modelos grandes."}
           </p>
           <Button onClick={() => void triggerDiagnostic()} disabled={triggering}>
@@ -1294,7 +1294,7 @@ export function InfeasibilityReportPage() {
           </strong>
           <p style={{ margin: "6px 0 0", fontSize: 13, opacity: 0.9 }}>
             {isGlpk
-              ? "Se está ejecutando glpsol --nopresol sobre el LP del modelo. Puede tardar varios minutos en escenarios grandes. Esta página se actualizará automáticamente cuando termine."
+              ? "Se está ejecutando glpsol --nopresol sobre el LP del modelo. Puede tardar hasta 25 minutos en escenarios grandes. Esta página se actualizará automáticamente cuando termine."
               : "Se está corriendo el IIS sobre el modelo y mapeando las restricciones a los parámetros OSeMOSYS de entrada. Esta página se actualizará automáticamente cuando termine."}
             {result?.infeasibility_diagnostics?.diagnostic_started_at ? (
               <>

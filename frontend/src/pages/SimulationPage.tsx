@@ -1974,8 +1974,8 @@ export function SimulationPage() {
                   );
                 }
 
-                // Infactible + HiGHS: flujo del diagnóstico
-                if (isInfeasible && solver === "highs") {
+                // Infactible + HiGHS/GLPK: flujo del diagnóstico
+                if (isInfeasible && (solver === "highs" || solver === "glpk")) {
                   if (diagStatus === "SUCCEEDED") {
                     const secs =
                       typeof r.diagnostic_seconds === "number"
@@ -2059,7 +2059,9 @@ export function SimulationPage() {
                       ? "Encolando diagnóstico…"
                       : diagStatus === "FAILED" && r.diagnostic_error
                         ? `Reintentar diagnóstico — último intento falló: ${r.diagnostic_error}`
-                        : "Correr diagnóstico de infactibilidad (IIS + mapeo a parámetros)";
+                        : solver === "glpk"
+                          ? "Correr diagnóstico de infactibilidad (GLPK --nopresol · puede tardar varios minutos en modelos grandes)"
+                          : "Correr diagnóstico de infactibilidad (IIS + mapeo a parámetros)";
                     buttons.push(
                       <button
                         key="diag-run"
@@ -2080,20 +2082,6 @@ export function SimulationPage() {
                   }
                 }
 
-                // Infactible + GLPK: no hay IIS
-                if (isInfeasible && solver !== "highs") {
-                  buttons.push(
-                    <span
-                      key="diag-glpk"
-                      role="img"
-                      className={`${iconBtn} ${sch.mutedInfo}`}
-                      title="GLPK no expone IIS. Para diagnóstico detallado, vuelve a correr la simulación con HiGHS."
-                      aria-label="Diagnóstico no disponible con GLPK"
-                    >
-                      {icons.info}
-                    </span>,
-                  );
-                }
 
                 // Cancelar simulación activa (QUEUED/RUNNING)
                 if (ACTIVE_STATUSES.has(r.status)) {

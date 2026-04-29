@@ -50,6 +50,17 @@ _PREFIJOS_LIQUIDOS_PROD_IMPORT = (
     + ("EXPDSL", "EXPGSL", "EXPLPG", "EXPJET")
 )
 
+_PREFIJOS_EXP_LIQUIDOS = ("EXPDSL", "EXPGSL", "EXPJET", "EXPLPG")
+
+_PREFIJOS_IMP_LIQUIDOS_ALL = (
+    "IMPDSL",
+    "IMPGSL",
+    "IMPJET",
+    "IMPLNG",
+    "IMPLPG",
+    "IMPOIL",
+)
+
 
 # ════════════════════════════════════════════════════════════════════════
 # MAPEO DE VARIABLES → TÍTULOS (para capacidad)
@@ -105,7 +116,7 @@ def _filtro_pwr(df, **kw):
 
 def _filtro_pwr_liquidos(df, **kw):
     """Generación eléctrica con combustibles líquidos (PWRDSL, PWRFOL, PWRGSL, PWRJET, PWRLPG).
-    
+
     Filtra por prefijo de TECHNOLOGY porque el campo FUEL en ProductionByTechnology
     contiene el combustible de salida (ELC), no el de entrada.
     """
@@ -118,15 +129,11 @@ def _filtro_pwr_liquidos(df, **kw):
 
 def _filtro_pwr_termica(df, **kw):
     """Generación eléctrica con combustibles térmicos (PWRNGS, PWRBGS, PWRCOA).
-    
+
     Filtra por prefijo de TECHNOLOGY porque el campo FUEL en ProductionByTechnology
     contiene el combustible de salida (ELC), no el de entrada.
     """
-    return df[
-        df["TECHNOLOGY"].str.startswith(
-            ("PWRNGS", "PWRBGS", "PWRCOA")
-        )
-    ]
+    return df[df["TECHNOLOGY"].str.startswith(("PWRNGS", "PWRBGS", "PWRCOA"))]
 
 
 def _filtro_gas_consumo(df, **kw):
@@ -159,20 +166,20 @@ def _filtro_ref_barrancabermeja(df, **kw):
 
 def _filtro_ref_ambas(df, sub_filtro=None, **kw):
     """Refinerías Cartagena + Barrancabermeja (UseByTechnology).
-    
+
     sub_filtro:
       - None/'con_crudo': FUEL IN (DSL,GSL,JET,LPG,NGS,ELC,OIL,OIL_1LIV,OIL_2MID,OIL_3PES)
       - 'sin_crudo':     FUEL IN (DSL,GSL,JET,LPG,NGS,ELC,OIL) [excluye OIL_*]
     """
     mask_tech = df["TECHNOLOGY"].str.startswith(("UPSREF_CAR", "UPSREF_BAR"))
-    
-    if sub_filtro == 'sin_crudo':
+
+    if sub_filtro == "sin_crudo":
         # Solo productos refinados (sin crudos)
         mask_fuel = df["FUEL"].isin({"DSL", "GSL", "JET", "LPG", "NGS", "ELC", "OIL"})
         # Excluir crudos (OIL_1LIV, OIL_2MID, OIL_3PES)
         mask_excluir = ~df["FUEL"].str.startswith("OIL_", na=False)
         return df[mask_tech & mask_fuel & mask_excluir]
-    
+
     # Default: con crudo (incluye todos los combustibles)
     return df[mask_tech]
 
@@ -180,6 +187,40 @@ def _filtro_ref_ambas(df, sub_filtro=None, **kw):
 def _filtro_liquidos_produccion_importacion(df, **kw):
     """Líquidos: importaciones (DSL, GSL, JET, LPG) + refinerías (CAR, BAR)."""
     return df[df["TECHNOLOGY"].str.startswith(_PREFIJOS_LIQUIDOS_PROD_IMPORT)]
+
+
+def _filtro_export_liquidos(df, **kw):
+    """Exportaciones de líquidos (EXPDSL, EXPGSL, EXPJET, EXPLPG)."""
+    return df[df["TECHNOLOGY"].str.startswith(_PREFIJOS_EXP_LIQUIDOS)]
+
+
+def _filtro_import_liquidos(df, **kw):
+    """Importaciones de líquidos (IMPDSL, IMPGSL, IMPJET, IMPLNG, IMPLPG, IMPOIL)."""
+    return df[df["TECHNOLOGY"].str.startswith(_PREFIJOS_IMP_LIQUIDOS_ALL)]
+
+
+def _filtro_demanda_exportaciones_liquidos(df, **kw):
+    """Sectores de demanda + exportaciones de líquidos.
+
+    Sectores de demanda: DEMRES, DEMIND, DEMTRA, DEMTER, DEMCON, DEMAGF, DEMCOQ
+    Exportaciones: EXPDSL, EXPGSL, EXPJET, EXPLPG
+    Combustibles: DSL, FOL, GSL, JET, LPG
+    """
+    if "TECHNOLOGY" not in df.columns:
+        return df.iloc[0:0]
+
+    demanda_mask = df["TECHNOLOGY"].str.startswith(
+        ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
+    )
+    export_mask = df["TECHNOLOGY"].str.startswith(
+        ("EXPDSL", "EXPGSL", "EXPJET", "EXPLPG")
+    )
+
+    df = df[demanda_mask | export_mask]
+
+    if "FUEL" not in df.columns:
+        return df.iloc[0:0]
+    return df[df["FUEL"].isin({"DSL", "FOL", "GSL", "JET", "LPG"})]
 
 
 def _filtro_ref_import(df, **kw):
@@ -429,30 +470,6 @@ def _filtro_consumo_liquidos(df, **kw):
     return df[df["FUEL"].isin({"DSL", "FOL", "GSL", "JET", "LPG"})]
 
 
-def _filtro_demanda_exportaciones_liquidos(df, **kw):
-    """Sectores de demanda + exportaciones de líquidos.
-
-    Sectores de demanda: DEMRES, DEMIND, DEMTRA, DEMTER, DEMCON, DEMAGF, DEMCOQ
-    Exportaciones: EXPDSL, EXPGSL, EXPJET, EXPLPG
-    Combustibles: DSL, FOL, GSL, JET, LPG
-    """
-    if "TECHNOLOGY" not in df.columns:
-        return df.iloc[0:0]
-
-    demanda_mask = df["TECHNOLOGY"].str.startswith(
-        ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
-    )
-    export_mask = df["TECHNOLOGY"].str.startswith(
-        ("EXPDSL", "EXPGSL", "EXPJET", "EXPLPG")
-    )
-
-    df = df[demanda_mask | export_mask]
-
-    if "FUEL" not in df.columns:
-        return df.iloc[0:0]
-    return df[df["FUEL"].isin({"DSL", "FOL", "GSL", "JET", "LPG"})]
-
-
 def _filtro_liquidos_total(df, **kw):
     """Filtrar demanda por combustibles líquidos (DSL, FOL, GSL, JET, LPG)
     en todos los sectores: demanda + generación eléctrica.
@@ -620,6 +637,34 @@ CONFIGS = {
         "agrupar_por": "TECNOLOGIA",
         "color_fn": _color_liquidos_import,
         "variable_default": "ProductionByTechnology",
+    },
+    "exp_liquidos": {
+        "titulo": "Líquidos - Exportación - ProductionByTechnology",
+        "figura": "Figura LIQ-EXP",
+        "filename": "Fig_Liquidos_Export",
+        "print": "LÍQUIDOS: EXPORTACIÓN",
+        "filtro": _filtro_export_liquidos,
+        "msg_sin_datos": "Sin exportaciones de líquidos (EXPDSL/EXPGSL/EXPJET/EXPLPG)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": _color_liquidos_import,
+        "variable_default": "ProductionByTechnology",
+        "allowedGroupings": ["TECNOLOGIA", "FUEL"],
+        "soportaPareto": True,
+        "soportaPorcentaje": True,
+    },
+    "imp_liquidos": {
+        "titulo": "Líquidos - Importación - ProductionByTechnology",
+        "figura": "Figura LIQ-IMP",
+        "filename": "Fig_Liquidos_Import",
+        "print": "LÍQUIDOS: IMPORTACIÓN",
+        "filtro": _filtro_import_liquidos,
+        "msg_sin_datos": "Sin importaciones de líquidos (IMPDSL/IMPGSL/IMPJET/IMPLNG/IMPLPG/IMPOIL)",
+        "agrupar_por": "TECNOLOGIA",
+        "color_fn": _color_liquidos_import,
+        "variable_default": "ProductionByTechnology",
+        "allowedGroupings": ["TECNOLOGIA", "FUEL"],
+        "soportaPareto": True,
+        "soportaPorcentaje": True,
     },
     # ═══════════════════════════════════════════════════════════════════
     # RESIDENCIAL
@@ -1195,7 +1240,7 @@ CONFIGS = {
         "variable_default": "UseByTechnology",
     },
     "dem_consumo_liquidos": {
-        "titulo": "Consumo de Líquidos",
+        "titulo": "Consumo de Líquidos - Sectores de Demanda",
         "figura": "Figura LIQ-DEM",
         "filename": "DEM_Liquidos",
         "print": "CONSUMO DE LÍQUIDOS",
@@ -1206,23 +1251,12 @@ CONFIGS = {
         "variable_default": "UseByTechnology",
     },
     "dem_consumo_liquidos_total": {
-        "titulo": "Consumo de Líquidos (Todos los Sectores)",
+        "titulo": "Consumo de Líquidos - Sectores de Demanda + Sector Eléctrico",
         "figura": "Figura LIQ-TOTAL",
         "filename": "DEM_Liquidos_Total",
         "print": "CONSUMO DE LÍQUIDOS — TODOS LOS SECTORES",
         "filtro": _filtro_liquidos_total,
         "msg_sin_datos": "Sin consumo de líquidos en demanda o generación eléctrica",
-        "agrupar_por": "FUEL",
-        "color_fn": _color_por_grupo_fijo,
-        "variable_default": "UseByTechnology",
-    },
-    "dem_consumo_liquidos_exp_use": {
-        "titulo": "Consumo de Líquidos — Demanda y Exportaciones",
-        "figura": "Figura LIQ-DEM-EXP",
-        "filename": "DEM_Liquidos_Demanda_Export",
-        "print": "CONSUMO DE LÍQUIDOS — DEMANDA Y EXPORTACIONES",
-        "filtro": _filtro_demanda_exportaciones_liquidos,
-        "msg_sin_datos": "Sin consumo de líquidos en demanda o exportaciones",
         "agrupar_por": "FUEL",
         "color_fn": _color_por_grupo_fijo,
         "variable_default": "UseByTechnology",
@@ -1237,5 +1271,16 @@ CONFIGS = {
         "agrupar_por": "FUEL",
         "color_fn": _color_por_grupo_fijo,
         "variable_default": "ProductionByTechnology",
+    },
+    "dem_consumo_liquidos_exp_use": {
+        "titulo": "Consumo de Líquidos — Demanda y Exportaciones",
+        "figura": "Figura LIQ-DEM-EXP",
+        "filename": "DEM_Liquidos_Demanda_Export",
+        "print": "CONSUMO DE LÍQUIDOS — DEMANDA Y EXPORTACIONES",
+        "filtro": _filtro_demanda_exportaciones_liquidos,
+        "msg_sin_datos": "Sin consumo de líquidos en demanda o exportaciones",
+        "agrupar_por": "FUEL",
+        "color_fn": _color_por_grupo_fijo,
+        "variable_default": "UseByTechnology",
     },
 }

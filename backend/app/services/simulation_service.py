@@ -676,11 +676,10 @@ class SimulationService:
             )
 
         solver = str(getattr(job, "solver_name", "") or "").lower()
-        if solver != "highs":
+        if solver not in {"highs", "glpk"}:
             raise ConflictError(
-                "El diagnóstico de infactibilidad requiere correr la simulación "
-                "con HiGHS. Vuelve a lanzar el escenario con HiGHS para habilitar "
-                "esta opción."
+                "El diagnóstico de infactibilidad está disponible para HiGHS (IIS) y GLPK "
+                f"(análisis heurístico --nopresol). Solver actual: {solver or '(desconocido)'}."
             )
 
         current_status, _ = SimulationService._diagnostic_status_for(job)

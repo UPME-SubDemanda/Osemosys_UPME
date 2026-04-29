@@ -29,6 +29,15 @@ export function AppLayout() {
     window.localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0");
   }, [collapsed]);
 
+  // Permite que cualquier página dispare ``app:collapse-sidebar`` para
+  // forzar el colapso del menú lateral. Caso de uso: links compartibles a
+  // gráficas, donde queremos maximizar el área de visualización.
+  useEffect(() => {
+    const handler = () => setCollapsed(true);
+    window.addEventListener("app:collapse-sidebar", handler);
+    return () => window.removeEventListener("app:collapse-sidebar", handler);
+  }, []);
+
   const navItems = [
     { to: paths.app, label: "Inicio" },
     { to: paths.scenarios, label: "Escenarios" },

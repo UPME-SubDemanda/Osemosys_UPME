@@ -128,6 +128,11 @@ function signatureFromTemplate(t: SavedChartTemplate): string {
     // para que dos tablas con configuración distinta no se traten como duplicado.
     t.view_mode === "table" ? String(t.table_period_years ?? "") : "",
     t.view_mode === "table" ? (t.table_cumulative ? "1" : "0") : "",
+    // Modificadores universales — incluyen el orden y el rango Y para que
+    // dos plantillas que difieren en ESOS también se cuenten como distintas.
+    (t.custom_series_order ?? []).join(">"),
+    String(t.y_axis_min ?? ""),
+    String(t.y_axis_max ?? ""),
   ].join("|");
 }
 
@@ -163,6 +168,9 @@ function signatureFromCandidate(params: {
     years,
     s.viewMode === "table" ? String(s.tablePeriodYears ?? "") : "",
     s.viewMode === "table" ? (s.tableCumulative ? "1" : "0") : "",
+    (s.customSeriesOrder ?? []).join(">"),
+    String(s.yAxisMin ?? ""),
+    String(s.yAxisMax ?? ""),
   ].join("|");
 }
 
@@ -325,6 +333,15 @@ export function SaveChartModal({
           selection.viewMode === "table"
             ? Boolean(selection.tableCumulative)
             : null,
+        // Modificadores universales: orden custom + rango eje Y.
+        custom_series_order:
+          selection.customSeriesOrder && selection.customSeriesOrder.length > 0
+            ? [...selection.customSeriesOrder]
+            : null,
+        y_axis_min:
+          typeof selection.yAxisMin === "number" ? selection.yAxisMin : null,
+        y_axis_max:
+          typeof selection.yAxisMax === "number" ? selection.yAxisMax : null,
       };
       const created = await savedChartsApi.create(payload);
       onSaved?.(created);

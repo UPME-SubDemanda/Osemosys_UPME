@@ -34,6 +34,7 @@ const ReportsPage = lazy(() => import("@/pages/ReportsPage").then((m) => ({ defa
 const ReportDashboardPage = lazy(() => import("@/pages/ReportDashboardPage").then((m) => ({ default: m.ReportDashboardPage })));
 const HistoryPage = lazy(() => import("@/pages/HistoryPage").then((m) => ({ default: m.HistoryPage })));
 const ScenarioTagsAdminPage = lazy(() => import("@/pages/ScenarioTagsAdminPage").then((m) => ({ default: m.ScenarioTagsAdminPage })));
+const ChartViewerPage = lazy(() => import("@/pages/ChartViewerPage").then((m) => ({ default: m.ChartViewerPage })));
 
 /** Placeholder mínimo mientras se carga una página lazy (sin artefactos visuales). */
 function LazyFallback() {
@@ -82,6 +83,12 @@ export const router = createBrowserRouter([
       {
         element: <RequireAuth />,
         children: [
+          {
+            // Visor amplificado fuera de AppLayout (sin sidebar de
+            // navegación). Vive en /app/charts/viewer/:jobId.
+            path: "/app/charts/viewer/:jobId",
+            element: <SuspenseWrapper><ChartViewerPage /></SuspenseWrapper>,
+          },
           {
             path: paths.app,
             element: <AppLayout />,

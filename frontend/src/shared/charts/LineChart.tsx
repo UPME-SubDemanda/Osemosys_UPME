@@ -6,7 +6,7 @@ import {
   onHighchartsExportError,
 } from './chartExportingShared';
 import { buildLineTooltipOptions } from './chartTooltips';
-import { formatAxis3Sig } from './numberFormat';
+import { bumpFontSize, formatAxis3Sig } from './numberFormat';
 import {
   createLegendDblclickState,
   dispatchLegendClick,
@@ -23,9 +23,25 @@ interface LineChartProps {
    * markers para distinguirlas de las series simuladas.
    */
   syntheticSeries?: SyntheticSeries[] | undefined;
+  /** Modo amplificado: fuentes +3pt. */
+  amplified?: boolean;
+  /** Altura explícita del chart en px. */
+  chartHeight?: number;
+  /** Override mínimo del eje Y. ``null``/``undefined`` = auto (típicamente 0). */
+  yAxisMin?: number | null;
+  /** Override máximo del eje Y. ``null``/``undefined`` = auto. */
+  yAxisMax?: number | null;
 }
 
-export const LineChart: React.FC<LineChartProps> = ({ data, serverExport, syntheticSeries }) => {
+export const LineChart: React.FC<LineChartProps> = ({
+  data,
+  serverExport,
+  syntheticSeries,
+  amplified = false,
+  chartHeight,
+  yAxisMin,
+  yAxisMax,
+}) => {
   const legendDblclickStateRef = useRef(createLegendDblclickState());
   const [hiddenNames, setHiddenNames] = useState<Set<string>>(() => new Set());
 
@@ -109,17 +125,18 @@ export const LineChart: React.FC<LineChartProps> = ({ data, serverExport, synthe
       }
     }
 
+    const fb = (s: string) => (amplified ? bumpFontSize(s, 3) ?? s : s);
     return {
       chart: {
         type: 'line',
-        height: 500,
+        height: typeof chartHeight === 'number' ? chartHeight : 500,
         style: { fontFamily: 'Verdana, sans-serif' },
         backgroundColor: 'transparent',
       },
       title: {
         text: data.title,
         style: {
-          fontSize: '16px',
+          fontSize: fb('16px'),
           fontWeight: 'bold',
           color: '#f8fafc',
         },
@@ -127,18 +144,23 @@ export const LineChart: React.FC<LineChartProps> = ({ data, serverExport, synthe
       xAxis: {
         categories: data.categories,
         crosshair: { color: '#334155' },
-        labels: { style: { color: '#94a3b8', fontSize: '13px' } },
+        labels: { style: { color: '#94a3b8', fontSize: fb('13px') } },
         lineColor: '#334155',
         tickColor: '#334155',
       },
       yAxis: {
-        min: 0,
+        // Líneas: default = auto (a diferencia de columnas/áreas apiladas
+        // que sí fuerzan ``min: 0``). Esto mantiene consistencia con el
+        // export matplotlib (``_render_line_chart``), que tampoco fuerza 0.
+        // Si el usuario quiere 0 explícitamente, lo configura en yAxisMin.
+        ...(typeof yAxisMin === 'number' ? { min: yAxisMin } : null),
+        ...(typeof yAxisMax === 'number' ? { max: yAxisMax } : null),
         title: {
           text: data.yAxisLabel,
-          style: { color: '#94a3b8', fontSize: '14px' },
+          style: { color: '#94a3b8', fontSize: fb('14px') },
         },
         labels: {
-          style: { color: '#94a3b8', fontSize: '13px' },
+          style: { color: '#94a3b8', fontSize: fb('13px') },
           // Mínimo 3 cifras significativas (sin notación científica).
           formatter: function (this: Highcharts.AxisLabelsFormatterContextObject) {
             return formatAxis3Sig(this.value as number);
@@ -191,12 +213,12 @@ export const LineChart: React.FC<LineChartProps> = ({ data, serverExport, synthe
         align: 'center',
         verticalAlign: 'bottom',
         layout: 'horizontal',
-        itemStyle: { color: '#94a3b8', fontWeight: 'normal', fontSize: '13px' },
+        itemStyle: { color: '#94a3b8', fontWeight: 'normal', fontSize: fb('13px') },
         itemHoverStyle: { color: '#f8fafc' },
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, serverExport, hiddenNames, syntheticSeries]);
+  }, [data, serverExport, hiddenNames, syntheticSeries, amplified, chartHeight, yAxisMin, yAxisMax]);
 
   return (
     <div style={{ width: '100%' }}>

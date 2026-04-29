@@ -44,7 +44,7 @@ export const TOOLTIP_BASE_OPTIONS: Highcharts.TooltipOptions = {
   padding: 10,
   style: {
     color: '#e2e8f0',
-    fontSize: '12px',
+    fontSize: '15px',  // antes 12 — tooltip más legible en pantallas grandes
     pointerEvents: 'auto',
   },
 };

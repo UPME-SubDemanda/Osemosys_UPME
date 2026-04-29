@@ -546,6 +546,12 @@ export type SavedChartTemplate = {
   table_period_years?: number | null;
   /** Solo `view_mode === "table"`: si true muestra valores acumulados. */
   table_cumulative?: boolean | null;
+  /** Override del orden de series (lista de nombres). null = orden natural. */
+  custom_series_order?: string[] | null;
+  /** Override del valor mínimo del eje Y. null = auto. */
+  y_axis_min?: number | null;
+  /** Override del valor máximo del eje Y. null = auto. */
+  y_axis_max?: number | null;
   bar_orientation: "vertical" | "horizontal" | null;
   facet_placement: "inline" | "stacked" | null;
   facet_legend_mode: "shared" | "perFacet" | null;
@@ -580,6 +586,9 @@ export type SavedChartTemplateUpdate = {
   view_mode?: "column" | "line" | "area" | "pareto" | "porcentaje" | "table" | null;
   table_period_years?: number | null;
   table_cumulative?: boolean | null;
+  custom_series_order?: string[] | null;
+  y_axis_min?: number | null;
+  y_axis_max?: number | null;
 };
 
 export type ReportTemplateItem = {

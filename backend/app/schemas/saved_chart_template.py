@@ -84,6 +84,16 @@ class SavedChartTemplateBase(BaseModel):
     #: Cuando ``view_mode == "table"``: si ``True`` los valores se muestran
     #: como suma acumulada por serie (útil para "capacidad acumulada", etc.).
     table_cumulative: bool | None = None
+    #: Override del orden de las series. Cada string es el ``name`` de una
+    #: serie. La primera entrada queda **arriba** del stack (convención del
+    #: proyecto). Series no listadas se mantienen al final en el orden natural.
+    #: ``None`` = orden natural (devuelto por el backend).
+    custom_series_order: list[str] | None = Field(default=None, max_length=200)
+    #: Override del valor mínimo del eje Y. ``None`` = auto (default 0 para
+    #: gráficos apilados, auto para líneas).
+    y_axis_min: float | None = None
+    #: Override del valor máximo del eje Y. ``None`` = auto.
+    y_axis_max: float | None = None
 
 
 class SavedChartTemplateCreate(SavedChartTemplateBase):
@@ -118,6 +128,11 @@ class SavedChartTemplateUpdate(BaseModel):
     #: Solo aplica si ``view_mode == "table"``. Enviar ``null`` resetea.
     table_period_years: int | None = Field(default=None, ge=1, le=100)
     table_cumulative: bool | None = None
+    #: Override del orden de series y rango del eje Y. Mismos campos que en
+    #: ``SavedChartTemplateBase`` — opcionales en update.
+    custom_series_order: list[str] | None = Field(default=None, max_length=200)
+    y_axis_min: float | None = None
+    y_axis_max: float | None = None
 
     @model_validator(mode="after")
     def _any_field(self):
@@ -129,6 +144,9 @@ class SavedChartTemplateUpdate(BaseModel):
             and self.view_mode is None
             and self.table_period_years is None
             and self.table_cumulative is None
+            and self.custom_series_order is None
+            and self.y_axis_min is None
+            and self.y_axis_max is None
         ):
             raise ValueError(
                 "Debes enviar al menos un campo a actualizar."

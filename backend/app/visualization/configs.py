@@ -256,11 +256,17 @@ def _filtro_oferta_bioenergia(df, **kw):
     ]
 
 
+_H2_EXCLUIR = {"UPSHDGRST"}
+
+
 def _filtro_h2(df, **kw):
-    """Tecnologías que producen/consumen hidrógeno (filtro por FUEL, no TECHNOLOGY)."""
+    """Tecnologías que producen/consumen hidrógeno (FUEL=HDG/HDG002),
+    excluyendo estaciones de despacho/distribución."""
     if "FUEL" not in df.columns:
         return df.iloc[0:0]
-    return df[(df["FUEL"] == "HDG") | (df["FUEL"] == "HDG002")]
+    mask_fuel = (df["FUEL"] == "HDG") | (df["FUEL"] == "HDG002")
+    mask_excluir = ~df["TECHNOLOGY"].isin(_H2_EXCLUIR)
+    return df[mask_fuel & mask_excluir]
 
 
 def _filtro_ups_refinacion(df, **kw):
@@ -330,9 +336,9 @@ def _filtro_consumo_liquidos(df, **kw):
     if "TECHNOLOGY" not in df.columns:
         return df.iloc[0:0]
 
-    demanda_mask = df["TECHNOLOGY"].str.startswith((
-        "DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ"
-    ))
+    demanda_mask = df["TECHNOLOGY"].str.startswith(
+        ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
+    )
 
     df = df[demanda_mask]
 
@@ -351,12 +357,12 @@ def _filtro_demanda_exportaciones_liquidos(df, **kw):
     if "TECHNOLOGY" not in df.columns:
         return df.iloc[0:0]
 
-    demanda_mask = df["TECHNOLOGY"].str.startswith((
-        "DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ"
-    ))
-    export_mask = df["TECHNOLOGY"].str.startswith((
-        "EXPDSL", "EXPGSL", "EXPJET", "EXPLPG"
-    ))
+    demanda_mask = df["TECHNOLOGY"].str.startswith(
+        ("DEMRES", "DEMIND", "DEMTRA", "DEMTER", "DEMCON", "DEMAGF", "DEMCOQ")
+    )
+    export_mask = df["TECHNOLOGY"].str.startswith(
+        ("EXPDSL", "EXPGSL", "EXPJET", "EXPLPG")
+    )
 
     df = df[demanda_mask | export_mask]
 

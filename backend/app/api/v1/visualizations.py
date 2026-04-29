@@ -409,6 +409,19 @@ def export_chart(
         False,
         description="Solo cuando view_mode=table: muestra valores acumulados.",
     ),
+    series_order: str | None = Query(
+        None,
+        description="Lista de nombres de series separados por coma — define el "
+                    "orden custom (la primera queda arriba del stack).",
+    ),
+    y_axis_min: float | None = Query(
+        None,
+        description="Override del valor mínimo del eje Y. Vacío = auto.",
+    ),
+    y_axis_max: float | None = Query(
+        None,
+        description="Override del valor máximo del eje Y. Vacío = auto.",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -506,6 +519,12 @@ def export_chart(
         if table_period_years and table_period_years >= 2:
             chart_service.apply_period_years(chart, table_period_years)
 
+    # Reorden custom de series — aplica a todos los formatos.
+    if series_order:
+        order_list = [s.strip() for s in series_order.split(",") if s.strip()]
+        if order_list:
+            chart_service.reorder_chart_series(chart, order_list)
+
     base_name = _safe_export_basename(chart.title)
     if fmt == "csv":
         body = chart_service.chart_data_to_csv_bytes(chart)
@@ -534,7 +553,8 @@ def export_chart(
     img_fmt = "svg" if fmt == "svg" else "png"
     try:
         img_bytes = chart_service.render_chart_visualization_bytes(
-            chart, fmt=img_fmt, view_mode=view_mode
+            chart, fmt=img_fmt, view_mode=view_mode,
+            y_axis_min=y_axis_min, y_axis_max=y_axis_max,
         )
     except Exception as e:
         logger.exception("Error renderizando gráfica para export")

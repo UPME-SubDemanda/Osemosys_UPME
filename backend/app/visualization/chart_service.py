@@ -264,6 +264,35 @@ def _year_keep_indices(
     return keep
 
 
+def reorder_chart_series(chart: Any, order: list[str] | None) -> None:
+    """Reordena ``chart.series`` in-place según ``order`` (lista de nombres).
+
+    Series no listadas se mantienen al final en su orden natural. Series
+    listadas pero no presentes en el chart se ignoran silenciosamente.
+
+    El primer nombre del array queda arriba del stack — convención del
+    proyecto (Highcharts ``yAxis.reversedStacks=true`` por defecto, y los
+    renderers matplotlib iteran en ``reversed()``).
+    """
+    if not order:
+        return
+    series = getattr(chart, "series", None)
+    if not series:
+        return
+    by_name = {s.name: s for s in series}
+    used: set[str] = set()
+    new_series: list[Any] = []
+    for name in order:
+        s = by_name.get(name)
+        if s is not None and name not in used:
+            new_series.append(s)
+            used.add(name)
+    for s in series:
+        if s.name not in used:
+            new_series.append(s)
+    chart.series = new_series
+
+
 def apply_period_years(chart: Any, period: int | None) -> None:
     """Filtra ``categories`` (años) tomando uno cada ``period``, in-place.
 
@@ -1861,6 +1890,9 @@ def _render_stacked_bar(
     chart: ChartDataResponse,
     title: str,
     fmt: str = "svg",
+    *,
+    y_axis_min: float | None = None,
+    y_axis_max: float | None = None,
 ) -> "io.BytesIO":
     """Renderiza un ChartDataResponse como gráfica de barras apiladas con matplotlib."""
     import io
@@ -1880,8 +1912,11 @@ def _render_stacked_bar(
     # Convención visual igual a Highcharts: la PRIMERA serie de
     # ``chart.series`` queda en la parte de ARRIBA del stack. Iteramos en
     # orden inverso para acumular.
+    # NaN/None → 0 antes de acumular para no contaminar ``bottom`` (los
+    # ``None`` pueden venir de synthetic series con huecos o de filtros).
     for s in reversed(chart.series):
-        values = np.array(s.data, dtype=float)
+        raw = np.array(s.data, dtype=float)
+        values = np.nan_to_num(raw, nan=0.0, posinf=0.0, neginf=0.0)
         ax.bar(x, values, bottom=bottom, color=s.color, width=0.7)
         bottom += values
     # Markers circulares estilo Highcharts para la leyenda (orden top→bottom).
@@ -1930,6 +1965,12 @@ def _render_stacked_bar(
     ax.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+    if y_axis_min is not None or y_axis_max is not None:
+        cur_lo, cur_hi = ax.get_ylim()
+        ax.set_ylim(
+            float(y_axis_min) if y_axis_min is not None else cur_lo,
+            float(y_axis_max) if y_axis_max is not None else cur_hi,
+        )
 
     fig.tight_layout()
 
@@ -1992,6 +2033,9 @@ def _render_line_chart(
     chart: ChartDataResponse,
     title: str,
     fmt: str = "svg",
+    *,
+    y_axis_min: float | None = None,
+    y_axis_max: float | None = None,
 ) -> "io.BytesIO":
     """Renderiza un ChartDataResponse como gráfica de líneas con matplotlib."""
     import io
@@ -2055,6 +2099,12 @@ def _render_line_chart(
     ax.yaxis.set_major_formatter(_FuncFormatter(lambda v, _p: format_axis_3sig(v)))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+    if y_axis_min is not None or y_axis_max is not None:
+        cur_lo, cur_hi = ax.get_ylim()
+        ax.set_ylim(
+            float(y_axis_min) if y_axis_min is not None else cur_lo,
+            float(y_axis_max) if y_axis_max is not None else cur_hi,
+        )
 
     fig.tight_layout()
 
@@ -2069,22 +2119,32 @@ def render_chart_visualization_bytes(
     chart: ChartDataResponse,
     fmt: str,
     view_mode: str = "column",
+    *,
+    y_axis_min: float | None = None,
+    y_axis_max: float | None = None,
 ) -> bytes:
     """Genera PNG o SVG con Matplotlib.
 
     ``view_mode``: ``column`` | ``line`` | ``area`` | ``table``.
+    ``y_axis_min`` / ``y_axis_max``: override del rango del eje Y. ``None`` = auto.
     """
     if fmt not in ("png", "svg"):
         raise ValueError("fmt debe ser 'png' o 'svg'")
     title = chart.title
     if view_mode == "line":
-        buf = _render_line_chart(chart, title, fmt=fmt)
+        buf = _render_line_chart(
+            chart, title, fmt=fmt, y_axis_min=y_axis_min, y_axis_max=y_axis_max,
+        )
     elif view_mode == "area":
-        buf = _render_stacked_area(chart, title, fmt=fmt)
+        buf = _render_stacked_area(
+            chart, title, fmt=fmt, y_axis_min=y_axis_min, y_axis_max=y_axis_max,
+        )
     elif view_mode == "table":
         buf = _render_table_image(chart, title, fmt=fmt)
     else:
-        buf = _render_stacked_bar(chart, title, fmt=fmt)
+        buf = _render_stacked_bar(
+            chart, title, fmt=fmt, y_axis_min=y_axis_min, y_axis_max=y_axis_max,
+        )
     return buf.getvalue()
 
 
@@ -2299,6 +2359,9 @@ def _render_stacked_area(
     chart: ChartDataResponse,
     title: str,
     fmt: str = "svg",
+    *,
+    y_axis_min: float | None = None,
+    y_axis_max: float | None = None,
 ) -> "io.BytesIO":
     """Renderiza un ChartDataResponse como áreas apiladas."""
     import io
@@ -2319,8 +2382,14 @@ def _render_stacked_area(
         # stackplot dibuja la primera serie al fondo. Para que la convención
         # coincida con Highcharts (primera serie del array → arriba),
         # invertimos el orden antes de pasarlo a stackplot.
+        # ``nan_to_num`` evita que NaN propague y rompa el stackplot.
         rev_series = list(reversed(chart.series))
-        ys = [np.array(s.data, dtype=float) for s in rev_series]
+        ys = [
+            np.nan_to_num(
+                np.array(s.data, dtype=float), nan=0.0, posinf=0.0, neginf=0.0,
+            )
+            for s in rev_series
+        ]
         labels = [s.name for s in rev_series]
         colors = [getattr(s, "color", None) for s in rev_series]
         ax.stackplot(
@@ -2384,6 +2453,12 @@ def _render_stacked_area(
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.set_xlim(x.min() if n_cats > 0 else 0, x.max() if n_cats > 0 else 0)
+    if y_axis_min is not None or y_axis_max is not None:
+        cur_lo, cur_hi = ax.get_ylim()
+        ax.set_ylim(
+            float(y_axis_min) if y_axis_min is not None else cur_lo,
+            float(y_axis_max) if y_axis_max is not None else cur_hi,
+        )
 
     fig.tight_layout()
 
@@ -2397,6 +2472,9 @@ def _render_stacked_area(
 def render_comparison_by_year_bytes(
     data: CompareChartResponse,
     fmt: str = "svg",
+    *,
+    y_axis_min: float | None = None,
+    y_axis_max: float | None = None,
 ) -> bytes:
     """Renderiza una comparación por año (subplots, un panel por año).
 
@@ -2486,6 +2564,16 @@ def render_comparison_by_year_bytes(
                 handletextpad=0.6,
                 columnspacing=1.85,
                 labelspacing=0.55,
+            )
+
+    # Override del rango Y (aplica a todos los subplots por consistencia).
+    if y_axis_min is not None or y_axis_max is not None:
+        for j in range(n):
+            ax = axes[j // cols][j % cols]
+            cur_lo, cur_hi = ax.get_ylim()
+            ax.set_ylim(
+                float(y_axis_min) if y_axis_min is not None else cur_lo,
+                float(y_axis_max) if y_axis_max is not None else cur_hi,
             )
 
     # Ocultar axes sobrantes
@@ -2613,6 +2701,8 @@ def render_comparison_facet_figure_bytes(
     fmt: str = "png",
     *,
     legend_title: str | None = None,
+    y_axis_min: float | None = None,
+    y_axis_max: float | None = None,
 ) -> bytes:
     """Una sola figura: facetas en fila, título global, leyenda inferior (Matplotlib).
 
@@ -2730,12 +2820,21 @@ def render_comparison_facet_figure_bytes(
 
         # Iteramos en reverso: primer elemento de ``facet.series`` queda
         # arriba del stack (igual a Highcharts).
+        #
+        # NOTA: ``s.data`` puede contener ``None`` (NaN al convertir a float)
+        # cuando ``_align_facet_x_axis`` rellenó años faltantes en facets de
+        # rango distinto. Si propagamos NaN al ``bottom`` cumulado, ``np.max``
+        # del stack devuelve NaN, ``global_max`` queda NaN, ``y_top = NaN`` y
+        # ``set_ylim(0, NaN)`` deja que matplotlib auto-ajuste a una altura
+        # menor — cortando visualmente los datos. Convertimos NaN→0 ANTES
+        # del stack (zero-height bar = invisible, equivalente a "sin dato").
         for s in reversed(facet.series):
-            values = np.array(s.data, dtype=float)
-            if values.size < n_cats:
-                values = np.pad(values, (0, n_cats - int(values.size)))
-            elif values.size > n_cats:
-                values = values[:n_cats]
+            raw = np.array(s.data, dtype=float)
+            if raw.size < n_cats:
+                raw = np.pad(raw, (0, n_cats - int(raw.size)))
+            elif raw.size > n_cats:
+                raw = raw[:n_cats]
+            values = np.nan_to_num(raw, nan=0.0, posinf=0.0, neginf=0.0)
             ax.bar(
                 x,
                 values,
@@ -2816,8 +2915,13 @@ def render_comparison_facet_figure_bytes(
 
     show_stack_totals = all(len(b) <= 18 for b in stack_tops)
 
+    # Override del rango Y por usuario (aplica a TODOS los facets para que
+    # mantengan misma escala — la idea del facet es comparar visualmente).
+    effective_y_lo = float(y_axis_min) if y_axis_min is not None else 0.0
+    effective_y_hi = float(y_axis_max) if y_axis_max is not None else y_top
+
     for ax, bottom in zip(row_axes, stack_tops):
-        ax.set_ylim(0, y_top)
+        ax.set_ylim(effective_y_lo, effective_y_hi)
         ax.yaxis.set_major_formatter(
             FuncFormatter(lambda v, _p: format_axis_3sig(v))
         )

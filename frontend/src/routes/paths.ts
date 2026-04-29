@@ -46,6 +46,12 @@ export const paths = {
   infeasibilityReport: (runId: string | number) => `/app/simulations/${runId}/infeasibility`,
   reports: "/app/reports",
   reportDashboard: (reportId: string | number) => `/app/reports/${reportId}`,
+  /**
+   * Visor amplificado de una sola gráfica — diseñado para links compartibles.
+   * No usa AppLayout (sin sidebar de navegación). Tiene su propio side-panel
+   * de "Configuración" plegable a la derecha.
+   */
+  chartViewer: (jobId: string | number) => `/app/charts/viewer/${jobId}`,
   history: "/app/history",
 } as const;
 

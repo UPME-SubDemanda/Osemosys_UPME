@@ -76,9 +76,11 @@ const BOUND_TYPE_LABEL: Record<string, string> = {
   equality: "Igualdad (=)",
 };
 
+type ViolationInfo = { label: string; detail: string; description: string };
+
 function glpkViolationInfo(
   analysis: import("@/types/domain").ConstraintAnalysis,
-): { label: string; detail: string } | null {
+): ViolationInfo | null {
   const act = analysis.body;
   const lb = analysis.lower;
   const ub = analysis.upper;
@@ -88,18 +90,22 @@ function glpkViolationInfo(
     return {
       label: "Límite inferior",
       detail: `act=${formatNumber(act, 4)} < lb=${formatNumber(lb, 4)} · Δ=${formatNumber(diff, 4)}`,
+      description: `El modelo produce ${formatNumber(act, 4)} pero el límite inferior exige mínimo ${formatNumber(lb, 4)}.`,
     };
   }
   if (ub != null && act > ub) {
     return {
       label: "Límite superior",
       detail: `act=${formatNumber(act, 4)} > ub=${formatNumber(ub, 4)} · Δ=${formatNumber(diff, 4)}`,
+      description: `El modelo produce ${formatNumber(act, 4)} pero el límite superior permite máximo ${formatNumber(ub, 4)}.`,
     };
   }
   if (diff > 0) {
+    const sideLabel = analysis.side ? (BOUND_TYPE_LABEL[analysis.side] ?? analysis.side) : "Igualdad";
     return {
-      label: analysis.side ? (BOUND_TYPE_LABEL[analysis.side] ?? analysis.side) : "Igualdad",
+      label: sideLabel,
       detail: `Δ=${formatNumber(diff, 4)}`,
+      description: `Restricción de igualdad no satisfecha — diferencia de ${formatNumber(diff, 4)}.`,
     };
   }
   return null;
@@ -456,14 +462,30 @@ function ConstraintRow({
             )}
             {isGlpk && (() => {
               const vi = glpkViolationInfo(analysis);
-              return vi ? (
-                <span
-                  style={{ fontSize: 11, opacity: 0.85, fontVariantNumeric: "tabular-nums", color: "#fca5a5" }}
-                  title={vi.label}
-                >
-                  {vi.detail}
-                </span>
-              ) : null;
+              if (!vi) return null;
+              return (
+                <>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      padding: "1px 6px",
+                      borderRadius: 4,
+                      background: "rgba(239,68,68,0.15)",
+                      border: "1px solid rgba(239,68,68,0.35)",
+                      color: "#fca5a5",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={vi.description}
+                  >
+                    {vi.label}
+                  </span>
+                  <span
+                    style={{ fontSize: 11, opacity: 0.85, fontVariantNumeric: "tabular-nums", color: "#fca5a5" }}
+                  >
+                    {vi.detail}
+                  </span>
+                </>
+              );
             })()}
           </div>
         </td>
@@ -499,13 +521,22 @@ function ConstraintRow({
                 ? (BOUND_TYPE_LABEL[analysis.side] ?? analysis.side)
                 : vi.label;
               return (
-                <div style={{ marginBottom: 10, padding: "8px 10px", background: "rgba(220,38,38,0.08)", borderRadius: 6, border: "1px solid rgba(220,38,38,0.25)" }}>
-                  <strong style={{ fontSize: 12 }}>Violación GLPK — {sideLabel}</strong>
-                  <table style={{ ...TABLE_STYLE, marginTop: 6, fontSize: 12 }}>
+                <div style={{ marginBottom: 10, padding: "10px 12px", background: "rgba(220,38,38,0.08)", borderRadius: 6, border: "1px solid rgba(220,38,38,0.25)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700 }}>Violación — {sideLabel}</span>
+                  </div>
+                  <p style={{ margin: "0 0 8px", fontSize: 13, color: "#fca5a5" }}>
+                    {vi.description}
+                  </p>
+                  <table style={{ ...TABLE_STYLE, fontSize: 12 }}>
                     <thead>
                       <tr>
                         <th style={TH_STYLE}>Valor actual (act)</th>
-                        <th style={TH_STYLE}>{analysis.lower != null && analysis.body != null && analysis.body < analysis.lower ? "Límite inferior (lb)" : "Límite superior (ub)"}</th>
+                        <th style={TH_STYLE}>
+                          {analysis.lower != null && analysis.body != null && analysis.body < analysis.lower
+                            ? "Límite inferior (lb)"
+                            : "Límite superior (ub)"}
+                        </th>
                         <th style={TH_STYLE}>Diferencia (Δ)</th>
                       </tr>
                     </thead>
@@ -858,7 +889,9 @@ export function InfeasibilityReportPage() {
   const diagnostics: InfeasibilityDiagnostics | null = result?.infeasibility_diagnostics ?? null;
   const solverName = (result?.solver_name ?? "").toString().toLowerCase();
   const isHighs = solverName === "highs";
-  const isGlpk = !isHighs && diagnostics?.iis?.method === "glpk_nopresol";
+  const isGlpk = !isHighs && solverName === "glpk";
+  const isGlpkEnriched = isGlpk && diagnostics?.iis?.method === "glpk_nopresol" && diagnostics?.iis?.available;
+  const isGlpkTimeout = isGlpk && !diagnostics?.iis?.available && (diagnostics?.iis?.unavailable_reason ?? "").includes("timeout");
   const iisAvailable = Boolean(diagnostics?.iis?.available);
 
   // Para HiGHS solo IIS; si no está disponible, no renderizamos la tabla.
@@ -1105,7 +1138,7 @@ export function InfeasibilityReportPage() {
           </div>
           <div>
             <div style={{ opacity: 0.7, fontSize: 12 }}>
-              {isGlpk ? "Restricciones violadas (GLPK)" : "IIS (HiGHS)"}
+              {isGlpk ? "Análisis GLPK" : "IIS (HiGHS)"}
             </div>
             {iis?.available ? (
               <Badge variant="warning">
@@ -1113,6 +1146,14 @@ export function InfeasibilityReportPage() {
                 {!isGlpk ? ` · ${iis.variable_names.length} vars` : ""}
                 {" · "}{iis.method}
               </Badge>
+            ) : isGlpkTimeout ? (
+              <span style={{ opacity: 0.85, fontSize: 12, color: "#fbbf24" }}>
+                ⏱ Timeout — se usa diagnóstico básico
+              </span>
+            ) : isGlpk && iis?.unavailable_reason ? (
+              <span style={{ opacity: 0.75, fontSize: 12 }}>
+                No disponible
+              </span>
             ) : (
               <span style={{ opacity: 0.75, fontSize: 12 }}>
                 No disponible — {iis?.unavailable_reason ?? "sin información"}
@@ -1160,7 +1201,13 @@ export function InfeasibilityReportPage() {
             )}
           </div>
         </div>
-        {iis?.available && isGlpk ? (
+        {isGlpkTimeout ? (
+          <p style={{ margin: 0, fontSize: 12, color: "#fbbf24" }}>
+            <strong>⚠ Fuente:</strong> diagnóstico básico (Level 1) — GLPK --nopresol excedió
+            el tiempo límite. Las restricciones mostradas son evaluaciones de Pyomo en el punto
+            inicial y pueden contener falsos positivos. Para un análisis más preciso usa HiGHS.
+          </p>
+        ) : iis?.available && isGlpk ? (
           <p style={{ margin: 0, fontSize: 12, opacity: 0.8, color: "#fbbf24" }}>
             <strong>Fuente:</strong> GLPK --nopresol (heurístico, no es un IIS mínimo).
             Lista las restricciones que el modelo no satisface en la solución forzada.

@@ -125,14 +125,20 @@ export function ReportDashboardPage() {
     refreshReport();
   }, [refreshReport]);
 
-  useEffect(() => {
+  const refreshTemplates = useCallback(async () => {
     setLoadingTemplates(true);
-    savedChartsApi
-      .list()
-      .then((rows) => setTemplates(rows))
-      .catch(console.error)
-      .finally(() => setLoadingTemplates(false));
+    try {
+      const rows = await savedChartsApi.list();
+      setTemplates(rows);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingTemplates(false);
+    }
   }, []);
+  useEffect(() => {
+    refreshTemplates();
+  }, [refreshTemplates]);
 
   useEffect(() => {
     setLoadingJobs(true);
@@ -766,6 +772,64 @@ export function ReportDashboardPage() {
       setSavingLayout(false);
     }
   };
+
+  // ── Edición de gráfica desde el dashboard ──────────────────────────────
+  // Cuando el usuario es dueño: el PATCH ya ocurrió en el modal; aquí solo
+  // refrescamos la lista de templates para que las cards lean los nuevos
+  // valores (custom_series_order, y_axis_min/max).
+  const handleTemplateUpdated = useCallback(
+    async (_updated: SavedChartTemplate) => {
+      await refreshTemplates();
+      // El reporte no cambió; pero si la actualización es del template que
+      // ya tenía el reporte, el card lo re-renderiza solo.
+    },
+    [refreshTemplates],
+  );
+
+  // Cuando el usuario NO es dueño: se creó un template clonado en su cuenta
+  // con los nuevos modificadores. Reemplazamos la referencia del antiguo
+  // template_id por el nuevo en ``report.items`` (y en ``report.layout``
+  // si está en modo manual). Luego PATCH del reporte.
+  const handleTemplateReplaced = useCallback(
+    async (oldId: number, newTemplate: SavedChartTemplate) => {
+      if (!report) return;
+      const newId = newTemplate.id;
+      const newItems = (report.items ?? []).map((id) =>
+        id === oldId ? newId : id,
+      );
+      // Si el reporte tiene layout manual, también reemplazar las
+      // referencias dentro de cada categoría/subcategoría.
+      const remapLayout = report.layout
+        ? {
+            ...report.layout,
+            categories: report.layout.categories.map((c) => ({
+              ...c,
+              items: c.items.map((id) => (id === oldId ? newId : id)),
+              subcategories: c.subcategories.map((s) => ({
+                ...s,
+                items: s.items.map((id) => (id === oldId ? newId : id)),
+              })),
+            })),
+          }
+        : null;
+      try {
+        await savedChartsApi.updateReport(report.id, {
+          items: newItems,
+          ...(remapLayout ? { layout: remapLayout } : {}),
+        });
+        // Refrescar ambos: report (para los items nuevos) y templates
+        // (para que el clon recién creado aparezca en la lista accesible).
+        await Promise.all([refreshReport(), refreshTemplates()]);
+      } catch (err) {
+        alert(
+          err instanceof Error
+            ? err.message
+            : "No se pudo reemplazar la gráfica en el reporte.",
+        );
+      }
+    },
+    [report, refreshReport, refreshTemplates],
+  );
 
   // ── Persistir rango de años (debounced — guarda al perder foco) ──
   const persistYearRange = async (
@@ -1415,6 +1479,8 @@ export function ReportDashboardPage() {
                               resolveScenarioNames={resolveScenarioNames}
                               yearFrom={yearFrom}
                               yearTo={yearTo}
+                              onTemplateUpdated={handleTemplateUpdated}
+                              onTemplateReplaced={handleTemplateReplaced}
                             />
                           </div>
                         ) : null}
@@ -1446,6 +1512,8 @@ export function ReportDashboardPage() {
                                   resolveScenarioNames={resolveScenarioNames}
                                   yearFrom={yearFrom}
                                   yearTo={yearTo}
+                                  onTemplateUpdated={handleTemplateUpdated}
+                                  onTemplateReplaced={handleTemplateReplaced}
                                 />
                               )}
                             </div>
@@ -1528,6 +1596,8 @@ export function ReportDashboardPage() {
                             resolveScenarioNames={resolveScenarioNames}
                             yearFrom={yearFrom}
                             yearTo={yearTo}
+                            onTemplateUpdated={handleTemplateUpdated}
+                            onTemplateReplaced={handleTemplateReplaced}
                           />
                         );
                       })()}
@@ -1694,6 +1764,8 @@ function ChartGrid({
   resolveScenarioNames,
   yearFrom,
   yearTo,
+  onTemplateUpdated,
+  onTemplateReplaced,
 }: {
   chartIds: number[];
   templatesById: Map<number, SavedChartTemplate>;
@@ -1704,6 +1776,8 @@ function ChartGrid({
   resolveScenarioNames?: (tpl: SavedChartTemplate) => string[] | undefined;
   yearFrom?: number | null;
   yearTo?: number | null;
+  onTemplateUpdated?: (updated: SavedChartTemplate) => void;
+  onTemplateReplaced?: (oldId: number, newTemplate: SavedChartTemplate) => void;
 }) {
   return (
     <div className="flex flex-wrap gap-3">
@@ -1774,6 +1848,8 @@ function ChartGrid({
               scenarioNames={resolveScenarioNames?.(tpl)}
               yearFrom={yearFrom}
               yearTo={yearTo}
+              {...(onTemplateUpdated ? { onTemplateUpdated } : {})}
+              {...(onTemplateReplaced ? { onTemplateReplaced } : {})}
             />
           </div>
         );

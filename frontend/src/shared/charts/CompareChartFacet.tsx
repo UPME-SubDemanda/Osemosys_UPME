@@ -234,6 +234,9 @@ interface CompareChartFacetProps {
   };
   /** Si true, los controles de export se colapsan en un menú kebab "⋯". */
   compactToolbar?: boolean;
+  /** Override del eje Y para todos los facets. ``null``/undefined = auto. */
+  yAxisMin?: number | null;
+  yAxisMax?: number | null;
 }
 
 /** Metadatos en la instancia Chart para exportar sin depender de un array de refs (getSVG / update rompen ese enlace). */
@@ -279,6 +282,8 @@ function FacetChart({
   facetCount,
   hoveredSeriesName = null,
   facetExportInstanceId,
+  yAxisMin,
+  yAxisMax,
 }: {
   facet: FacetData;
   yAxisLabel: string;
@@ -298,6 +303,9 @@ function FacetChart({
   hoveredSeriesName?: string | null;
   /** Id estable del bloque CompareChartFacet (marcado en cada Chart en `load`). */
   facetExportInstanceId: string;
+  /** Override del eje Y. */
+  yAxisMin?: number | null;
+  yAxisMax?: number | null;
 }) {
   const chartRef = useRef<Highcharts.Chart | null>(null);
   const legendDblclickStateRef = useRef(createLegendDblclickState());
@@ -428,8 +436,10 @@ function FacetChart({
         },
       },
       yAxis: {
-        min: 0,
-        max: sharedYAxisMax > 0 ? sharedYAxisMax : null,
+        min: typeof yAxisMin === 'number' ? yAxisMin : 0,
+        max: typeof yAxisMax === 'number'
+          ? yAxisMax
+          : (sharedYAxisMax > 0 ? sharedYAxisMax : null),
         lineWidth: 1,
         lineColor: "#64748b",
         title: {
@@ -600,6 +610,8 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
   viewMode = "column",
   serverFacetExport,
   compactToolbar = false,
+  yAxisMin,
+  yAxisMax,
 }) => {
   const inverted = barOrientation === "horizontal";
   const n = data.facets.length;
@@ -974,6 +986,8 @@ export const CompareChartFacet: React.FC<CompareChartFacetProps> = ({
                     useSharedLegendPanel ? effectiveLegendHover : null
                   }
                   facetExportInstanceId={facetExportInstanceIdRef.current!}
+                  yAxisMin={yAxisMin ?? null}
+                  yAxisMax={yAxisMax ?? null}
                 />
               </div>
             ))}

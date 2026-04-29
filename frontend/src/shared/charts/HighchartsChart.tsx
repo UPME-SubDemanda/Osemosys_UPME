@@ -10,7 +10,7 @@ import {
   createLegendDblclickState,
   dispatchLegendClick,
 } from './chartLegendInteractions';
-import { formatAxis3Sig } from './numberFormat';
+import { bumpFontSize, formatAxis3Sig } from './numberFormat';
 import HighchartsReact from 'highcharts-react-official';
 import type { ChartDataResponse } from '../../types/domain';
 import type { ChartSelection } from './ChartSelector';
@@ -23,6 +23,18 @@ interface HighchartsChartProps {
   serverExport?: { jobId: number; selection: ChartSelection };
   /** 'column' (default) o 'area' para áreas apiladas. */
   stackType?: 'column' | 'area';
+  /**
+   * Modo "amplificado": útil al abrir un link compartible con la barra
+   * lateral colapsada. Sube todas las fuentes +3pt para mejor lectura en
+   * pantalla grande.
+   */
+  amplified?: boolean;
+  /** Altura explícita del chart en px. Override del default (500). */
+  chartHeight?: number;
+  /** Override del valor mínimo del eje Y. ``null``/``undefined`` = auto. */
+  yAxisMin?: number | null;
+  /** Override del valor máximo del eje Y. ``null``/``undefined`` = auto. */
+  yAxisMax?: number | null;
 }
 
 export const HighchartsChart: React.FC<HighchartsChartProps> = ({
@@ -30,6 +42,10 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
   barOrientation = 'vertical',
   serverExport,
   stackType = 'column',
+  amplified = false,
+  chartHeight,
+  yAxisMin,
+  yAxisMax,
 }) => {
   const inverted = barOrientation === 'horizontal';
   const legendDblclickStateRef = useRef(createLegendDblclickState());
@@ -82,10 +98,19 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
       visible: !hiddenNames.has(s.name),
     }));
 
+    // En modo amplificado: +3pt en todas las fuentes.
+    const fb = (s: string) => (amplified ? bumpFontSize(s, 3) ?? s : s);
+    // Altura: explícita si se pasó como prop; sino default por orientación.
+    const resolvedChartHeight = (typeof chartHeight === 'number')
+      ? chartHeight
+      : inverted
+        ? Math.min(640, 320 + data.categories.length * 16)
+        : 500;
+
     return {
       chart: {
         type: isArea ? 'area' : 'column',
-        height: inverted ? Math.min(640, 320 + data.categories.length * 16) : 500,
+        height: resolvedChartHeight,
         inverted,
         style: { fontFamily: 'Verdana, sans-serif' },
         backgroundColor: 'transparent',
@@ -96,7 +121,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
       title: {
         text: data.title,
         style: {
-          fontSize: '16px',
+          fontSize: fb('16px'),
           fontWeight: 'bold',
           color: '#f8fafc',
         },
@@ -104,18 +129,22 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
       xAxis: {
         categories: data.categories,
         crosshair: { color: '#334155' },
-        labels: { style: { color: '#94a3b8', fontSize: '13px' } },
+        labels: { style: { color: '#94a3b8', fontSize: fb('13px') } },
         lineColor: '#334155',
         tickColor: '#334155',
       },
       yAxis: {
-        min: 0,
+        // ``yAxisMin`` (si es número) sobreescribe el ``0`` de stack;
+        // ``null`` o no provisto → mantener el default 0 (stacks no
+        // tienen sentido bajo cero, salvo override explícito).
+        min: typeof yAxisMin === 'number' ? yAxisMin : 0,
+        ...(typeof yAxisMax === 'number' ? { max: yAxisMax } : null),
         title: {
           text: data.yAxisLabel,
-          style: { color: '#94a3b8', fontSize: '14px' },
+          style: { color: '#94a3b8', fontSize: fb('14px') },
         },
         labels: {
-          style: { color: '#94a3b8', fontSize: '13px' },
+          style: { color: '#94a3b8', fontSize: fb('13px') },
           // Mínimo 3 cifras significativas (sin notación científica).
           formatter: function (this: Highcharts.AxisLabelsFormatterContextObject) {
             return formatAxis3Sig(this.value as number);
@@ -128,7 +157,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
             fontWeight: 'bold',
             color: '#94a3b8',
             textOutline: 'none',
-            fontSize: '10px',
+            fontSize: fb('10px'),
           },
           // Highcharts invoca el formatter con `this` como StackItemObject; no usar flecha.
           // Mostrar solo cada 2 categorías (0, 2, 4, …) con 1 decimal máximo.
@@ -198,7 +227,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
         // (que queda arriba del stack) aparece al final de la leyenda. Así la
         // leyenda se lee de abajo hacia arriba igual que las barras.
         reversed: true,
-        itemStyle: { color: '#94a3b8', fontWeight: 'normal', fontSize: '13px' },
+        itemStyle: { color: '#94a3b8', fontWeight: 'normal', fontSize: fb('13px') },
         itemHoverStyle: { color: '#f8fafc' },
       },
     };
@@ -206,7 +235,7 @@ export const HighchartsChart: React.FC<HighchartsChartProps> = ({
     // por componente; sus dependencias reales son `data` (para `handleIsolate`) y
     // `hiddenNames` (para `options.series[i].visible`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, inverted, serverExport, hiddenNames]);
+  }, [data, inverted, serverExport, hiddenNames, stackType, amplified, chartHeight, yAxisMin, yAxisMax]);
 
   return (
     <div style={{ width: '100%' }}>

@@ -28,6 +28,17 @@ import { ScenarioComparer, type CompareViewMode } from '../shared/charts/Scenari
 import { HighchartsChart } from '../shared/charts/HighchartsChart';
 import { LineChart } from '../shared/charts/LineChart';
 import { ChartDataTable } from '../shared/charts/ChartDataTable';
+import {
+  buildChartShareUrl,
+  copyToClipboard,
+  decodeChartShareParams,
+} from '../shared/charts/chartShareLink';
+import {
+  SeriesOrderModal,
+  reorderChartSeries,
+  reorderFacetSeries,
+  reorderByYearSeries,
+} from '../shared/charts/SeriesOrderModal';
 import { CompareChart } from '../shared/charts/CompareChart';
 import { CompareChartFacet } from '../shared/charts/CompareChartFacet';
 import { ParetoChart } from '../shared/charts/ParetoChart';
@@ -315,6 +326,47 @@ export function ResultDetailPage() {
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [showSaveChartModal, setShowSaveChartModal] = useState(false);
   const [savedChartToast, setSavedChartToast] = useState<string | null>(null);
+  // Toast de feedback al copiar el enlace compartible.
+  const [shareLinkToast, setShareLinkToast] = useState<string | null>(null);
+
+  // ── Modificadores de gráfica (orden custom + rango Y) ─────────────────
+  // ``customSeriesOrder`` = lista de nombres de serie en el orden deseado.
+  // ``null`` = orden natural (el que devuelve el backend).
+  const [customSeriesOrder, setCustomSeriesOrder] = useState<string[] | null>(null);
+  // Override de min/max del eje Y. ``null`` en cualquiera = auto.
+  const [yAxisMin, setYAxisMin] = useState<number | null>(null);
+  const [yAxisMax, setYAxisMax] = useState<number | null>(null);
+  const [seriesOrderOpen, setSeriesOrderOpen] = useState(false);
+
+  // Resetear modificadores cuando cambia la identidad del chart
+  // (otro tipo, otra agrupación, otro filtro): el conjunto de series cambia,
+  // así que un orden custom anterior dejaría de tener sentido.
+  const chartIdentityKey =
+    `${chartSelection.tipo}|${chartSelection.sub_filtro ?? ''}|${chartSelection.loc ?? ''}|${chartSelection.variable ?? ''}|${chartSelection.agrupar_por ?? ''}`;
+  useEffect(() => {
+    setCustomSeriesOrder(null);
+    setYAxisMin(null);
+    setYAxisMax(null);
+  }, [chartIdentityKey]);
+
+  // Sincronizar los modificadores DENTRO de chartSelection — así fluyen a
+  // ``simulationApi.exportChart`` (descarga ad-hoc), a ``buildChartShareUrl``
+  // (link compartible) y a ``SaveChartModal`` (persistencia en plantilla).
+  useEffect(() => {
+    setChartSelection((prev) => {
+      const next: ChartSelection = { ...prev };
+      if (customSeriesOrder && customSeriesOrder.length > 0) {
+        next.customSeriesOrder = customSeriesOrder;
+      } else {
+        delete next.customSeriesOrder;
+      }
+      if (typeof yAxisMin === 'number') next.yAxisMin = yAxisMin;
+      else delete next.yAxisMin;
+      if (typeof yAxisMax === 'number') next.yAxisMax = yAxisMax;
+      else delete next.yAxisMax;
+      return next;
+    });
+  }, [customSeriesOrder, yAxisMin, yAxisMax]);
   /**
    * Series manuales overlay. Persisten en localStorage por "firma" de gráfica
    * (tipo+unidad+filtros+modo) — al cambiar de configuración se cargan las
@@ -429,6 +481,47 @@ export function ResultDetailPage() {
     setSelectedCompareColumnJobIds(defaultIds);
     compareColumnInitKeyRef.current = currentRunId;
   }, [loadingSummaries, allSummaries, currentRunId]);
+
+  // ── Hidratación desde share-link ──────────────────────────────────────
+  // Si la URL trae query params codificados por `chartShareLink.ts`,
+  // restauramos el chartSelection, modo de comparación, jobs adicionales,
+  // años a graficar y placements de facet. Solo se ejecuta una vez al montar.
+  // El ref `compareColumnInitKeyRef.current = currentRunId` evita que el
+  // efecto siguiente sobreescriba la selección de jobs cuando lleguen los
+  // summaries.
+  const hydratedFromUrlRef = useRef(false);
+  useEffect(() => {
+    if (hydratedFromUrlRef.current) return;
+    const sp = new URLSearchParams(window.location.search);
+    if (!sp.get("t") && !sp.get("jobs") && !sp.get("vm")) return; // no hay share-link
+    const decoded = decodeChartShareParams(sp);
+    if (decoded.selection?.tipo) {
+      setChartSelection(decoded.selection as ChartSelection);
+    }
+    if (decoded.barOrientation) {
+      setChartBarOrientation(decoded.barOrientation);
+    }
+    if (decoded.facetPlacement) {
+      setChartFacetPlacement(decoded.facetPlacement);
+    }
+    if (decoded.facetLegendMode) {
+      setChartFacetLegendMode(decoded.facetLegendMode);
+    }
+    if (decoded.compareYearsToPlot && decoded.compareYearsToPlot.length > 0) {
+      setCompareYearsToPlot(decoded.compareYearsToPlot);
+    }
+    if (decoded.compareMode && decoded.compareMode !== "off") {
+      setCompareViewMode(decoded.compareMode);
+    }
+    if (decoded.jobIds && decoded.jobIds.length >= 2) {
+      setSelectedCompareColumnJobIds(decoded.jobIds);
+      // Importante: marcamos el ref para que el efecto basado en summaries
+      // no resetee la selección.
+      compareColumnInitKeyRef.current = currentRunId;
+    }
+    hydratedFromUrlRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setExecutionsTablePage(1);
@@ -564,6 +657,37 @@ export function ResultDetailPage() {
   );
   const isComparing = columnCompareJobIds.length >= 2;
   const chartCompareMode: CompareMode = isComparing ? compareViewMode : 'off';
+
+  // Lista de series disponibles para el modal de orden, según el modo
+  // activo. La unión de nombres permite definir un orden coherente que
+  // funcione en cualquier facet/subplot/línea-total/single.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const seriesForModal = useMemo<{ name: string; color?: string | null | undefined }[]>(() => {
+    const seen = new Map<string, string | null | undefined>();
+    const push = (name: string, color?: string | null) => {
+      if (!seen.has(name)) seen.set(name, color);
+    };
+    if (chartCompareMode === 'facet' && compareFacetData) {
+      for (const f of compareFacetData.facets) {
+        for (const s of f.series) push(s.name, s.color);
+      }
+    } else if (chartCompareMode === 'by-year' && compareChartData) {
+      for (const sp of compareChartData.subplots) {
+        for (const s of sp.series) push(s.name, s.color);
+      }
+    } else if (chartCompareMode === 'line-total' && compareLineData) {
+      for (const s of compareLineData.series) push(s.name, s.color);
+    } else if (singleChartData) {
+      for (const s of singleChartData.series) push(s.name, s.color);
+    }
+    return Array.from(seen.entries()).map(([name, color]) => ({ name, color }));
+  }, [
+    chartCompareMode,
+    compareFacetData,
+    compareChartData,
+    compareLineData,
+    singleChartData,
+  ]);
   const chartJobIds = useMemo(() => {
     if (isComparing) return columnCompareJobIds;
     return [currentRunId];
@@ -1542,6 +1666,41 @@ export function ResultDetailPage() {
             })() : null}
             <button
               type="button"
+              onClick={async () => {
+                const url = buildChartShareUrl({
+                  jobIds: chartJobIds,
+                  selection: chartSelection,
+                  barOrientation: chartBarOrientation,
+                  compareMode: chartCompareMode === "off"
+                    ? undefined
+                    : chartCompareMode,
+                  compareYearsToPlot:
+                    chartCompareMode === "by-year"
+                      ? compareYearsToPlot
+                      : undefined,
+                  facetPlacement:
+                    chartCompareMode === "facet" ? chartFacetPlacement : undefined,
+                  facetLegendMode:
+                    chartCompareMode === "facet" ? chartFacetLegendMode : undefined,
+                });
+                const ok = await copyToClipboard(url);
+                setShareLinkToast(
+                  ok
+                    ? "Enlace copiado al portapapeles."
+                    : `No se pudo copiar. URL: ${url}`,
+                );
+                window.setTimeout(() => setShareLinkToast(null), 3500);
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20"
+              title="Copia un enlace que reproduce esta gráfica con todos sus filtros, escenarios y opciones."
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 015.656 0l1.414 1.414a4 4 0 010 5.657l-2.829 2.828a4 4 0 01-5.657 0M10.172 13.828a4 4 0 01-5.656 0l-1.414-1.414a4 4 0 010-5.657l2.829-2.828a4 4 0 015.657 0" />
+              </svg>
+              Copiar enlace
+            </button>
+            <button
+              type="button"
               onClick={() => setShowSaveChartModal(true)}
               className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20"
               title={
@@ -1557,6 +1716,72 @@ export function ResultDetailPage() {
             </button>
           </div>
 
+          {/* ── Modificadores de gráfica ──
+              Visibles en single y en TODOS los modos de comparación
+              (facet, by-year, line-total). Pareto y tabla no aplican. */}
+          {chartSelection.viewMode !== 'pareto' && chartSelection.viewMode !== 'table' ? (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800/60 bg-slate-900/30 px-4 py-2.5 text-xs">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                Modificadores
+              </span>
+              <button
+                type="button"
+                onClick={() => setSeriesOrderOpen(true)}
+                disabled={seriesForModal.length < 2}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Cambia el orden de las series (afecta el stack y la leyenda)"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                </svg>
+                Orden de series
+                {customSeriesOrder ? (
+                  <span className="rounded-full bg-cyan-500/20 px-1.5 py-0.5 text-[9px] text-cyan-300">
+                    custom
+                  </span>
+                ) : null}
+              </button>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-slate-500">Eje Y:</span>
+                <input
+                  type="number"
+                  value={yAxisMin ?? ''}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setYAxisMin(raw === '' ? null : Number(raw));
+                  }}
+                  placeholder="auto"
+                  className="w-24 rounded border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-600"
+                  title="Valor mínimo del eje Y (vacío = auto, default 0)"
+                />
+                <span className="text-slate-600">–</span>
+                <input
+                  type="number"
+                  value={yAxisMax ?? ''}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setYAxisMax(raw === '' ? null : Number(raw));
+                  }}
+                  placeholder="auto"
+                  className="w-24 rounded border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-600"
+                  title="Valor máximo del eje Y (vacío = auto)"
+                />
+                {(yAxisMin != null || yAxisMax != null) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setYAxisMin(null);
+                      setYAxisMax(null);
+                    }}
+                    className="text-[11px] text-cyan-400 hover:text-cyan-300 underline ml-1"
+                  >
+                    limpiar
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           <div className="rounded-xl border border-slate-800 bg-slate-900/30 backdrop-blur-sm p-6 relative">
             {loadingChart && (
               <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-950/70 backdrop-blur-sm">
@@ -1569,17 +1794,29 @@ export function ResultDetailPage() {
 
             {chartCompareMode === 'facet' && chartJobIds.length > 1 && compareFacetData ? (
               <CompareChartFacet
-                data={compareFacetData}
+                data={reorderFacetSeries(compareFacetData, customSeriesOrder)}
                 barOrientation={chartBarOrientation}
                 facetPlacement={chartFacetPlacement}
                 legendMode={chartFacetLegendMode}
                 viewMode={chartSelection.viewMode === 'line' ? 'line' : 'column'}
                 serverFacetExport={{ jobIds: chartJobIds, selection: chartSelection }}
+                yAxisMin={yAxisMin}
+                yAxisMax={yAxisMax}
               />
             ) : chartCompareMode === 'by-year' && chartJobIds.length > 1 && compareChartData ? (
-              <CompareChart data={compareChartData} barOrientation={chartBarOrientation} />
+              <CompareChart
+                data={reorderByYearSeries(compareChartData, customSeriesOrder)}
+                barOrientation={chartBarOrientation}
+                yAxisMin={yAxisMin}
+                yAxisMax={yAxisMax}
+              />
             ) : chartCompareMode === 'line-total' && chartJobIds.length > 1 && compareLineData ? (
-              <LineChart data={compareLineData} syntheticSeries={syntheticSeries.filter((s) => s.active !== false)} />
+              <LineChart
+                data={reorderChartSeries(compareLineData, customSeriesOrder)}
+                syntheticSeries={syntheticSeries.filter((s) => s.active !== false)}
+                yAxisMin={yAxisMin}
+                yAxisMax={yAxisMax}
+              />
             ) : chartSelection.viewMode === 'pareto' && paretoData ? (
               <ParetoChart
                 data={paretoData}
@@ -1596,16 +1833,20 @@ export function ResultDetailPage() {
               chartSelection.viewMode === 'line'
                 ? (
                     <LineChart
-                      data={singleChartData}
+                      data={reorderChartSeries(singleChartData, customSeriesOrder)}
                       serverExport={{ jobId: currentRunId, selection: chartSelection }}
                       syntheticSeries={syntheticSeries.filter((s) => s.active !== false)}
+                      yAxisMin={yAxisMin}
+                      yAxisMax={yAxisMax}
                     />
                   )
                 : (
                     <HighchartsChart
-                      data={singleChartData}
+                      data={reorderChartSeries(singleChartData, customSeriesOrder)}
                       barOrientation={chartBarOrientation}
                       serverExport={{ jobId: currentRunId, selection: chartSelection }}
+                      yAxisMin={yAxisMin}
+                      yAxisMax={yAxisMax}
                     />
                   )
             ) : !loadingChart ? (
@@ -1744,12 +1985,29 @@ export function ResultDetailPage() {
         }}
       />
 
+      <SeriesOrderModal
+        open={seriesOrderOpen}
+        onClose={() => setSeriesOrderOpen(false)}
+        series={seriesForModal}
+        currentOrder={customSeriesOrder}
+        onApply={(next) => setCustomSeriesOrder(next)}
+      />
+
       {savedChartToast ? (
         <div
           className="fixed bottom-6 right-6 z-[300] rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200 shadow-2xl backdrop-blur-md"
           role="status"
         >
           {savedChartToast}
+        </div>
+      ) : null}
+
+      {shareLinkToast ? (
+        <div
+          className="fixed bottom-6 right-6 z-[300] max-w-md rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100 shadow-2xl backdrop-blur-md"
+          role="status"
+        >
+          {shareLinkToast}
         </div>
       ) : null}
     </div>

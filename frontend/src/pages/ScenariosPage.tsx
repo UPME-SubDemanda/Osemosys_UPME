@@ -229,6 +229,7 @@ export function ScenariosPage() {
   const [cloneEditPolicy, setCloneEditPolicy] = useState<ScenarioEditPolicy>("OWNER_ONLY");
   const [cloning, setCloning] = useState(false);
   const [cloneJobs, setCloneJobs] = useState<ScenarioOperationJob[]>([]);
+  const [deleteJobs, setDeleteJobs] = useState<ScenarioOperationJob[]>([]);
   const [downloadingScenarioId, setDownloadingScenarioId] = useState<number | null>(null);
   const [tagModalScenario, setTagModalScenario] = useState<Scenario | null>(null);
   const [rowTagToRemove, setRowTagToRemove] = useState<
@@ -376,9 +377,27 @@ export function ScenariosPage() {
     }
   }, [user]);
 
+  const refreshDeleteJobs = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await scenariosApi.listScenarioOperations({
+        operation_type: "DELETE_SCENARIO",
+        cantidad: 50,
+        offset: 1,
+      });
+      setDeleteJobs(res.data);
+    } catch {
+      // Sin ruido en UI: es un dato auxiliar de monitoreo.
+    }
+  }, [user]);
+
   useEffect(() => {
     void refreshCloneJobs();
   }, [refreshCloneJobs]);
+
+  useEffect(() => {
+    void refreshDeleteJobs();
+  }, [refreshDeleteJobs]);
 
   useEffect(() => {
     const hasActive = cloneJobs.some((j) => j.status === "QUEUED" || j.status === "RUNNING");
@@ -388,6 +407,15 @@ export function ScenariosPage() {
     }, 3000);
     return () => window.clearInterval(timer);
   }, [cloneJobs, fetchScenarios, refreshCloneJobs]);
+
+  useEffect(() => {
+    const hasActive = deleteJobs.some((j) => j.status === "QUEUED" || j.status === "RUNNING");
+    if (!hasActive) return;
+    const timer = window.setInterval(() => {
+      void Promise.all([refreshDeleteJobs(), fetchScenarios()]);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [deleteJobs, fetchScenarios, refreshDeleteJobs]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -670,11 +698,11 @@ export function ScenariosPage() {
     setResolvingDeleteChildren(true);
     try {
       await scenariosApi.detachScenarioChildren(deleteCandidate.id, selectedDeleteChildIds);
-      push(`${selectedDeleteChildIds.length} escenario(s) independizado(s).`, "success");
+      push(`${selectedDeleteChildIds.length} escenario(s) derivado(s) independizado(s).`, "success");
       await refreshDeleteImpact(deleteCandidate.id);
       await fetchScenarios();
     } catch (err) {
-      push(err instanceof Error ? err.message : "No se pudieron independizar los escenarios hijos.", "error");
+      push(err instanceof Error ? err.message : "No se pudieron independizar los escenarios derivados.", "error");
     } finally {
       setResolvingDeleteChildren(false);
     }
@@ -685,15 +713,21 @@ export function ScenariosPage() {
     setResolvingDeleteChildren(true);
     try {
       let deleted = 0;
+      const jobs: ScenarioOperationJob[] = [];
       for (const childId of selectedDeleteChildIds) {
-        await scenariosApi.deleteScenario(childId);
+        const job = await scenariosApi.deleteScenario(childId);
+        jobs.push(job);
         deleted += 1;
       }
-      push(`${deleted} escenario(s) hijo(s) eliminado(s).`, "success");
+      setDeleteJobs((prev) => [
+        ...jobs,
+        ...prev.filter((item) => !jobs.some((job) => job.id === item.id)),
+      ]);
+      push(`${deleted} eliminación(es) de escenario(s) derivado(s) en progreso.`, "success");
       await refreshDeleteImpact(deleteCandidate.id);
       await fetchScenarios();
     } catch (err) {
-      push(err instanceof Error ? err.message : "No se pudieron eliminar todos los escenarios hijos.", "error");
+      push(err instanceof Error ? err.message : "No se pudieron encolar todos los escenarios derivados.", "error");
       await refreshDeleteImpact(deleteCandidate.id).catch(() => undefined);
     } finally {
       setResolvingDeleteChildren(false);
@@ -703,13 +737,14 @@ export function ScenariosPage() {
   async function confirmDeleteScenario() {
     if (!deleteCandidate) return;
     if (deleteImpact?.direct_children.length) {
-      push("Primero elimina o independiza los escenarios hijos.", "error");
+      push("Primero elimina o independiza los escenarios derivados.", "error");
       return;
     }
     setDeletingScenarioId(deleteCandidate.id);
     try {
-      await scenariosApi.deleteScenario(deleteCandidate.id);
-      push(`Escenario "${deleteCandidate.name}" eliminado.`, "success");
+      const job = await scenariosApi.deleteScenario(deleteCandidate.id);
+      setDeleteJobs((prev) => [job, ...prev.filter((item) => item.id !== job.id)]);
+      push(`Eliminación de "${deleteCandidate.name}" en progreso.`, "success");
       setDeleteCandidate(null);
       setDeleteImpact(null);
       setSelectedDeleteChildIds([]);
@@ -751,8 +786,9 @@ export function ScenariosPage() {
     const partialId = createdScenarioIdRef.current;
     if (partialId) {
       try {
-        await scenariosApi.deleteScenario(partialId);
-        push("Importación cancelada. Escenario parcial eliminado.", "info");
+        const job = await scenariosApi.deleteScenario(partialId);
+        setDeleteJobs((prev) => [job, ...prev.filter((item) => item.id !== job.id)]);
+        push("Importación cancelada. Eliminación del escenario parcial en progreso.", "info");
       } catch {
         push("Importación cancelada. No se pudo eliminar el escenario parcial.", "error");
       }
@@ -1216,6 +1252,10 @@ export function ScenariosPage() {
                           j.scenario_id === row.id &&
                           (j.status === "QUEUED" || j.status === "RUNNING"),
                       );
+                    const deleteJob = deleteJobs.find(
+                      (j) => j.scenario_id === row.id && (j.status === "QUEUED" || j.status === "RUNNING"),
+                    );
+                    const operationJob = deleteJob ?? cloneJob;
                     return (
                       <>
                   <td style={{ padding: "10px 12px" }}>
@@ -1228,7 +1268,7 @@ export function ScenariosPage() {
                     </button>
                     {row.base_scenario_id ? (
                       <div className="scenariosPage__nameMeta">
-                        Hijo de {row.base_scenario_name ?? `#${row.base_scenario_id}`}
+                        Derivado de {row.base_scenario_name ?? `#${row.base_scenario_id}`}
                       </div>
                     ) : null}
                     {row.edit_policy === "OWNER_ONLY" &&
@@ -1314,20 +1354,23 @@ export function ScenariosPage() {
                   </td>
                   <td style={{ padding: "10px 12px" }}>{new Date(row.created_at).toLocaleString()}</td>
                   <td style={{ padding: "10px 12px" }}>
-                    {cloneJob ? (
+                    {operationJob ? (
                       <div style={{ display: "grid", gap: 4 }}>
                         <Badge
                           variant={
-                            cloneJob.status === "SUCCEEDED"
+                            operationJob.status === "SUCCEEDED"
                               ? "success"
-                              : cloneJob.status === "FAILED"
+                              : operationJob.status === "FAILED"
                                 ? "danger"
                                 : "info"
                           }
                         >
-                          {cloneJob.status} · {Math.round(cloneJob.progress)}%
+                          {operationJob.operation_type === "DELETE_SCENARIO" ? "ELIMINANDO" : operationJob.status} ·{" "}
+                          {Math.round(operationJob.progress)}%
                         </Badge>
-                        <small style={{ opacity: 0.75 }}>{cloneJob.message ?? cloneJob.stage ?? "Procesando..."}</small>
+                        <small style={{ opacity: 0.75 }}>
+                          {operationJob.message ?? operationJob.stage ?? "Procesando..."}
+                        </small>
                       </div>
                     ) : (
                       <span style={{ opacity: 0.65 }}>—</span>
@@ -1348,7 +1391,7 @@ export function ScenariosPage() {
                       <Button
                         variant="ghost"
                         onClick={() => void handleDownloadExcel(row)}
-                        disabled={downloadingScenarioId === row.id}
+                        disabled={downloadingScenarioId === row.id || Boolean(deleteJob)}
                         style={{ padding: "4px 10px", fontSize: "0.85rem" }}
                       >
                         {downloadingScenarioId === row.id ? "Descargando..." : "Descargar"}
@@ -1361,6 +1404,7 @@ export function ScenariosPage() {
                           setCloneEditPolicy(row.edit_policy);
                           setOpenClone(true);
                         }}
+                        disabled={Boolean(deleteJob)}
                         style={{ padding: "4px 10px", fontSize: "0.85rem" }}
                       >
                         Copiar
@@ -1370,6 +1414,7 @@ export function ScenariosPage() {
                           variant="ghost"
                           type="button"
                           onClick={() => openScenarioTagModal(row)}
+                          disabled={Boolean(deleteJob)}
                           style={{ padding: "4px 10px", fontSize: "0.85rem" }}
                         >
                           Etiquetas
@@ -1380,7 +1425,7 @@ export function ScenariosPage() {
                           variant="ghost"
                           type="button"
                           onClick={() => void openDeleteScenario(row)}
-                          disabled={deletingScenarioId === row.id}
+                          disabled={deletingScenarioId === row.id || Boolean(deleteJob)}
                           title={
                             row.owner === user?.username
                               ? "Eliminar escenario (y simulaciones asociadas)"
@@ -1418,6 +1463,26 @@ export function ScenariosPage() {
                   <Badge variant="info">{job.status}</Badge>
                   <span style={{ fontSize: 13, opacity: 0.85 }}>{Math.round(job.progress)}%</span>
                   <span style={{ fontSize: 13, opacity: 0.75 }}>{job.message ?? job.stage ?? "Procesando..."}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      ) : null}
+
+      {deleteJobs.some((j) => j.status === "QUEUED" || j.status === "RUNNING") ? (
+        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: 10 }}>
+          <strong style={{ fontSize: 13 }}>Eliminaciones en progreso</strong>
+          <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+            {deleteJobs
+              .filter((j) => j.status === "QUEUED" || j.status === "RUNNING")
+              .map((job) => (
+                <div key={job.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <Badge variant="info">{job.status}</Badge>
+                  <span style={{ fontSize: 13, opacity: 0.85 }}>{Math.round(job.progress)}%</span>
+                  <span style={{ fontSize: 13, opacity: 0.75 }}>
+                    {job.scenario_name ? `${job.scenario_name}: ` : ""}
+                    {job.message ?? job.stage ?? "Procesando..."}
+                  </span>
                 </div>
               ))}
           </div>
@@ -2077,7 +2142,7 @@ export function ScenariosPage() {
                     disabled={resolvingDeleteChildren || selectedDeleteChildIds.length === 0}
                     style={{ color: "rgba(248,113,113,0.95)" }}
                   >
-                    Borrar hijos seleccionados
+                    Borrar derivados seleccionados
                   </Button>
                 </>
               ) : null}
@@ -2104,7 +2169,7 @@ export function ScenariosPage() {
                 borderColor: "rgba(239,68,68,0.9)",
               }}
             >
-              {deletingScenarioId !== null ? "Eliminando…" : "Eliminar definitivamente"}
+              {deletingScenarioId !== null ? "Encolando…" : "Eliminar definitivamente"}
             </Button>
             </div>
           </div>
@@ -2133,7 +2198,7 @@ export function ScenariosPage() {
               y snapshot de los campos clave).
             </div>
             {deleteImpactLoading ? (
-              <small style={{ opacity: 0.78 }}>Evaluando escenarios hijos...</small>
+              <small style={{ opacity: 0.78 }}>Evaluando escenarios derivados...</small>
             ) : deleteImpact?.direct_children.length ? (
               <div
                 style={{
@@ -2146,8 +2211,8 @@ export function ScenariosPage() {
                 }}
               >
                 <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-                  <strong>Este escenario tiene hijos directos.</strong> Para borrar el
-                  padre primero selecciona qué hijos quieres eliminar o
+                  <strong>Este escenario tiene derivados directos.</strong> Para borrar el
+                  padre primero selecciona qué derivados quieres eliminar o
                   independizar. Independizar solo quita la relación de lineage; no
                   duplica datos ni ejecuta cálculos pesados.
                 </div>
@@ -2177,21 +2242,21 @@ export function ScenariosPage() {
                         <small style={{ opacity: 0.75 }}>
                           Dueño: {child.owner} · {simulationTypeLabel[child.simulation_type]} ·{" "}
                           {child.simulation_job_count} simulación(es)
-                          {child.child_count > 0 ? ` · ${child.child_count} hijo(s)` : ""}
+                          {child.child_count > 0 ? ` · ${child.child_count} derivado(s)` : ""}
                         </small>
                       </span>
                     </label>
                   ))}
                 </div>
                 <small style={{ opacity: 0.72 }}>
-                  Si un hijo seleccionado también tiene hijos, su borrado se
+                  Si un derivado seleccionado también tiene derivados, su borrado se
                   bloqueará y podrás resolverlo en el mismo flujo al abrir ese
                   escenario.
                 </small>
               </div>
             ) : (
               <small style={{ color: "rgba(134,239,172,0.9)" }}>
-                No hay escenarios hijos bloqueando esta eliminación.
+                No hay escenarios derivados bloqueando esta eliminación.
               </small>
             )}
           </div>

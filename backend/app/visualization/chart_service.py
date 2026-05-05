@@ -3516,3 +3516,181 @@ def export_results_csv_zip(
 
     buffer.seek(0)
     return buffer
+
+
+def build_comparison_data_by_year_alt(
+    db: Session,
+    job_ids: list[int],
+    tipo: str,
+    un: str = "PJ",
+    years_to_plot: list[int] | None = None,
+    agrupacion: str | None = None,
+    sub_filtro: str | None = None,
+    loc: str | None = None,
+    job_display_overrides: dict[int, str] | None = None,
+    es_porcentaje_override: bool = False,
+) -> CompareChartResponse:
+    """Construye respuesta agrupada por ESCENARIO (no por año).
+
+    Lógica:
+    - Cada subplot = un escenario
+    - categories = años seleccionados
+    - series = una por cada categoría/tecnología (según agrupación)
+    """
+    # Mapeo de tabla normal a comparación si aplica
+    MAPEO_COMPARACION = {
+        "tra_total": "tra_comparacion",
+        "ind_total": "ind_comparacion",
+        "res_total": "res_comparacion",
+        "ter_total": "ter_comparacion",
+    }
+
+    es_generico = False
+    if tipo in MAPEO_COMPARACION:
+        tipo = MAPEO_COMPARACION[tipo]
+
+    if tipo not in CONFIGS_COMPARACION and tipo not in CONFIGS:
+        raise ValueError(f"tipo='{tipo}' no encontrado")
+
+    if years_to_plot is None:
+        years_to_plot = [2024, 2030, 2050]
+
+    # Resolver configuración
+    if tipo in CONFIGS_COMPARACION:
+        cfg = CONFIGS_COMPARACION[tipo]
+        prefijo = cfg["prefijo"]
+        agrupacion_fija = cfg.get("agrupacion_fija")
+        if agrupacion_fija is not None:
+            agrupacion_usar = agrupacion_fija
+        elif agrupacion is not None:
+            agrupacion_usar = agrupacion
+        else:
+            agrupacion_usar = cfg["agrupacion_default"]
+        variable_name = cfg["variable_default"]
+    else:
+        es_generico = True
+        cfg = CONFIGS[tipo]
+        variable_name = cfg["variable_default"]
+        agrupacion_usar = (
+            agrupacion
+            if agrupacion is not None
+            else cfg.get("agrupar_por", "TECNOLOGIA")
+        )
+
+    # Cargar nombres de escenarios
+    scenario_names: dict[int, str] = {}
+    for jid in job_ids:
+        job = db.query(SimulationJob).filter(SimulationJob.id == jid).first()
+        if job:
+            from app.models import Scenario
+            scenario = (
+                db.query(Scenario).filter(Scenario.id == job.scenario_id).first()
+                if job.scenario_id
+                else None
+            )
+            base = scenario.name if scenario else (job.input_name or f"Job {jid}")
+            disp = (getattr(job, "display_name", None) or "").strip()
+            scenario_names[jid] = disp if disp else base
+        else:
+            scenario_names[jid] = f"Job {jid}"
+        ov = (job_display_overrides or {}).get(jid)
+        if isinstance(ov, str) and ov.strip():
+            scenario_names[jid] = ov.strip()
+
+    # Procesar datos para cada escenario
+    all_data: list[pd.DataFrame] = []
+    for jid in job_ids:
+        df_var = _load_variable_data(db, jid, variable_name)
+        if df_var.empty:
+            continue
+
+        if not es_generico:
+            df = _procesar_bloque_comparacion(
+                df_var, prefijo, sub_filtro, loc,
+                agrupacion_usar, years_to_plot, un,
+            )
+        else:
+            df = _procesar_bloque_single(
+                df_var, cfg, sub_filtro, loc,
+                years_to_plot, un,
+                agrupacion_override=agrupacion_usar,
+            )
+
+        if df is None or df.empty:
+            continue
+
+        df["ESCENARIO"] = scenario_names.get(jid, f"Job {jid}")
+        df["JOB_ID"] = jid
+        all_data.append(df)
+
+    if not all_data:
+        title_base = cfg.get("titulo_base", cfg.get("titulo", tipo))
+        return CompareChartResponse(
+            title=f"{title_base} (Comparación Alternativa)",
+            subplots=[],
+            yAxisLabel=un,
+        )
+
+    df_final = pd.concat(all_data, ignore_index=True)
+
+    # Aplicar porcentaje si corresponde
+    if es_porcentaje_override:
+        total_por_escenario_año = df_final.groupby(["JOB_ID", "YEAR"])["VALUE"].transform("sum")
+        df_final["VALUE"] = df_final["VALUE"] / total_por_escenario_año * 100.0
+
+    # Colores
+    categorias_unicas = sorted(df_final["CATEGORIA"].dropna().unique())
+    mapa_colores = _color_map_comparison(agrupacion_usar, categorias_unicas)
+
+    # Construir subplots por escenario
+    subplots: list[SubplotData] = []
+    for jid in job_ids:
+        df_escenario = df_final[df_final["JOB_ID"] == jid]
+        if df_escenario.empty:
+            continue
+
+        escenario_nombre = scenario_names.get(jid, f"Job {jid}")
+
+        series: list[ChartSeries] = []
+        for categoria in categorias_unicas:
+            df_cat = df_escenario[df_escenario["CATEGORIA"] == categoria]
+            if df_cat.empty:
+                continue
+
+            valor_por_año = {
+                int(row["YEAR"]): row["VALUE"]
+                for _, row in df_cat.iterrows()
+            }
+            data = [round(valor_por_año.get(a, 0.0), 6) for a in years_to_plot]
+
+            series.append(
+                ChartSeries(
+                    name=get_label(str(categoria)),
+                    data=data,
+                    color=mapa_colores.get(categoria, "#999999"),
+                    stack="default",
+                )
+            )
+
+        subplots.append(
+            SubplotData(
+                year=jid,
+                scenario_name=escenario_nombre,
+                categories=[str(a) for a in years_to_plot],
+                series=series,
+            )
+        )
+
+    title_base = cfg.get("titulo_base", cfg.get("titulo", tipo))
+    title = f"{title_base} — Por Años (Alternativo)"
+    if sub_filtro:
+        title += f" — {NOMBRES_COMBUSTIBLES.get(sub_filtro, sub_filtro)}"
+    if loc:
+        title += f" ({loc})"
+    title += f" ({un})"
+
+    return CompareChartResponse(
+        title=title,
+        subplots=subplots,
+        yAxisLabel="%" if es_porcentaje_override else un,
+    )

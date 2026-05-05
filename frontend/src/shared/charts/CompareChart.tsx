@@ -83,7 +83,7 @@ export const CompareChart: React.FC<CompareChartProps> = ({
         id: `x-${idx}`,
         categories: subplot.categories,
         title: {
-          text: subplot.year.toString(),
+          text: subplot.scenario_name || subplot.year.toString(),
           style: { color: '#94a3b8', fontWeight: 'bold' },
         },
         width: widthStr,
@@ -146,7 +146,10 @@ export const CompareChart: React.FC<CompareChartProps> = ({
           borderWidth: 0,
           showInLegend: idx === 0,
           visible: !hiddenNames.has(s.name),
-          custom: { subplotYear: subplot.year },
+          custom: { 
+            subplotYear: subplot.year,
+            scenarioName: subplot.scenario_name || null,
+          },
         });
       });
     });
@@ -171,8 +174,15 @@ export const CompareChart: React.FC<CompareChartProps> = ({
       tooltip: buildStackedSinglePointTooltipOptions({
         unitLabel: data.yAxisLabel,
         headerPrefix: (ctx) => {
-          const year = (ctx.series.userOptions as { custom?: { subplotYear?: number | string } })
-            .custom?.subplotYear;
+          const userOptions = ctx.series.userOptions as { 
+            custom?: { subplotYear?: number | string;
+                       scenarioName?: string }
+          };
+          // Para modo alternativo, mostrar nombre del escenario
+          if (userOptions.custom?.scenarioName) {
+            return userOptions.custom.scenarioName;
+          }
+          const year = userOptions.custom?.subplotYear;
           return year != null ? String(year) : null;
         },
       }),

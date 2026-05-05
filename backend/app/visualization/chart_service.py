@@ -507,7 +507,7 @@ def _asignar_categoria(
     if agrupacion == "TECNOLOGIA":
         df["CATEGORIA"] = df["TECHNOLOGY"]
 
-    elif agrupacion == "COMBUSTIBLE":
+    elif agrupacion in ("COMBUSTIBLE", "FUEL"):
         if "FUEL" in df.columns:
             df["_TECH_FUEL"] = (
                 df["TECHNOLOGY"].astype(str) + "_" + df["FUEL"].astype(str)
@@ -572,7 +572,7 @@ def _color_map_comparison(
 
     Port de ``graficas_comparacion._color_map``.
     """
-    if agrupacion == "COMBUSTIBLE":
+    if agrupacion in ("COMBUSTIBLE", "FUEL"):
         palette = get_colores_grupos()
         return {c: palette.get(c, "#999999") for c in categorias_unicas}
 
@@ -966,13 +966,19 @@ def build_comparison_data(
         label_agrupacion = {
             "TECNOLOGIA": "Tecnologías",
             "COMBUSTIBLE": "Combustibles",
+            "FUEL": "Combustibles",
             "SECTOR": "Sectores",
         }.get(agrupacion_usar, agrupacion_usar)
         title_base = f"{cfg['titulo_base']} por {label_agrupacion}"
     else:
         usa_historico = False
         año_historico = years_to_plot[0] if years_to_plot else 2024
-        agrupacion_usar = "TECNOLOGIA"  # Fallback a agrupar por tecnología para cualquier otra gráfica
+        # agrupacion_usar = "TECNOLOGIA"  # Fallback a agrupar por tecnología para cualquier otra gráfica
+        agrupacion_usar = (
+            agrupacion
+            if agrupacion is not None
+            else cfg.get("agrupar_por", "TECNOLOGIA")
+        )
         title_base = cfg.get("titulo", cfg.get("titulo_base", tipo)) + " (Comparación)"
 
     title = title_base
@@ -1053,7 +1059,13 @@ def build_comparison_data(
             )
         else:
             df = _procesar_bloque_single(
-                df_var, cfg, sub_filtro, loc, años_a_procesar, un
+                df_var,
+                cfg,
+                sub_filtro,
+                loc,
+                años_a_procesar,
+                un,
+                agrupacion_override=agrupacion_usar,
             )
 
         if df is None or df.empty:
@@ -1074,15 +1086,27 @@ def build_comparison_data(
         ].transform("sum")
         df_final["VALUE"] = df_final["VALUE"] / total_por_año_escenario * 100.0
 
-    # ── Colores ──────────────────────────────────────────────────────────
+    # ── Colores ──────────────────────────────────────────────────
     categorias_unicas = sorted(df_final["CATEGORIA"].dropna().unique())
     if not es_generico:
         mapa_colores = _color_map_comparison(agrupacion_usar, categorias_unicas)
     else:
-        # Reutilizar el sistema de colores original de la gráfica base
-        color_fn = cfg.get("color_fn")
+        # Para gráficas genéricas: usar color_fn según la agrupación REAL
+        if agrupacion_usar != cfg.get("agrupar_por"):
+            # Hubo override → usar función de color según agrupacion_usar
+            if agrupacion_usar == "FUEL":
+                color_fn = _color_por_grupo_fijo
+            elif agrupacion_usar == "SECTOR":
+                color_fn = _color_por_sector
+            elif agrupacion_usar == "EMISION":
+                color_fn = _color_por_emision
+            else:
+                color_fn = cfg.get("color_fn") or generar_colores_tecnologias
+        else:
+            # Sin override → usar color_fn original del config
+            color_fn = cfg.get("color_fn")
+
         if color_fn is not None:
-            # Fake dataframe for generic coloring
             df_tmp = pd.DataFrame({"COLOR": list(categorias_unicas)})
             colores_lista, orden_lista = color_fn(df_tmp, "COLOR")
             mapa_colores = dict(zip(orden_lista, colores_lista))
@@ -1376,6 +1400,7 @@ def _procesar_bloque_single(
     loc: str | None,
     años: list[int],
     un: str,
+    agrupacion_override: str | None = None,
 ) -> pd.DataFrame | None:
     """Procesador genérico que emula la agrupación de build_chart_data para comparación."""
     if df_var is None or df_var.empty:
@@ -1397,7 +1422,7 @@ def _procesar_bloque_single(
     if df.empty:
         return None
 
-    agrupar_col = cfg["agrupar_por"]
+    agrupar_col = agrupacion_override if agrupacion_override is not None else cfg["agrupar_por"]
 
     if agrupar_col == "TECNOLOGIA":
         df["CATEGORIA"] = df["TECHNOLOGY"]
@@ -2263,17 +2288,29 @@ def render_chart_visualization_bytes(
     title = chart.title
     if view_mode == "line":
         buf = _render_line_chart(
-            chart, title, fmt=fmt, y_axis_min=y_axis_min, y_axis_max=y_axis_max,
+            chart,
+            title,
+            fmt=fmt,
+            y_axis_min=y_axis_min,
+            y_axis_max=y_axis_max,
         )
     elif view_mode == "area":
         buf = _render_stacked_area(
-            chart, title, fmt=fmt, y_axis_min=y_axis_min, y_axis_max=y_axis_max,
+            chart,
+            title,
+            fmt=fmt,
+            y_axis_min=y_axis_min,
+            y_axis_max=y_axis_max,
         )
     elif view_mode == "table":
         buf = _render_table_image(chart, title, fmt=fmt)
     else:
         buf = _render_stacked_bar(
-            chart, title, fmt=fmt, y_axis_min=y_axis_min, y_axis_max=y_axis_max,
+            chart,
+            title,
+            fmt=fmt,
+            y_axis_min=y_axis_min,
+            y_axis_max=y_axis_max,
         )
     return buf.getvalue()
 
@@ -2516,7 +2553,10 @@ def _render_stacked_area(
         rev_series = list(reversed(chart.series))
         ys = [
             np.nan_to_num(
-                np.array(s.data, dtype=float), nan=0.0, posinf=0.0, neginf=0.0,
+                np.array(s.data, dtype=float),
+                nan=0.0,
+                posinf=0.0,
+                neginf=0.0,
             )
             for s in rev_series
         ]
@@ -3063,9 +3103,7 @@ def render_comparison_facet_figure_bytes(
 
     for ax, bottom in zip(row_axes, stack_tops):
         ax.set_ylim(effective_y_lo, effective_y_hi)
-        ax.yaxis.set_major_formatter(
-            FuncFormatter(lambda v, _p: format_axis_3sig(v))
-        )
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: format_axis_3sig(v)))
         ax.yaxis.set_major_locator(
             MaxNLocator(nbins=7, min_n_ticks=5, steps=[1, 2, 2.5, 5, 10]),
         )

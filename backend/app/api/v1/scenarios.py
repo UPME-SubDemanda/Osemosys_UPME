@@ -580,23 +580,25 @@ def update_scenario(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
-@router.delete("/{scenario_id}", status_code=204)
+@router.delete("/{scenario_id}", response_model=ScenarioOperationJobPublic, status_code=202)
 def delete_scenario(
     scenario_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> None:
-    """Elimina un escenario y todos sus datos asociados. Solo el propietario puede eliminarlo."""
-    scenario = db.get(Scenario, scenario_id)
-    if not scenario:
-        raise HTTPException(status_code=404, detail="Escenario no encontrado.")
-    if scenario.owner != current_user.username:
-        raise HTTPException(status_code=403, detail="Solo el propietario puede eliminar el escenario.")
-
-    db.query(OsemosysParamValue).filter(OsemosysParamValue.id_scenario == scenario_id).delete()
-    db.query(ScenarioPermission).filter(ScenarioPermission.id_scenario == scenario_id).delete()
-    db.delete(scenario)
-    db.commit()
+) -> dict:
+    """Encola la eliminación de un escenario para evitar timeouts en escenarios grandes."""
+    try:
+        return ScenarioOperationService.submit_delete(
+            db,
+            scenario_id=scenario_id,
+            current_user=current_user,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ForbiddenError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 @router.post("/{scenario_id}/clone", response_model=ScenarioPublic, status_code=201)

@@ -217,6 +217,7 @@ export function ScenariosPage() {
   const [cloneEditPolicy, setCloneEditPolicy] = useState<ScenarioEditPolicy>("OWNER_ONLY");
   const [cloning, setCloning] = useState(false);
   const [cloneJobs, setCloneJobs] = useState<ScenarioOperationJob[]>([]);
+  const [deleteJobs, setDeleteJobs] = useState<ScenarioOperationJob[]>([]);
   const [downloadingScenarioId, setDownloadingScenarioId] = useState<number | null>(null);
   const [tagModalScenario, setTagModalScenario] = useState<Scenario | null>(null);
   const [tagModalSelection, setTagModalSelection] = useState("");
@@ -313,9 +314,27 @@ export function ScenariosPage() {
     }
   }, [user]);
 
+  const refreshDeleteJobs = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await scenariosApi.listScenarioOperations({
+        operation_type: "DELETE_SCENARIO",
+        cantidad: 50,
+        offset: 1,
+      });
+      setDeleteJobs(res.data);
+    } catch {
+      // Sin ruido en UI: es un dato auxiliar de monitoreo.
+    }
+  }, [user]);
+
   useEffect(() => {
     void refreshCloneJobs();
   }, [refreshCloneJobs]);
+
+  useEffect(() => {
+    void refreshDeleteJobs();
+  }, [refreshDeleteJobs]);
 
   useEffect(() => {
     const hasActive = cloneJobs.some((j) => j.status === "QUEUED" || j.status === "RUNNING");
@@ -325,6 +344,15 @@ export function ScenariosPage() {
     }, 3000);
     return () => window.clearInterval(timer);
   }, [cloneJobs, fetchScenarios, refreshCloneJobs]);
+
+  useEffect(() => {
+    const hasActive = deleteJobs.some((j) => j.status === "QUEUED" || j.status === "RUNNING");
+    if (!hasActive) return;
+    const timer = window.setInterval(() => {
+      void Promise.all([refreshDeleteJobs(), fetchScenarios()]);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [deleteJobs, fetchScenarios, refreshDeleteJobs]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -642,8 +670,9 @@ export function ScenariosPage() {
     const partialId = createdScenarioIdRef.current;
     if (partialId) {
       try {
-        await scenariosApi.deleteScenario(partialId);
-        push("Importación cancelada. Escenario parcial eliminado.", "info");
+        const job = await scenariosApi.deleteScenario(partialId);
+        setDeleteJobs((prev) => [job, ...prev.filter((item) => item.id !== job.id)]);
+        push("Importación cancelada. Eliminación del escenario parcial en progreso.", "info");
       } catch {
         push("Importación cancelada. No se pudo eliminar el escenario parcial.", "error");
       }
@@ -995,6 +1024,10 @@ export function ScenariosPage() {
                           j.scenario_id === row.id &&
                           (j.status === "QUEUED" || j.status === "RUNNING"),
                       );
+                    const deleteJob = deleteJobs.find(
+                      (j) => j.scenario_id === row.id && (j.status === "QUEUED" || j.status === "RUNNING"),
+                    );
+                    const operationJob = deleteJob ?? cloneJob;
                     return (
                       <>
                   <td style={{ padding: "10px 12px" }}>
@@ -1007,7 +1040,7 @@ export function ScenariosPage() {
                     </button>
                     {row.base_scenario_id ? (
                       <div className="scenariosPage__nameMeta">
-                        Hijo de {row.base_scenario_name ?? `#${row.base_scenario_id}`}
+                        Derivado de {row.base_scenario_name ?? `#${row.base_scenario_id}`}
                       </div>
                     ) : null}
                   </td>
@@ -1030,20 +1063,23 @@ export function ScenariosPage() {
                   <td style={{ padding: "10px 12px" }}>{row.owner}</td>
                   <td style={{ padding: "10px 12px" }}>{new Date(row.created_at).toLocaleString()}</td>
                   <td style={{ padding: "10px 12px" }}>
-                    {cloneJob ? (
+                    {operationJob ? (
                       <div style={{ display: "grid", gap: 4 }}>
                         <Badge
                           variant={
-                            cloneJob.status === "SUCCEEDED"
+                            operationJob.status === "SUCCEEDED"
                               ? "success"
-                              : cloneJob.status === "FAILED"
+                              : operationJob.status === "FAILED"
                                 ? "danger"
                                 : "info"
                           }
                         >
-                          {cloneJob.status} · {Math.round(cloneJob.progress)}%
+                          {operationJob.operation_type === "DELETE_SCENARIO" ? "ELIMINANDO" : operationJob.status} ·{" "}
+                          {Math.round(operationJob.progress)}%
                         </Badge>
-                        <small style={{ opacity: 0.75 }}>{cloneJob.message ?? cloneJob.stage ?? "Procesando..."}</small>
+                        <small style={{ opacity: 0.75 }}>
+                          {operationJob.message ?? operationJob.stage ?? "Procesando..."}
+                        </small>
                       </div>
                     ) : (
                       <span style={{ opacity: 0.65 }}>—</span>
@@ -1054,7 +1090,7 @@ export function ScenariosPage() {
                       <Button
                         variant="ghost"
                         onClick={() => void handleDownloadExcel(row)}
-                        disabled={downloadingScenarioId === row.id}
+                        disabled={downloadingScenarioId === row.id || Boolean(deleteJob)}
                         style={{ padding: "4px 10px", fontSize: "0.85rem" }}
                       >
                         {downloadingScenarioId === row.id ? "Descargando..." : "Descargar"}
@@ -1067,6 +1103,7 @@ export function ScenariosPage() {
                           setCloneEditPolicy(row.edit_policy);
                           setOpenClone(true);
                         }}
+                        disabled={Boolean(deleteJob)}
                         style={{ padding: "4px 10px", fontSize: "0.85rem" }}
                       >
                         Copiar
@@ -1076,7 +1113,7 @@ export function ScenariosPage() {
                           variant="ghost"
                           type="button"
                           onClick={() => openScenarioTagModal(row)}
-                          disabled={tagModalSaving}
+                          disabled={tagModalSaving || Boolean(deleteJob)}
                           style={{ padding: "4px 10px", fontSize: "0.85rem" }}
                         >
                           Etiqueta
@@ -1105,6 +1142,26 @@ export function ScenariosPage() {
                   <Badge variant="info">{job.status}</Badge>
                   <span style={{ fontSize: 13, opacity: 0.85 }}>{Math.round(job.progress)}%</span>
                   <span style={{ fontSize: 13, opacity: 0.75 }}>{job.message ?? job.stage ?? "Procesando..."}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      ) : null}
+
+      {deleteJobs.some((j) => j.status === "QUEUED" || j.status === "RUNNING") ? (
+        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: 10 }}>
+          <strong style={{ fontSize: 13 }}>Eliminaciones en progreso</strong>
+          <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+            {deleteJobs
+              .filter((j) => j.status === "QUEUED" || j.status === "RUNNING")
+              .map((job) => (
+                <div key={job.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <Badge variant="info">{job.status}</Badge>
+                  <span style={{ fontSize: 13, opacity: 0.85 }}>{Math.round(job.progress)}%</span>
+                  <span style={{ fontSize: 13, opacity: 0.75 }}>
+                    {job.scenario_name ? `${job.scenario_name}: ` : ""}
+                    {job.message ?? job.stage ?? "Procesando..."}
+                  </span>
                 </div>
               ))}
           </div>

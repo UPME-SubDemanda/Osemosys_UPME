@@ -100,10 +100,12 @@ Entry: `POST /api/v1/simulations` → Celery task → `app/simulation/tasks.py` 
 | `data_processing.py` | BD → CSVs (sets + params) OR Excel → CSVs; full pipeline including UDC setup |
 | `model_definition.py` | `create_abstract_model(has_storage, has_udc)` — all sets, params, vars, constraints, objective |
 | `instance_builder.py` | `build_instance()` — loads CSVs via Pyomo DataPortal, creates ConcreteModel |
-| `solver.py` | `solve_model()` — runs HiGHS solver, returns results |
+| `solver.py` | `solve_model()` — runs HiGHS solver, returns results; `_run_infeasibility_diagnostics()` — basic constraint/bound checks on infeasible result |
 | `results_processing.py` | Extracts solver output → writes to `osemosys_output_param_value` + JSON artefact |
 | `excel_to_csv.py` | `generate_csvs_from_excel()` — converts Excel SAND file to CSVs |
 | `mode_of_operation_normalize.py` | Normalizes MODE_OF_OPERATION values (scalar + series) |
+| `osemosys_defaults.py` | OSeMOSYS default parameter values used by infeasibility analysis to compute deviations |
+| `infeasibility_analysis.py` | IIS computation via HiGHS, constraint→parameter mapping, enriched diagnostics pipeline (`enrich_solution_dict`) |
 
 **Two simulation entry paths in `data_processing.py`:**
 - `run_data_processing(db, scenario_id, csv_dir)` — DB path (main flow)
@@ -138,6 +140,10 @@ osemosys_output_param_value (PostgreSQL)
 | `configs_comparacion.py` | Multi-scenario comparison registry (`CONFIGS_COMPARACION`, 6 entries): `prefijo`, `agrupacion_*`, `año_historico_unico`. Also exports `MAPA_SECTOR` (prefix → sector name) and `COLORES_SECTOR` (sector color palette) |
 | `colors.py` | Color logic: `COLORES_GRUPOS`, `FAMILIAS_TEC`, `generar_colores_tecnologias`, `_color_electricidad`, `_color_por_grupo_fijo`, `_color_por_sector` |
 | `labels.py` | `get_label(code)` — single technology/fuel display name; `get_labels_batch(codes)` — batch variant. 740+ entries in `DISPLAY_NAMES`; `_dynamic_label()` generates labels from code segments as fallback |
+| `chart_menu.py` | `MENU` structure (modules → subsectors → chart items) used by catalog sync and frontend |
+| `catalog_sync.py` | Sync `MENU` / `CONFIGS` into the DB chart catalog table |
+| `catalog_reader.py` | Read chart catalog from DB for API responses |
+| `data_explorer_filters.py` | Filter-option queries for the Result Data Explorer wide-table endpoint |
 
 ### API endpoints (`backend/app/api/v1/visualizations.py`)
 
@@ -287,6 +293,86 @@ MUIO (LU1–LU4) are defined in the model but currently **not loaded** from CSVs
 
 ---
 
+## Infeasibility Analysis
+
+When the solver returns an infeasible result, the system provides two levels of diagnosis: a fast basic check during the simulation pipeline and a richer on-demand IIS analysis triggered by the user afterwards.
+
+### Components
+
+| File | Role |
+|------|------|
+| `backend/app/simulation/core/infeasibility_analysis.py` | Core module: `CONSTRAINT_PARAM_MAP`, Pyomo name parsers, CSV param loader, HiGHS IIS computation (`try_compute_iis`), main pipeline (`analyze` / `enrich_solution_dict`) |
+| `backend/app/simulation/core/solver.py` | `_run_infeasibility_diagnostics()` — basic constraint body vs bounds check + variable bound conflict detection; called inline when solve returns infeasible |
+| `backend/app/simulation/core/osemosys_defaults.py` | OSeMOSYS default parameter values; used by infeasibility analysis to compute `diff_abs` and `deviation_score` |
+| `backend/app/simulation/tasks.py` | Celery task `run_infeasibility_diagnostic_job(job_id)` — rebuilds Pyomo instance and calls `enrich_solution_dict`; handles cancellation |
+| `backend/app/simulation/pipeline.py` | `_persist_critical_solver_metadata()` — saves basic diagnostics to DB immediately after infeasible solve |
+| `backend/app/services/simulation_service.py` | `request_infeasibility_diagnostic()` / `cancel_infeasibility_diagnostic()` — enqueue / cancel the Celery analysis task |
+| `backend/app/api/v1/simulations.py` | Three new endpoints (see table below) |
+| `backend/app/models/simulation_job.py` | `run_iis_analysis: bool` — checkbox to auto-run IIS; `infeasibility_diagnostics_json` — stores full enriched result |
+| `backend/app/schemas/simulation.py` | `IISReportPublic`, `ConstraintAnalysisPublic`, `ParamHitPublic`, `InfeasibilityOverviewPublic`, `InfeasibilityDiagnosticsPublic` |
+| `frontend/src/pages/InfeasibilityReportPage.tsx` | Unified UI: overview card, top-suspects table, IIS-constraints tab, scenario-params tab with IIS badges, variable-bound-conflicts list, JSON download |
+| `frontend/src/features/simulation/components/ScenarioParamsTab.tsx` | Shows IIS-membership badge next to parameters that appear in the active IIS |
+
+### API endpoints (in `simulations.py`)
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /simulations/{job_id}/diagnose-infeasibility` | Queue on-demand enriched IIS analysis |
+| `POST /simulations/{job_id}/cancel-diagnostic` | Cancel a running diagnosis |
+| `GET /simulations/{job_id}/infeasibility-report` | Download full JSON diagnostic report |
+
+### Two-level diagnosis flow
+
+```
+[solver.py] solve_model() returns "infeasible"
+    └─ _run_infeasibility_diagnostics()
+       ├─ Evaluate each constraint: body vs [lower, upper]
+       ├─ Detect variable bound conflicts (LB > UB)
+       └─ Return {constraint_violations, var_bound_conflicts}
+           ↓
+[pipeline.py] _persist_critical_solver_metadata()
+    └─ Save basic_diagnostics to infeasibility_diagnostics_json
+
+--- USER CLICKS "Analizar infactibilidad" ---
+
+[API] POST /simulations/{id}/diagnose-infeasibility
+    └─ [tasks.py] run_infeasibility_diagnostic_job()
+       ├─ Rebuild Pyomo ConcreteModel from CSVs
+       └─ [infeasibility_analysis.py] enrich_solution_dict()
+          ├─ try_compute_iis(instance, "highs")
+          │  ├─ Write LP file (symbolic_solver_labels=True)
+          │  ├─ Load into highspy.Highs, set iis_strategy=2
+          │  ├─ h.run() → h.getIis()
+          │  └─ Return IISReport {constraint_names, variable_names}
+          ├─ For each IIS constraint:
+          │  ├─ parse_constraint_name() → (prefix, tokens)
+          │  ├─ constraint_indices() → {REGION, YEAR, TECHNOLOGY, …}
+          │  └─ values_for_constraint()
+          │     ├─ CONSTRAINT_PARAM_MAP[prefix] → related params
+          │     ├─ Load param CSVs, filter by indices
+          │     ├─ Get OSeMOSYS default (osemosys_defaults.py)
+          │     └─ Compute diff_abs + deviation_score (0–100)
+          ├─ _build_overview() → {years, constraint_types, techs_or_fuels}
+          ├─ _top_suspects(k=10) → rank by |diff_abs|
+          └─ Persist enriched_diagnostics to DB
+```
+
+### `CONSTRAINT_PARAM_MAP` coverage
+
+The static map covers 20 constraint types → OSeMOSYS parameters:
+
+`EnergyBalanceEachTS5`, `EnergyBalanceEachYear4`, `ConstraintCapacity`, `TotalAnnualMaxCapacityConstraint`, `TotalAnnualMinCapacityConstraint`, `TotalAnnualMaxNewCapacityConstraint`, `TotalAnnualMinNewCapacityConstraint`, `TotalAnnualTechnologyActivityUpperlimit`, `TotalAnnualTechnologyActivityLowerlimit`, `TotalModelHorizonTechnologyActivityUpperLimit`, `TotalModelHorizonTechnologyActivityLowerLimit`, `AnnualEmissionsLimit`, `ModelPeriodEmissionsLimit`, `ReserveMarginConstraint`, `LU1`–`LU4` (TechnologyActivityByMode), `UDC1`–`UDC2` (User-Defined Constraints).
+
+### Adding GLPK support
+
+To replicate the IIS analysis for GLPK, the key integration point is `try_compute_iis()` in `infeasibility_analysis.py` (lines ~826–946). That function writes an LP file and calls HiGHS-specific APIs (`highspy.Highs`, `getIis()`). A GLPK path would need to:
+1. Write the same LP file (Pyomo's `write()` already produces a solver-neutral LP).
+2. Call `glpsol --lp <file> --wglp <output>` or use `pyglpk`/`cylp` to invoke GLPK's IIS routines.
+3. Parse GLPK's output back into `{row_names, col_names}` and return the same `IISReport` dataclass.
+The rest of the pipeline (constraint parsing, param mapping, deviation scoring) is solver-agnostic and requires no changes.
+
+---
+
 ## Saved Charts & Reports System
 
 Allows users to save chart configurations as reusable templates and assemble them into shareable reports with scenario assignments.
@@ -373,3 +459,5 @@ Allows users to save chart configurations as reusable templates and assemble the
 - **Pareto view**: Activated when `viewMode="pareto"` and `soportaPareto: true` on the chart item. Backend returns `ParetoChartResponse` (categories, values, cumulative_percent). Frontend renders via `ParetoChart.tsx` with dual Y-axis.
 - **Special unit sets**: `CONTAMINANTES_CHART_IDS` and `PORCENTAJE_CHART_IDS` in `ChartSelector.tsx` pin the unit selector to a fixed value — frontend ignores the normal units dropdown for these charts.
 - **Report bulk export**: `POST /saved-chart-templates/report` renders all templates with their assigned job IDs server-side (Matplotlib) and returns a ZIP. `organize_by_category=true` creates subdirectories matching the report layout.
+- **Two-level infeasibility diagnosis**: Basic diagnostics (constraint body vs bounds, variable bound conflicts) run synchronously in `solver.py` during the pipeline. Enriched IIS analysis (HiGHS `getIis()`, constraint→param mapping, deviation scoring) runs on-demand in a separate Celery task to avoid blocking the pipeline. `run_iis_analysis=True` on a job is reserved for future automatic triggering.
+- **Solver-agnostic infeasibility pipeline**: Constraint name parsing, `CONSTRAINT_PARAM_MAP`, CSV param loading, and deviation scoring in `infeasibility_analysis.py` are solver-agnostic. Only `try_compute_iis()` is HiGHS-specific; replacing it with a GLPK equivalent is sufficient to port IIS analysis to GLPK.

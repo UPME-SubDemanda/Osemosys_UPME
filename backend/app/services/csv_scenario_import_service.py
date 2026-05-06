@@ -363,6 +363,7 @@ class CsvScenarioImportService:
                 apply_dead_years=True,
             )
         except Exception:  # pragma: no cover - defensive
+            db.rollback()
             import logging
             logging.getLogger(__name__).warning(
                 "data_validation post-import (CSV) fallo", exc_info=True,

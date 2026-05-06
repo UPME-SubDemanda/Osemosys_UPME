@@ -2834,6 +2834,7 @@ class OfficialImportService:
                 )
                 data_quality = report.to_dict()
             except Exception as e:  # pragma: no cover - defensive
+                db.rollback()
                 logger.warning("data_validation post-import fallo: %s", e)
 
         return {

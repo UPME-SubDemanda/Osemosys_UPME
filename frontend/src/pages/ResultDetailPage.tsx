@@ -1840,6 +1840,7 @@ export function ResultDetailPage() {
                 barOrientation={chartBarOrientation}
                 yAxisMin={yAxisMin}
                 yAxisMax={yAxisMax}
+                sharedYAxis={true}
               />
             ) : chartCompareMode === 'line-total' && chartJobIds.length > 1 && compareLineData ? (
               <LineChart

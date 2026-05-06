@@ -482,6 +482,7 @@ export type ChartDataResponse = {
 
 export type SubplotData = {
   year: number;
+  scenario_name?: string | null;
   categories: string[];
   series: ChartSeries[];
 };
@@ -492,7 +493,7 @@ export type CompareChartResponse = {
   yAxisLabel: string;
 };
 
-export type CompareMode = "off" | "facet" | "by-year" | "line-total";
+export type CompareMode = "off" | "facet" | "by-year" | "by-year-alt" | "line-total";
 
 /** Modo del nombre de archivo al exportar comparación por facetas (PNG/SVG). */
 export type CompareFacetExportFilenameMode = "result" | "tags";
@@ -601,7 +602,7 @@ export type SavedChartTemplate = {
   variable: string | null;
   agrupar_por: string | null;
   view_mode: "column" | "line" | "area" | "pareto" | "porcentaje" | "table" | null;
-  compare_mode: "off" | "facet" | "by-year" | "line-total";
+  compare_mode: "off" | "facet" | "by-year" | "by-year-alt" | "line-total";
   /** Años a graficar cuando `compare_mode === "by-year"`. Null en otros modos. */
   years_to_plot: number[] | null;
   /** Series manuales overlay (línea). */

@@ -11,8 +11,9 @@ agregando:
     * Un **lector de CSVs** que recupera los valores actuales de los parámetros
       relevantes para cada índice violado.
     * Un **intento de IIS** (Irreducible Inconsistent Subsystem) vía ``highspy``
-      cuando el solver es HiGHS. En GLPK se cae al análisis heurístico y se
-      reporta ``iis_available=False``.
+      cuando el solver es HiGHS. Para GLPK se ejecuta ``glpsol --nopresol`` y se
+      parsean las restricciones violadas en la solución forzada (heurístico, no IIS
+      verdadero, pero suficiente para alimentar el mapeo constraint→parámetro).
 
 El módulo no tiene efectos secundarios sobre el pipeline productivo: se expone
 como API pública y lo consume ``backend/run_local_csv.py``.
@@ -23,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import subprocess
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
@@ -578,16 +580,38 @@ def parse_constraint_name(qualified_name: str) -> tuple[str, list[str]]:
     return prefix, tokens
 
 
+def _fallback_indices(tokens: list[str]) -> dict[str, str]:
+    """Detección posicional de índices para tipos de restricción sin mapeo estático.
+
+    Heurística: detecta YEAR (4 dígitos 2000–2200), luego asigna REGION al
+    primer token restante y TECHNOLOGY al segundo.
+    """
+    result: dict[str, str] = {}
+    remaining = list(tokens)
+    for i, t in enumerate(remaining):
+        if re.match(r"^\d{4}$", t) and 2000 <= int(t) <= 2200:
+            result["YEAR"] = t
+            remaining.pop(i)
+            break
+    if remaining:
+        result["REGION"] = remaining.pop(0)
+    if remaining:
+        result["TECHNOLOGY"] = remaining.pop(0)
+    if remaining:
+        result["OTHER"] = ",".join(remaining)
+    return result
+
+
 def constraint_indices(prefix: str, tokens: list[str]) -> dict[str, str]:
     """Mapea tokens a los nombres de índice de la restricción según el mapa estático.
 
     Si el ``prefix`` no está registrado o la cantidad de tokens no coincide,
-    devuelve un diccionario vacío y el análisis se degrada.
+    usa detección posicional genérica (YEAR, REGION, TECHNOLOGY).
     """
     spec = CONSTRAINT_PARAM_MAP.get(prefix)
-    if spec is None or len(tokens) != len(spec.index_names):
-        return {}
-    return dict(zip(spec.index_names, tokens))
+    if spec is not None and len(tokens) == len(spec.index_names):
+        return dict(zip(spec.index_names, tokens))
+    return _fallback_indices(tokens)
 
 
 # =====================================================================
@@ -801,7 +825,7 @@ def values_for_constraint(
 
 
 # =====================================================================
-# IIS con HiGHS (best effort)
+# IIS / diagnóstico de infactibilidad (HiGHS IIS · GLPK --nopresol)
 # =====================================================================
 
 
@@ -819,6 +843,151 @@ class IISReport:
     #: cuando el solver no es Gurobi o no se pudo escribir.
     ilp_path: str | None = None
     unavailable_reason: str | None = None
+    glpk_violations: list[dict] = field(default_factory=list)
+
+
+_LP_BOUND_TYPE: dict[str, str] = {"c_u_": "upper", "c_l_": "lower", "c_e_": "equality"}
+
+
+def _parse_glpk_violations(output_path: Path) -> list[dict]:
+    """Parsea el archivo de solución de glpsol buscando restricciones violadas.
+
+    GLPK escribe nombres LP largos en una línea y sus estadísticas en la
+    siguiente cuando el nombre supera el ancho de columna.  Detecta prefijos
+    ``c_u_`` (upper), ``c_l_`` (lower) y ``c_e_`` (equality) que Pyomo genera
+    con ``symbolic_solver_labels=True``.  Tolerancia: 0.01 (igual que la guía
+    de diagnóstico manual).
+
+    Retorna lista de dicts ``{lp_name, act, bound, bound_type, diff_abs}``
+    ordenada de mayor a menor ``diff_abs``, limitada a 200 entradas.
+    """
+    _TOL = 0.01
+
+    with output_path.open("r", errors="replace") as f:
+        lines = f.readlines()
+
+    details: list[dict] = []
+    seen: set[str] = set()
+
+    for i in range(len(lines) - 1):
+        line1 = lines[i]
+        line2 = lines[i + 1]
+
+        if "c_u_" not in line1 and "c_l_" not in line1 and "c_e_" not in line1:
+            continue
+
+        name_match = re.search(r"(c_[ule]_\S+)", line1)
+        if not name_match:
+            continue
+
+        name = name_match.group(1).rstrip("_:")
+        bound_type = next(
+            (bt for pfx, bt in _LP_BOUND_TYPE.items() if pfx in name), "lower"
+        )
+
+        parts = line2.split()
+        if len(parts) < 3:
+            continue
+
+        try:
+            act = float(parts[1])
+            bound = float(parts[2])
+        except (ValueError, IndexError):
+            continue
+
+        if bound_type == "upper":
+            is_violated = act > bound + _TOL
+            diff_abs = max(0.0, act - bound)
+        else:
+            is_violated = act < bound - _TOL
+            diff_abs = max(0.0, bound - act)
+
+        if is_violated and name not in seen:
+            details.append(
+                {
+                    "lp_name": name,
+                    "act": act,
+                    "bound": bound,
+                    "bound_type": bound_type,
+                    "diff_abs": diff_abs,
+                }
+            )
+            seen.add(name)
+
+    details.sort(key=lambda d: -d["diff_abs"])
+    return details[:200]
+
+
+def _try_violations_glpk(
+    lp_path: Path,
+    *,
+    timeout_seconds: int = 1500,
+) -> IISReport:
+    """Diagnostica infactibilidades con GLPK usando ``glpsol --nopresol``.
+
+    No produce un IIS verdadero: ejecuta el simplex completo sobre el LP
+    (saltando el preprocesamiento) y reporta las restricciones cuya actividad
+    viola sus cotas en la solución degenerada.  Esto es suficiente para
+    alimentar ``CONSTRAINT_PARAM_MAP`` y generar param-hits con deviation scores.
+
+    Puede tardar de segundos a ~15 min según el tamaño del modelo.
+    """
+    output_path = lp_path.parent / (lp_path.stem + "_glpk_violations.txt")
+
+    try:
+        subprocess.run(
+            ["glpsol", "--lp", str(lp_path), "--nopresol", "-o", str(output_path)],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except FileNotFoundError:
+        return IISReport(
+            available=False,
+            method=None,
+            unavailable_reason="glpsol no encontrado en PATH; instala GLPK para usar este diagnóstico.",
+        )
+    except subprocess.TimeoutExpired:
+        return IISReport(
+            available=False,
+            method="glpk_nopresol",
+            unavailable_reason=f"glpsol --nopresol excedió el timeout de {timeout_seconds}s ({timeout_seconds // 60} min).",
+        )
+    except Exception as exc:
+        return IISReport(
+            available=False,
+            method=None,
+            unavailable_reason=f"Error al ejecutar glpsol: {exc!r}",
+        )
+
+    try:
+        details = _parse_glpk_violations(output_path)
+    except Exception as exc:
+        return IISReport(
+            available=False,
+            method=None,
+            unavailable_reason=f"Error al parsear salida de GLPK: {exc!r}",
+        )
+    finally:
+        try:
+            output_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    if not details:
+        return IISReport(
+            available=False,
+            method="glpk_nopresol",
+            unavailable_reason="GLPK --nopresol no reportó restricciones violadas.",
+        )
+
+    return IISReport(
+        available=True,
+        method="glpk_nopresol",
+        constraint_names=[d["lp_name"] for d in details],
+        variable_names=[],
+        glpk_violations=details,
+    )
 
 
 def _try_import_highspy() -> tuple[Any | None, str | None]:
@@ -1015,16 +1184,24 @@ def try_compute_iis(
     lp_path: Path | None = None,
     ilp_out: Path | None = None,
 ) -> IISReport:
-    """Intenta calcular un IIS según el solver con que corrió la simulación.
+    """Intenta calcular un IIS o un análisis equivalente según el solver.
 
-    Estrategia:
-      * ``solver_name == "gurobi"``: usa ``Model.computeIIS()`` (vía gurobipy)
-        leyendo el ``.lp`` ya escrito durante el solve. Si ``ilp_out`` se
-        provee, persiste el ``.ilp`` allí.
-      * ``solver_name == "highs"``: ruta legacy con ``highspy``.
-      * Cualquier otro solver: devuelve ``IISReport(available=False, ...)``.
+    Estrategia según solver:
+
+    * ``gurobi``: usa ``Model.computeIIS()`` (vía gurobipy) sobre el ``.lp``
+      ya escrito durante el solve. Si ``ilp_out`` se provee, persiste el
+      ``.ilp`` allí.
+    * ``highs``: ruta legacy con ``highspy`` — escribe LP simbólico, lo carga
+      en ``highspy.Highs``, llama ``run()`` + ``getIis()``.
+    * ``glpk``: ejecuta ``glpsol --nopresol`` para forzar el simplex completo
+      y parsea las restricciones cuya actividad viola sus cotas. No es un IIS
+      verdadero pero alimenta ``CONSTRAINT_PARAM_MAP`` con la misma interfaz.
+    * Cualquier otro solver → ``IISReport(available=False, ...)``.
+
+    En cualquier fallo devuelve ``IISReport(available=False, ...)`` con el motivo.
     """
     sn = (solver_name or "").lower()
+
     if sn == "gurobi":
         if lp_path is None or not Path(lp_path).exists():
             # Intentar exportar el LP a partir de la instancia Pyomo si
@@ -1058,13 +1235,42 @@ def try_compute_iis(
                 )
         return _try_compute_iis_gurobi(Path(lp_path), ilp_out=ilp_out)
 
+    if sn == "glpk":
+        if instance is None:
+            return IISReport(
+                available=False,
+                method=None,
+                unavailable_reason="No se dispone de la instancia Pyomo para GLPK --nopresol.",
+            )
+        if lp_path is None or not Path(lp_path).exists():
+            try:
+                from app.simulation.core.solver import write_lp_file  # noqa: WPS433
+            except Exception as exc:
+                return IISReport(
+                    available=False,
+                    method=None,
+                    unavailable_reason=f"No se pudo importar write_lp_file: {exc!r}",
+                )
+            try:
+                tmp_dir = Path("tmp/infeasibility-reports")
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                lp_path = tmp_dir / "iis_input.lp"
+                write_lp_file(instance, lp_path)
+            except Exception as exc:
+                return IISReport(
+                    available=False,
+                    method=None,
+                    unavailable_reason=f"No se pudo exportar LP para diagnóstico GLPK: {exc!r}",
+                )
+        return _try_violations_glpk(lp_path)
+
     if sn != "highs":
         return IISReport(
             available=False,
             method=None,
             unavailable_reason=(
                 f"IIS no soportado para el solver '{solver_name}'. "
-                "Usa HiGHS o Gurobi."
+                "Usa HiGHS, Gurobi o GLPK."
             ),
         )
     if instance is None:
@@ -1462,6 +1668,22 @@ def analyze(
     }
     iis_canon = {_canon_name(n) for n in iis.constraint_names}
 
+    # Para GLPK: lookup enriquecido (act, bound, diff) por nombre canónico LP.
+    glpk_viol_by_canon: dict[str, dict[str, Any]] = {}
+    for gv in (iis.glpk_violations or []):
+        lp_name = str(gv.get("lp_name") or "")
+        if not lp_name:
+            continue
+        bt = gv.get("bound_type", "lower")
+        bound = gv.get("bound")
+        glpk_viol_by_canon[_canon_name(lp_name)] = {
+            "body": gv.get("act"),
+            "lower": bound if bt in ("lower", "equality") else None,
+            "upper": bound if bt in ("upper", "equality") else None,
+            "violation": gv.get("diff_abs", 0.0),
+            "side": bt,
+        }
+
     analyses: list[ConstraintAnalysis] = []
     unmapped: set[str] = set()
 
@@ -1476,7 +1698,7 @@ def analyze(
                 continue
             seen_canon.add(canon)
             pyomo_name = pyomo_by_canon.get(canon, lp_name)
-            viol = violation_by_canon.get(canon)
+            viol = glpk_viol_by_canon.get(canon) or violation_by_canon.get(canon)
             analyses.append(
                 _build_analysis_entry(
                     pyomo_name=pyomo_name,
@@ -1505,7 +1727,7 @@ def analyze(
     # Ordenar las restricciones por la mayor diferencia absoluta vs default
     # entre sus parámetros relacionados. Usar |diff_abs| evita el sesgo del
     # score=100 cuando un default es 0 (ver doc de `_top_suspects`).
-    analyses.sort(key=lambda a: -_max_abs_diff_of(a))
+    analyses.sort(key=lambda a: -(max(_max_abs_diff_of(a), a.violation)))
 
     suspects = _top_suspects(analyses, k=10)
 

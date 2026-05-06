@@ -2089,10 +2089,10 @@ export function SimulationPage() {
                   );
                 }
 
-                // Infactible + HiGHS / Gurobi: flujo del diagnóstico
+                // Infactible + HiGHS / Gurobi / GLPK: flujo del diagnóstico
                 if (
                   isInfeasible &&
-                  (solver === "highs" || solver === "gurobi")
+                  (solver === "highs" || solver === "gurobi" || solver === "glpk")
                 ) {
                   if (diagStatus === "SUCCEEDED") {
                     const secs =
@@ -2177,7 +2177,9 @@ export function SimulationPage() {
                       ? "Encolando diagnóstico…"
                       : diagStatus === "FAILED" && r.diagnostic_error
                         ? `Reintentar diagnóstico — último intento falló: ${r.diagnostic_error}`
-                        : "Correr diagnóstico de infactibilidad (IIS + mapeo a parámetros)";
+                        : solver === "glpk"
+                          ? "Correr diagnóstico de infactibilidad (GLPK --nopresol · puede tardar varios minutos en modelos grandes)"
+                          : "Correr diagnóstico de infactibilidad (IIS + mapeo a parámetros)";
                     buttons.push(
                       <button
                         key="diag-run"
@@ -2198,19 +2200,20 @@ export function SimulationPage() {
                   }
                 }
 
-                // Infactible + GLPK: no hay IIS
+                // Infactible + solver no soportado (ni highs/gurobi/glpk)
                 if (
                   isInfeasible &&
                   solver !== "highs" &&
-                  solver !== "gurobi"
+                  solver !== "gurobi" &&
+                  solver !== "glpk"
                 ) {
                   buttons.push(
                     <span
-                      key="diag-glpk"
+                      key="diag-unsupported"
                       role="img"
                       className={`${iconBtn} ${sch.mutedInfo}`}
-                      title="GLPK no expone IIS. Para diagnóstico detallado, vuelve a correr la simulación con HiGHS o Gurobi."
-                      aria-label="Diagnóstico no disponible con GLPK"
+                      title="Este solver no expone IIS. Para diagnóstico detallado, vuelve a correr la simulación con HiGHS, Gurobi o GLPK."
+                      aria-label="Diagnóstico no disponible con este solver"
                     >
                       {icons.info}
                     </span>,

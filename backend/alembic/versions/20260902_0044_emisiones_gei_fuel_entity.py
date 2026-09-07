@@ -53,12 +53,30 @@ def _update_if_matches(expected: dict[str, str], replacement: dict[str, str]) ->
 
 def upgrade() -> None:
     updated = _update_if_matches(OLD_FILTER_PARAMS, NEW_FILTER_PARAMS)
-    if updated != 1:
-        raise RuntimeError(
-            "Se esperaba actualizar exactamente una fila de "
-            f"{SCHEMA}.catalog_meta_chart_config para tipo={CHART_TYPE!r}; "
-            f"filas actualizadas: {updated}."
-        )
+    if updated == 1:
+        return
+    # Instalación limpia o re-ejecución: la fila puede no existir aún (la siembra
+    # el startup-sync del API desde chart_menu, ya en formato nuevo) o estar ya
+    # actualizada. Solo falla si existe en un formato distinto al esperado.
+    conn = op.get_bind()
+    current = conn.execute(
+        sa.text(
+            f"SELECT filtro_params_json FROM {SCHEMA}.catalog_meta_chart_config "
+            f"WHERE tipo = :chart_type"
+        ),
+        {"chart_type": CHART_TYPE},
+    ).scalar_one_or_none()
+    if current is None:
+        return
+    # psycopg decodifica JSONB a dict — comparación directa
+    if current == NEW_FILTER_PARAMS:
+        return
+    raise RuntimeError(
+        "Se esperaba actualizar exactamente una fila de "
+        f"{SCHEMA}.catalog_meta_chart_config para tipo={CHART_TYPE!r}; "
+        f"filas actualizadas: {updated} y el estado actual no coincide con "
+        "ningún formato conocido."
+    )
 
 
 def downgrade() -> None:

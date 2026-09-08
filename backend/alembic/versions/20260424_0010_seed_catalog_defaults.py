@@ -195,9 +195,28 @@ def _import_dicts():
         COLORES_GRUPOS,
         FAMILIAS_TEC,
     )
-    from app.visualization.configs import NOMBRES_COMBUSTIBLES, TITULOS_VARIABLES_CAPACIDAD
     from app.visualization.configs_comparacion import COLORES_SECTOR, MAPA_SECTOR
     from app.visualization.labels import DISPLAY_NAMES
+
+    # NOMBRES_COMBUSTIBLES / TITULOS_VARIABLES_CAPACIDAD son hoy proxies lazy
+    # que leen del cache del catálogo (inicializado por el API en startup). En
+    # una instalación limpia este cache aún no existe: forzar la lectura y caer
+    # a dicts vacíos; esas etiquetas las siembra luego el startup-sync del API.
+    try:
+        from app.visualization.configs import (
+            NOMBRES_COMBUSTIBLES,
+            TITULOS_VARIABLES_CAPACIDAD,
+        )
+        NOMBRES_COMBUSTIBLES = dict(NOMBRES_COMBUSTIBLES.items())
+        TITULOS_VARIABLES_CAPACIDAD = dict(TITULOS_VARIABLES_CAPACIDAD.items())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Catálogo lazy no disponible en migración (instalación limpia): %s "
+            "— nombres/títulos de capacidad se omiten; el startup-sync del API "
+            "los completa.",
+            exc,
+        )
+        NOMBRES_COMBUSTIBLES, TITULOS_VARIABLES_CAPACIDAD = {}, {}
 
     return (
         COLORES_GRUPOS, COLOR_MAP_PWR, COLORES_SECTOR, COLORES_EMISIONES,

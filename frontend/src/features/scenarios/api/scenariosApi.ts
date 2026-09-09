@@ -65,6 +65,7 @@ export type OsemosysWideRow = {
   emission_name: string | null;
   udc_name: string | null;
   timeslice_code: string | null;
+  mode_of_operation_code: string | null;
   cells: Record<string, OsemosysWideCell>;
 };
 

@@ -9,7 +9,16 @@ from openpyxl import Workbook
 import app.simulation.core.data_processing as data_processing_module
 import app.services.scenario_service as scenario_service_module
 from app.core.exceptions import ForbiddenError
-from app.models import Emission, Fuel, OsemosysParamValue, Scenario, Technology, Timeslice
+from app.models import (
+    Emission,
+    Fuel,
+    ModeOfOperation,
+    OsemosysParamValue,
+    Scenario,
+    Technology,
+    Timeslice,
+)
+from app.schemas.scenario import OsemosysWideRow
 from app.services.csv_scenario_import_service import CsvScenarioImportService
 from app.services.official_import_service import OfficialImportService
 from app.services.scenario_service import ScenarioService
@@ -254,6 +263,107 @@ def test_excel_preview_apply_and_update_change_values(db_session) -> None:
     assert updated["not_found"] == 0
     db_session.refresh(seeded_row)
     assert seeded_row.value == 14.0
+
+
+def test_excel_preview_updates_zero_input_activity_ratio_with_mode(db_session) -> None:
+    owner = create_user(db_session, username="excel-input-ratio-owner")
+    scenario = create_scenario(
+        db_session, name="Excel InputActivityRatio", owner=owner.username, edit_policy="OWNER_ONLY"
+    )
+    region = create_region(db_session, name="AN")
+    target_technology = Technology(name="AN_UPSBJS", is_active=True)
+    target_fuel = Fuel(name="FUEL_UPSBJS", is_active=True)
+    other_technology = Technology(name="OTHER_TECH", is_active=True)
+    other_fuel = Fuel(name="OTHER_FUEL", is_active=True)
+    mode_one = ModeOfOperation(code="1")
+    mode_two = ModeOfOperation(code="2")
+    db_session.add_all(
+        [target_technology, target_fuel, other_technology, other_fuel, mode_one, mode_two]
+    )
+    db_session.commit()
+
+    target_row = create_osemosys_value(
+        db_session,
+        scenario_id=scenario.id,
+        param_name="InputActivityRatio",
+        id_region=region.id,
+        id_technology=target_technology.id,
+        id_fuel=target_fuel.id,
+        id_mode_of_operation=mode_one.id,
+        year=2026,
+        value=1.0,
+    )
+    # Mantiene ocupados los sets canónicos de otro parámetro. La fila objetivo
+    # sólo debe entrar por InputActivityRatio, aunque el nuevo valor sea cero.
+    create_osemosys_value(
+        db_session,
+        scenario_id=scenario.id,
+        param_name="OutputActivityRatio",
+        id_region=region.id,
+        id_technology=other_technology.id,
+        id_fuel=other_fuel.id,
+        id_mode_of_operation=mode_two.id,
+        year=2026,
+        value=1.0,
+    )
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Parameters"
+    sheet.append(["Parameter", "Region", "Technology", "Fuel", "MODE_OF_OPERATION", 2026])
+    sheet.append(
+        ["OutputActivityRatio", region.name, other_technology.name, other_fuel.name, 2, 1.0]
+    )
+    sheet.append(
+        ["InputActivityRatio", region.name, target_technology.name, target_fuel.name, 1, 0.0]
+    )
+    data = BytesIO()
+    workbook.save(data)
+
+    preview = OfficialImportService.preview_scenario_from_excel(
+        db_session,
+        scenario_id=scenario.id,
+        filename="input-activity-ratio.xlsx",
+        content=data.getvalue(),
+        selected_sheet_name="Parameters",
+    )
+
+    assert preview["not_found"] == 0
+    assert len(preview["changes"]) == 1
+    change = preview["changes"][0]
+    assert change["action"] == "update"
+    assert change["row_id"] == target_row.id
+    assert change["param_name"] == "InputActivityRatio"
+    assert change["technology_name"] == target_technology.name
+    assert change["mode_of_operation_code"] == "1"
+    assert change["old_value"] == 1.0
+    assert change["new_value"] == 0.0
+
+    applied = OfficialImportService.apply_excel_changes(
+        db_session,
+        scenario_id=scenario.id,
+        changes=preview["changes"],
+    )
+    assert applied["updated"] == 1
+    assert applied["inserted"] == 0
+    assert applied["skipped"] == 0
+    db_session.refresh(target_row)
+    assert target_row.value == 0.0
+    assert target_row.id_mode_of_operation == mode_one.id
+
+    wide_page = ScenarioService.list_osemosys_values_wide(
+        db_session,
+        scenario_id=scenario.id,
+        current_user=owner,
+        param_name="InputActivityRatio",
+        param_name_exact=True,
+    )
+    wide_row = next(
+        row for row in wide_page["items"] if row["technology_name"] == target_technology.name
+    )
+    public_wide_row = OsemosysWideRow(**wide_row)
+    assert public_wide_row.mode_of_operation_code == "1"
+    assert public_wide_row.cells["2026"].value == 0.0
 
 
 def test_root_scenario_tracks_changed_param_names(db_session) -> None:

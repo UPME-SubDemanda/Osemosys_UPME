@@ -1585,6 +1585,19 @@ def _preview_sand_matrix_sheet(
                     canonical_modes.add(id_mode)
             for yr in parsed.year_values.keys():
                 canonical_years.add(int(yr))
+        elif pname == "inputactivityratio":
+            # Cero también es un valor válido para actualizar una combinación
+            # existente; sus dimensiones deben entrar al conjunto canónico.
+            if id_region is not None:
+                canonical_regions.add(id_region)
+            if id_technology is not None:
+                canonical_technologies.add(id_technology)
+            if id_fuel is not None:
+                canonical_fuels.add(id_fuel)
+            if id_mode is not None:
+                canonical_modes.add(id_mode)
+            for yr in parsed.year_values.keys():
+                canonical_years.add(int(yr))
         elif pname == "emissionactivityratio":
             if _has_nonzero_value(parsed):
                 if id_region is not None:

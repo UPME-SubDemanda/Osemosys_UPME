@@ -548,6 +548,7 @@ class OsemosysWideRow(BaseModel):
     emission_name: str | None = None
     udc_name: str | None = None
     timeslice_code: str | None = None
+    mode_of_operation_code: str | None = None
     cells: dict[str, OsemosysWideCell]
 
 

@@ -1932,7 +1932,7 @@ export function ScenarioDetailPage() {
                   { label: "Timeslice", filterKey: "timeslice_codes", facetKey: "timeslice_codes" },
                 ];
                 const totalCols =
-                  dimHeaders.length + (scalarShown ? 1 : 0) + yearsShown.length + 1;
+                  dimHeaders.length + 1 + (scalarShown ? 1 : 0) + yearsShown.length + 1;
                 return (
                   <div
                     ref={tableScrollRef}
@@ -1972,6 +1972,20 @@ export function ScenarioDetailPage() {
                               </span>
                             </th>
                           ))}
+                          <th
+                            style={{
+                              textAlign: "left",
+                              fontSize: 13,
+                              padding: "8px 10px",
+                              color: "var(--muted)",
+                              background: "rgba(20,20,24,0.95)",
+                              whiteSpace: "nowrap",
+                              position: "sticky",
+                              top: 0,
+                            }}
+                          >
+                            Modo de operación
+                          </th>
                           {scalarShown ? (
                             <th
                               style={{
@@ -2051,6 +2065,9 @@ export function ScenarioDetailPage() {
                                   title={g.timeslice_code ?? undefined}
                                 >
                                   {g.timeslice_code ?? "—"}
+                                </td>
+                                <td style={{ padding: "4px 10px", fontSize: 13, fontFamily: "monospace" }}>
+                                  {g.mode_of_operation_code ?? "—"}
                                 </td>
                                 {cellKeys.map((yearKey) => {
                                   const cell = g.cells[yearKey];

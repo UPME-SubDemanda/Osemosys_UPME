@@ -20,6 +20,7 @@ from app.db.dialect import osemosys_table as _osemosys_table
 from app.models import (
     Emission,
     Fuel,
+    ModeOfOperation,
     OsemosysParamValue,
     OsemosysParamValueAudit,
     Parameter,
@@ -1557,6 +1558,7 @@ class ScenarioService:
                 Emission.name.label("emission_name"),
                 UdcSet.code.label("udc_name"),
                 Timeslice.code.label("timeslice_code"),
+                ModeOfOperation.code.label("mode_of_operation_code"),
             )
             .outerjoin(Region, OsemosysParamValue.id_region == Region.id)
             .outerjoin(Technology, OsemosysParamValue.id_technology == Technology.id)
@@ -1564,6 +1566,10 @@ class ScenarioService:
             .outerjoin(Emission, OsemosysParamValue.id_emission == Emission.id)
             .outerjoin(UdcSet, OsemosysParamValue.id_udc_set == UdcSet.id)
             .outerjoin(Timeslice, OsemosysParamValue.id_timeslice == Timeslice.id)
+            .outerjoin(
+                ModeOfOperation,
+                OsemosysParamValue.id_mode_of_operation == ModeOfOperation.id,
+            )
             .filter(OsemosysParamValue.id_scenario == scenario_id)
             .filter(or_(*group_conditions))
             .all()
@@ -1600,6 +1606,7 @@ class ScenarioService:
                     "emission_name": r.emission_name,
                     "udc_name": r.udc_name,
                     "timeslice_code": r.timeslice_code,
+                    "mode_of_operation_code": r.mode_of_operation_code,
                     "cells": {},
                 }
                 groups_map[key] = g

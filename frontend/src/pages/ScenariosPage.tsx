@@ -388,7 +388,13 @@ export function ScenariosPage() {
         cantidad: 50,
         offset: 1,
       });
-      setDeleteJobs(res.data);
+      setDeleteJobs(
+        res.data.filter(
+          (job) =>
+            (job.status === "QUEUED" || job.status === "RUNNING") &&
+            job.scenario_id !== null,
+        ),
+      );
     } catch {
       // Sin ruido en UI: es un dato auxiliar de monitoreo.
     }

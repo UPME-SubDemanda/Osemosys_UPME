@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 # Configurada para gap absoluto < 1e-4 (dato real ≪ 1e-4 sería sospechoso de
 # error de captura; precision flotante de DOUBLE PRECISION suele ser ≪ 1e-9).
 NUMERIC_PRECISION_TOL: float = 1e-4
+YEARSPLIT_NORMALIZATION_TOL: float = 1e-9
 
 
 # Pares (lower, upper) con el mismo índice. Si se agregan nuevos pares al
@@ -106,16 +107,61 @@ class YearExclusion:
 
 
 @dataclass
+class YearSplitNormalizationIssue:
+    """YearSplit por año no suma 1.0 (dentro de tolerancia numérica)."""
+
+    year: int
+    total: float
+    deviation: float
+
+    def to_dict(self) -> dict:
+        return {
+            "year": self.year,
+            "total": self.total,
+            "deviation": self.deviation,
+        }
+
+
+@dataclass
+class DemandProfileNormalizationIssue:
+    """SpecifiedDemandProfile por (REGION, FUEL, YEAR) no suma 1.0 cuando total > 0."""
+
+    region: str
+    fuel: str
+    year: int
+    total: float
+    deviation: float
+
+    def to_dict(self) -> dict:
+        return {
+            "region": self.region,
+            "fuel": self.fuel,
+            "year": self.year,
+            "total": self.total,
+            "deviation": self.deviation,
+        }
+
+
+@dataclass
 class DataQualityReport:
     """Reporte agregado de calidad de datos producido durante el procesamiento."""
 
     bound_conflicts: list[BoundConflict] = field(default_factory=list)
     year_exclusions: list[YearExclusion] = field(default_factory=list)
+    yearsplit_issues: list[YearSplitNormalizationIssue] = field(default_factory=list)
+    demand_profile_issues: list[DemandProfileNormalizationIssue] = field(
+        default_factory=list
+    )
     detected_at: str = ""
     detected_during: str = ""  # "excel" | "csv" | "db" | "import" | "manual"
 
     def has_warnings(self) -> bool:
-        return bool(self.bound_conflicts or self.year_exclusions)
+        return bool(
+            self.bound_conflicts
+            or self.year_exclusions
+            or self.yearsplit_issues
+            or self.demand_profile_issues
+        )
 
     def n_real_conflicts(self) -> int:
         return sum(1 for c in self.bound_conflicts if c.severity == "real_conflict")
@@ -129,6 +175,10 @@ class DataQualityReport:
         return {
             "bound_conflicts": [c.to_dict() for c in self.bound_conflicts],
             "year_exclusions": [y.to_dict() for y in self.year_exclusions],
+            "yearsplit_issues": [y.to_dict() for y in self.yearsplit_issues],
+            "demand_profile_issues": [
+                d.to_dict() for d in self.demand_profile_issues
+            ],
             "detected_at": self.detected_at,
             "detected_during": self.detected_during,
             "summary": {
@@ -136,6 +186,8 @@ class DataQualityReport:
                 "n_bound_real_conflict": self.n_real_conflicts(),
                 "n_bound_numeric_precision": self.n_numeric_precision(),
                 "n_year_exclusions": len(self.year_exclusions),
+                "n_yearsplit_issues": len(self.yearsplit_issues),
+                "n_demand_profile_issues": len(self.demand_profile_issues),
             },
         }
 
@@ -149,6 +201,14 @@ class DataQualityReport:
             ],
             year_exclusions=[
                 YearExclusion(**y) for y in d.get("year_exclusions", [])
+            ],
+            yearsplit_issues=[
+                YearSplitNormalizationIssue(**y)
+                for y in d.get("yearsplit_issues", [])
+            ],
+            demand_profile_issues=[
+                DemandProfileNormalizationIssue(**x)
+                for x in d.get("demand_profile_issues", [])
             ],
             detected_at=d.get("detected_at", ""),
             detected_during=d.get("detected_during", ""),
@@ -266,6 +326,73 @@ def detect_dead_years(csv_dir: str | Path) -> list[YearExclusion]:
     return exclusions
 
 
+def detect_yearsplit_not_normalized(
+    csv_dir: str | Path,
+    *,
+    tol: float = YEARSPLIT_NORMALIZATION_TOL,
+) -> list[YearSplitNormalizationIssue]:
+    """Detecta años cuya suma de YearSplit no es 1.0."""
+    csv_dir = Path(csv_dir)
+    ys_path = csv_dir / "YearSplit.csv"
+    if not ys_path.exists():
+        return []
+    df = pd.read_csv(ys_path)
+    if df.empty or "YEAR" not in df.columns or "VALUE" not in df.columns:
+        return []
+    df["VALUE"] = pd.to_numeric(df["VALUE"], errors="coerce").fillna(0.0)
+    df["YEAR"] = pd.to_numeric(df["YEAR"], errors="coerce").astype("Int64")
+    issues: list[YearSplitNormalizationIssue] = []
+    for year, grp in df.groupby("YEAR", dropna=False):
+        total = float(grp["VALUE"].sum())
+        deviation = total - 1.0
+        if abs(deviation) > tol:
+            issues.append(
+                YearSplitNormalizationIssue(
+                    year=int(year),
+                    total=total,
+                    deviation=deviation,
+                )
+            )
+    return issues
+
+
+def detect_demand_profile_not_normalized(
+    csv_dir: str | Path,
+    *,
+    tol: float = YEARSPLIT_NORMALIZATION_TOL,
+) -> list[DemandProfileNormalizationIssue]:
+    """Detecta perfiles de demanda cuya suma no es 1.0 por (REGION, FUEL, YEAR)."""
+    csv_dir = Path(csv_dir)
+    profile_path = csv_dir / "SpecifiedDemandProfile.csv"
+    if not profile_path.exists():
+        return []
+    df = pd.read_csv(profile_path)
+    required = {"REGION", "FUEL", "YEAR", "VALUE"}
+    if df.empty or not required.issubset(df.columns):
+        return []
+    df["VALUE"] = pd.to_numeric(df["VALUE"], errors="coerce").fillna(0.0)
+    df["YEAR"] = pd.to_numeric(df["YEAR"], errors="coerce").astype("Int64")
+    issues: list[DemandProfileNormalizationIssue] = []
+    for (region, fuel, year), grp in df.groupby(
+        ["REGION", "FUEL", "YEAR"], dropna=False
+    ):
+        total = float(grp["VALUE"].sum())
+        if total <= tol:
+            continue
+        deviation = total - 1.0
+        if abs(deviation) > tol:
+            issues.append(
+                DemandProfileNormalizationIssue(
+                    region=str(region),
+                    fuel=str(fuel),
+                    year=int(year),
+                    total=total,
+                    deviation=deviation,
+                )
+            )
+    return issues
+
+
 def build_report(
     csv_dir: str | Path,
     *,
@@ -276,6 +403,8 @@ def build_report(
     return DataQualityReport(
         bound_conflicts=detect_bound_conflicts(csv_dir, tol=tol),
         year_exclusions=detect_dead_years(csv_dir),
+        yearsplit_issues=detect_yearsplit_not_normalized(csv_dir),
+        demand_profile_issues=detect_demand_profile_not_normalized(csv_dir),
         detected_at=datetime.now(timezone.utc).isoformat(),
         detected_during=detected_during,
     )
@@ -431,6 +560,34 @@ def log_report(report: DataQualityReport, *, source: str = "") -> None:
             suffix,
             [e.year for e in report.year_exclusions],
         )
+    if report.yearsplit_issues:
+        logger.warning(
+            "YearSplit no normalizado%s: %d año(s) con suma != 1.0",
+            suffix,
+            len(report.yearsplit_issues),
+        )
+        for issue in report.yearsplit_issues[:10]:
+            logger.warning(
+                "  YEAR=%s total=%.6f deviation=%.6e",
+                issue.year,
+                issue.total,
+                issue.deviation,
+            )
+    if report.demand_profile_issues:
+        logger.warning(
+            "SpecifiedDemandProfile no normalizado%s: %d grupo(s) con suma != 1.0",
+            suffix,
+            len(report.demand_profile_issues),
+        )
+        for issue in report.demand_profile_issues[:10]:
+            logger.warning(
+                "  REGION=%s FUEL=%s YEAR=%s total=%.6f deviation=%.6e",
+                issue.region,
+                issue.fuel,
+                issue.year,
+                issue.total,
+                issue.deviation,
+            )
 
 
 # ====================================================================

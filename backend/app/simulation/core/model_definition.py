@@ -33,6 +33,7 @@ from pyomo.environ import (
     Suffix,
     Var,
     minimize,
+    value,
 )
 
 
@@ -666,9 +667,34 @@ def create_abstract_model(
         rule=TotalNewCapacity_2_rule,
     )
 
+    def _ensure_active_tech_cache(m):
+        """Marca (r,t,y) activos si hay capacidad residual, ratios OAR/IAR o límite inferior."""
+        cache = getattr(m, "_capacity_cache", None)
+        if cache is not None:
+            return cache
+        active: set[tuple] = set()
+        techs_with_ratios: set[tuple] = set()
+        for _r, _t, _f, _mo, _y in m.OutputActivityRatio._data:
+            techs_with_ratios.add((_r, _t, _y))
+        for _r, _t, _f, _mo, _y in m.InputActivityRatio._data:
+            techs_with_ratios.add((_r, _t, _y))
+        for r in m.REGION:
+            for t in m.TECHNOLOGY:
+                for y in m.YEAR:
+                    if value(m.ResidualCapacity[r, t, y]) > 0:
+                        active.add((r, t, y))
+                    elif value(m.TotalTechnologyAnnualActivityLowerLimit[r, t, y]) > 0:
+                        active.add((r, t, y))
+                    elif (r, t, y) in techs_with_ratios:
+                        active.add((r, t, y))
+        m._capacity_cache = active
+        return active
+
     # ConstraintCapacity: en cada (r,l,t,y) la suma de RateOfActivity por modo <=
     # (capacidad nueva acumulada + residual) * CapacityFactor * CapacityToActivityUnit.
     def ConstraintCapacity_rule(m, r, l, t, y):
+        if (r, t, y) not in _ensure_active_tech_cache(m):
+            return Constraint.Skip
         return (
             sum(m.RateOfActivity[r, l, t, mo, y] for mo in m.MODE_OF_OPERATION)
             <= (

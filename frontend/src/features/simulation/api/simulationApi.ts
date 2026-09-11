@@ -602,7 +602,7 @@ export const simulationApi = {
     const response = await httpClient.get(`/visualizations/${jobId}/export-all`, {
       params: { un, fmt },
       responseType: "blob",
-      timeout: 5 * 60 * 1000,
+      timeout: 10 * 60 * 1000,
     });
     return response;
   },

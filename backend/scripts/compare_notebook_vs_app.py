@@ -480,6 +480,7 @@ def run_app_solver(
         instance,
         solver_name=solver_name,
         simulation_type=simulation_type,
+        num_timeslices=len(instance.TIMESLICE),
     )
 
     import pyomo.environ as pyo

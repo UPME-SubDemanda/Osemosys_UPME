@@ -154,11 +154,13 @@ def seed_filter_groups(db: Session) -> dict[str, int]:
                 )
 
     # ── Regional fuel overrides ─────────────────────────────────────────
-    # Regional models use different crude oil naming (e.g. OIL001_1LIV
-    # instead of OIL_1LIV). The ref_ambas filter needs these to match.
+    # Regional models use different naming conventions for fuels
+    # (e.g. OIL001_1LIV instead of OIL_1LIV, HDG001 instead of HDG).
+    # These overrides ensure filters match in regional mode.
     _FUEL_REGIONAL_OVERRIDES: dict[str, list[str]] = {
         "COMBUSTIBLES_REFINERIA_CON_CRUDO": ["OIL001_1LIV", "OIL001_2MED", "OIL001_3PES"],
         "COMBUSTIBLES_REFINERIA_SIN_CRUDO": ["OIL001_1LIV", "OIL001_2MED", "OIL001_3PES"],
+        "COMBUSTIBLES_H2": ["HDG001"],
     }
     for group_code, extra_values in _FUEL_REGIONAL_OVERRIDES.items():
         gid = id_by_code.get(group_code)

@@ -12,7 +12,8 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -1155,22 +1156,42 @@ def export_raw_data(
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Job no encontrado o sin acceso")
 
+    import os
+    import tempfile
+
+    from app.services.simulation_results_export_service import (
+        export_raw_data_to_excel_file,
+    )
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".xlsx", prefix="export_raw_")
+    os.close(fd)
     try:
-        excel_bytes = chart_service.export_raw_data_excel(db=db, job_id=job["id"])
+        export_raw_data_to_excel_file(db, job_id=job["id"], output_path=tmp_path)
     except HTTPException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
         raise
     except Exception as e:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
         logger.exception("Error generando Excel de datos crudos")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     scenario_name = job.get("scenario_name") or f"Job_{job_id}"
     safe_name = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in scenario_name)
     filename = f"Resultados_Crudos_{safe_name}.xlsx"
 
-    return StreamingResponse(
-        excel_bytes,
+    return FileResponse(
+        path=tmp_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        filename=filename,
+        background=BackgroundTask(
+            lambda: os.path.exists(tmp_path) and os.unlink(tmp_path)
+        ),
     )
 
 

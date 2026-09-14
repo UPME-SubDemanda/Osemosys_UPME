@@ -258,7 +258,7 @@ def _cfg_to_db_row(
 ) -> dict[str, Any]:
     filtro_fn = cfg.get("filtro")
     fn_name = getattr(filtro_fn, "__name__", None) if filtro_fn else None
-    spec = FILTER_FN_SPECS.get(fn_name or "", {"group": "TECNOLOGIAS_PWR"})
+    spec = FILTER_FN_SPECS.get(fn_name or "", {})
     filtro_kind = spec.get("kind", "group")
     filtro_group_id = None
     if "group" in spec:

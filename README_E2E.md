@@ -56,12 +56,6 @@ Desde la raiz del repo:
 .\scripts\run-local-api.ps1
 ```
 
-
-Comando docker para actualizar luego de un pull:
-```
-docker compose up -d
-```
-
 Con este flujo:
 
 - se crea `.venv`;

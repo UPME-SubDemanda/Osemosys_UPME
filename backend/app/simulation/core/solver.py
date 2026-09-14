@@ -26,7 +26,6 @@ from pyomo.core import Constraint, Suffix, Var, value
 
 from app.core.config import get_settings
 from app.simulation.core.solver_config import (
-    HIGHS_USE_DEFAULT,
     SolverGlpkConfig,
     SolverHighsConfig,
     apply_glpk_options_to_solver,
@@ -331,31 +330,18 @@ def _apply_simulation_highs_defaults(
     config: SolverHighsConfig,
     *,
     simulation_type: str | None,
-    num_timeslices: int = 1,
 ) -> SolverHighsConfig:
-    """Aplica defaults HiGHS según tipo de simulación y granularidad temporal.
+    """Aplica un método robusto sólo a regionales sin override explícito.
 
-    REGIONAL con múltiples timeslices: simplex + presolve + parallel (crossover
-    por defecto del solver). REGIONAL con un solo timeslice: IPM + crossover,
-    parallel off — más robusto en modelos degenerados históricos.
-    Un método configurado por env/BD siempre conserva precedencia.
+    El simplex dual default es rápido en nacionales y en el regional histórico,
+    pero diverge numéricamente con regionales altamente degenerados. IPM con
+    crossover produjo una base óptima y factible en esos casos. Un método
+    configurado por env/BD siempre conserva precedencia.
     """
     if str(simulation_type or "").strip().upper() != "REGIONAL" or config.method:
         return config
-    if num_timeslices > 1:
-        logger.info(
-            "Modelo REGIONAL con %d timeslices: usando HiGHS simplex",
-            num_timeslices,
-        )
-        return replace(
-            config,
-            method="simplex",
-            presolve=config.presolve or "on",
-            parallel=config.parallel or "on",
-            run_crossover=config.run_crossover or HIGHS_USE_DEFAULT,
-        )
     logger.info(
-        "Modelo REGIONAL con un timeslice: usando HiGHS IPM con crossover"
+        "Modelo REGIONAL sin método explícito: usando HiGHS IPM con crossover"
     )
     return replace(
         config,
@@ -1098,14 +1084,12 @@ def solve_model(
     on_solver_finished: Callable[[pyo.ConcreteModel, Any, Any, dict], None] | None = None,
     on_stage: Callable[[str, float], None] | None = None,
     simulation_type: str | None = None,
-    num_timeslices: int = 1,
 ) -> dict:
     """Resuelve el modelo usando Pyomo SolverFactory o highspy directo."""
     settings = get_settings()
     highs_config = _apply_simulation_highs_defaults(
         resolve_highs_config(settings),
         simulation_type=simulation_type,
-        num_timeslices=num_timeslices,
     )
     glpk_config = resolve_glpk_config(settings)
 

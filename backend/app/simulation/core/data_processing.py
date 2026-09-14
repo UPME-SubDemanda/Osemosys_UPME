@@ -288,30 +288,6 @@ def _get_scenario_processing_mode(db: Session, *, scenario_id: int) -> str:
 #  Paso 1: BD → CSVs (sets + parámetros)
 # ========================================================================
 
-YEARSPLIT_NORMALIZATION_TOL = 1e-9
-
-
-def _log_yearsplit_normalization_warnings(ys_rows: list[dict]) -> None:
-    """Emite warning si algún año no tiene YearSplit que sume 1.0."""
-    if not ys_rows:
-        return
-    sums: dict[object, float] = defaultdict(float)
-    for row in ys_rows:
-        year = row.get("YEAR")
-        try:
-            value = float(row.get("VALUE", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            value = 0.0
-        sums[year] += value
-    for year, total in sorted(sums.items(), key=lambda item: str(item[0])):
-        if abs(total - 1.0) > YEARSPLIT_NORMALIZATION_TOL:
-            logger.warning(
-                "YearSplit no normalizado para YEAR=%s: sum=%.6f (esperado 1.0)",
-                year,
-                total,
-            )
-
-
 def export_scenario_to_csv(
     db: Session,
     *,
@@ -499,18 +475,13 @@ def export_scenario_to_csv(
 
     # Completar YearSplit para todas las combinaciones TIMESLICE x YEAR
     # evitando fallos de Pyomo por índices faltantes.
-    # Los faltantes reciben 0.0 (consistente con osemosys_defaults.yearsplit);
-    # YearSplit debe sumar 1.0 por año — un default de 1.0 rompe la partición.
     ys_rows = param_rows.get("YearSplit", [])
     ys_lookup = {(r.get("TIMESLICE"), r.get("YEAR")): r for r in ys_rows}
     for ts in sorted(sets.get("TIMESLICE", {}).keys()):
         for yy in sorted(sets.get("YEAR", {}).keys()):
             key = (ts, yy)
             if key not in ys_lookup:
-                ys_rows.append({"TIMESLICE": ts, "YEAR": yy, "VALUE": 0.0})
-    param_rows["YearSplit"] = ys_rows
-
-    _log_yearsplit_normalization_warnings(ys_rows)
+                ys_rows.append({"TIMESLICE": ts, "YEAR": yy, "VALUE": 1.0})
 
     # ------------------------------------------------------------------
     # NOTA (refactor 2026-05): la reconciliación silenciosa de pares

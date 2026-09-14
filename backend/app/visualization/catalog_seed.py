@@ -116,6 +116,77 @@ def seed_filter_groups(db: Session) -> dict[str, int]:
                 )
             )
     db.flush()
+
+    # ── Regional technology overrides ───────────────────────────────────
+    # Regional models consolidate sub-technologies (e.g. UPSREF_BAR → UPSREF)
+    # after strip_region(). The isin() filter needs the consolidated name.
+    _REGIONAL_OVERRIDES: dict[str, list[str]] = {
+        "TECNOLOGIAS_REFINERIAS": ["UPSREF"],
+        "TECNOLOGIAS_REFINERIAS_IMPORTACIONES": ["UPSREF"],
+        "TECNOLOGIAS_REFINERIAS_CARTAGENA": ["UPSREF"],
+        "TECNOLOGIAS_REFINERIAS_BAR_CAR": ["UPSREF"],
+        "TECNOLOGIAS_REFINERIAS_IMPORTACIONES_LIQUIDOS": ["UPSREF"],
+    }
+    for group_code, extra_values in _REGIONAL_OVERRIDES.items():
+        gid = id_by_code.get(group_code)
+        if not gid:
+            continue
+        existing = {
+            m.value
+            for m in db.scalars(
+                select(CatalogMetaFilterMember).where(
+                    CatalogMetaFilterMember.group_id == gid
+                )
+            ).all()
+        }
+        for v in extra_values:
+            if v not in existing:
+                db.add(
+                    CatalogMetaFilterMember(
+                        group_id=gid,
+                        member_kind="CODE",
+                        operation="INCLUDE",
+                        entity_type="TECHNOLOGY",
+                        match_mode="EXACT",
+                        value=v,
+                        sort_order=99,
+                    )
+                )
+
+    # ── Regional fuel overrides ─────────────────────────────────────────
+    # Regional models use different crude oil naming (e.g. OIL001_1LIV
+    # instead of OIL_1LIV). The ref_ambas filter needs these to match.
+    _FUEL_REGIONAL_OVERRIDES: dict[str, list[str]] = {
+        "COMBUSTIBLES_REFINERIA_CON_CRUDO": ["OIL001_1LIV", "OIL001_2MED", "OIL001_3PES"],
+        "COMBUSTIBLES_REFINERIA_SIN_CRUDO": ["OIL001_1LIV", "OIL001_2MED", "OIL001_3PES"],
+    }
+    for group_code, extra_values in _FUEL_REGIONAL_OVERRIDES.items():
+        gid = id_by_code.get(group_code)
+        if not gid:
+            continue
+        existing = {
+            m.value
+            for m in db.scalars(
+                select(CatalogMetaFilterMember).where(
+                    CatalogMetaFilterMember.group_id == gid
+                )
+            ).all()
+        }
+        for v in extra_values:
+            if v not in existing:
+                db.add(
+                    CatalogMetaFilterMember(
+                        group_id=gid,
+                        member_kind="CODE",
+                        operation="INCLUDE",
+                        entity_type="FUEL",
+                        match_mode="EXACT",
+                        value=v,
+                        sort_order=99,
+                    )
+                )
+    db.flush()
+
     return id_by_code
 
 

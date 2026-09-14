@@ -5450,56 +5450,27 @@ def export_raw_data_excel(
     db: Session,
     job_id: int,
 ) -> "io.BytesIO":
-    """Exporta todos los datos crudos del job a un archivo Excel (.xlsx)."""
+    """Exporta datos crudos a BytesIO (compatibilidad; preferir FileResponse en API)."""
     import io
+    import os
+    import tempfile
 
-    rows = (
-        db.query(OsemosysOutputParamValue)
-        .filter(OsemosysOutputParamValue.id_simulation_job == job_id)
-        .all()
+    from app.services.simulation_results_export_service import (
+        export_raw_data_to_excel_file,
     )
 
-    if not rows:
-        from fastapi import HTTPException
-
-        raise HTTPException(
-            status_code=404,
-            detail="No hay datos crudos disponibles para este escenario. La simulación puede no haber guardado resultados en la base de datos.",
-        )
-
-    records = []
-    for r in rows:
-        records.append(
-            {
-                "VariableName": r.variable_name,
-                "Technology": r.technology_name or "",
-                "Fuel": r.fuel_name or "",
-                "Emission": r.emission_name or "",
-                "Year": r.year,
-                "Value": float(r.value),
-                "IndexJSON": str(r.index_json) if r.index_json else "",
-            }
-        )
-
-    df = pd.DataFrame(records)
-
-    output = io.BytesIO()
-    from openpyxl.utils import get_column_letter
-
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="Raw Data", index=False)
-        worksheet = writer.sheets["Raw Data"]
-        # Autofit columns without depending on xlsxwriter.
-        for idx, col in enumerate(df):
-            series = df[col]
-            value_len_max = int(
-                series.apply(lambda x: len(str(x)) if pd.notna(x) else 0).max()
-            )
-            max_len = max(value_len_max, len(str(series.name))) + 2
-            worksheet.column_dimensions[get_column_letter(idx + 1)].width = max_len
-
-    output.seek(0)
-    return output
+    fd, tmp_path = tempfile.mkstemp(suffix=".xlsx", prefix="export_raw_")
+    os.close(fd)
+    try:
+        export_raw_data_to_excel_file(db, job_id=job_id, output_path=tmp_path)
+        output = io.BytesIO()
+        with open(tmp_path, "rb") as handle:
+            output.write(handle.read())
+        output.seek(0)
+        return output
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

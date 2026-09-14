@@ -39,29 +39,6 @@ from app.simulation.core.solver import solve_model
 logger = logging.getLogger(__name__)
 
 
-def estimate_model_dimensions(instance) -> dict[str, int]:
-    """Estima cardinalidades del modelo concreto para métricas de pipeline."""
-    n_regions = len(instance.REGION)
-    n_timeslices = len(instance.TIMESLICE)
-    n_technologies = len(instance.TECHNOLOGY)
-    n_years = len(instance.YEAR)
-    n_fuels = len(instance.FUEL)
-    n_modes = len(instance.MODE_OF_OPERATION)
-    return {
-        "timeslices": n_timeslices,
-        "technologies": n_technologies,
-        "years": n_years,
-        "fuels": n_fuels,
-        "modes": n_modes,
-        "est_rate_of_activity_vars": (
-            n_regions * n_timeslices * n_technologies * n_modes * n_years
-        ),
-        "est_constraint_capacity": (
-            n_regions * n_timeslices * n_technologies * n_years
-        ),
-    }
-
-
 def _merge_solver_timings(timings: dict[str, Any], solver_result: dict) -> None:
     """Inyecta sub-etapas y estados del solve en ``model_timings`` del job."""
     st = solver_result.get("solver_timings")
@@ -116,7 +93,6 @@ def _finalize_concrete_instance(
     """Libera el AbstractModel y emite eventos tras ``build_instance``."""
     timings["create_instance_seconds"] = perf_counter() - t_build_start
     timings.update(instance_timings)
-    timings.update(estimate_model_dimensions(instance))
     if on_stage:
         on_stage("create_instance_pyomo", 66.0)
     del model
@@ -268,7 +244,6 @@ def run_osemosys_from_db(
             on_solver_finished=on_solver_finished,
             on_stage=on_stage,
             simulation_type=simulation_type,
-            num_timeslices=len(instance.TIMESLICE),
         )
         timings["solver_seconds"] = perf_counter() - t
         _merge_solver_timings(timings, solver_result)
@@ -488,7 +463,6 @@ def run_osemosys_from_csv_dir(
         on_solver_finished=on_solver_finished,
         on_stage=on_stage,
         simulation_type=simulation_type,
-        num_timeslices=len(instance.TIMESLICE),
     )
     timings["solver_seconds"] = perf_counter() - t
     _merge_solver_timings(timings, solver_result)
@@ -695,7 +669,6 @@ def run_osemosys_from_excel(
             lp_path=lp_path,
             on_stage=on_stage,
             simulation_type=simulation_type,
-            num_timeslices=len(instance.TIMESLICE),
         )
         timings["solver_seconds"] = perf_counter() - t
         _merge_solver_timings(timings, solver_result)

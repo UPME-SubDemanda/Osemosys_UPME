@@ -127,23 +127,10 @@ def test_regional_defaults_use_ipm_with_crossover() -> None:
     cfg = solver_module._apply_simulation_highs_defaults(
         SolverHighsConfig(),
         simulation_type="REGIONAL",
-        num_timeslices=1,
     )
     assert cfg.method == "ipm"
     assert cfg.run_crossover == "on"
     assert cfg.parallel == "off"
-
-
-def test_regional_with_timeslices_uses_simplex() -> None:
-    cfg = solver_module._apply_simulation_highs_defaults(
-        SolverHighsConfig(),
-        simulation_type="REGIONAL",
-        num_timeslices=96,
-    )
-    assert cfg.method == "simplex"
-    assert cfg.presolve == "on"
-    assert cfg.parallel == "on"
-    assert cfg.run_crossover == ""
 
 
 def test_regional_defaults_preserve_explicit_method() -> None:

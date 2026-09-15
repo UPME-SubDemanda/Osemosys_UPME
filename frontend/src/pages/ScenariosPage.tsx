@@ -780,7 +780,10 @@ export function ScenariosPage() {
       URL.revokeObjectURL(url);
       push("Descarga iniciada.", "success");
     } catch (err) {
-      push(err instanceof Error ? err.message : "No se pudo descargar el Excel.", "error");
+      push(
+        isApiError(err) ? err.message : err instanceof Error ? err.message : "No se pudo descargar el Excel.",
+        "error",
+      );
     } finally {
       setDownloadingScenarioId(null);
     }

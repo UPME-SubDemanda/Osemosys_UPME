@@ -495,6 +495,15 @@ _color_bioenergia      = _make_color_fn_fija(COLOR_MAP_BIOENERGIA)
 _color_gas_produccion  = _make_color_fn_fija(COLOR_MAP_GAS_PROD)
 _color_liquidos_import = _make_color_fn_fija(COLOR_MAP_LIQUIDOS_IMPORT)
 
+# Asignar __name__ único a cada closure para que COLOR_FN_NAME_TO_KEY
+# (configs_registry.py) genere el key correcto al sembrar el catálogo BD.
+_color_electrolisis.__name__    = "_color_electrolisis"
+_color_h2_produccion.__name__   = "_color_h2_produccion"
+_color_h2_consumo.__name__      = "_color_h2_consumo"
+_color_bioenergia.__name__      = "_color_bioenergia"
+_color_gas_produccion.__name__  = "_color_gas_produccion"
+_color_liquidos_import.__name__ = "_color_liquidos_import"
+
 
 # Paleta fija para agrupación TRANSPORTE_GRUPO
 def _color_transporte_grupo(df, columna: str = "COLOR"):

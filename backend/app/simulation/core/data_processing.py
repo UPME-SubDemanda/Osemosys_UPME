@@ -218,6 +218,63 @@ def _resolved_query():
     """)
 
 
+def _resolved_query_for_sand_export():
+    """Igual que ``_resolved_query`` pero ordenado por clave SAND para export single-pass."""
+    p = osemosys_table("osemosys_param_value")
+    region = osemosys_table("region")
+    technology = osemosys_table("technology")
+    fuel = osemosys_table("fuel")
+    emission = osemosys_table("emission")
+    timeslice = osemosys_table("timeslice")
+    mode_of_operation = osemosys_table("mode_of_operation")
+    season = osemosys_table("season")
+    daytype = osemosys_table("daytype")
+    dailytimebracket = osemosys_table("dailytimebracket")
+    storage_set = osemosys_table("storage_set")
+    udc_set = osemosys_table("udc_set")
+    return text(f"""
+        SELECT
+            p.param_name,
+            r.name       AS region,
+            t.name       AS technology,
+            f.name       AS fuel,
+            e.name       AS emission,
+            ts.code      AS timeslice,
+            mo.code      AS mode_of_operation,
+            s.code       AS season,
+            dt.code      AS daytype,
+            dtb.code     AS dailytimebracket,
+            st.code      AS storage,
+            u.code       AS udc,
+            p.year,
+            p.value
+        FROM {p} p
+        LEFT JOIN {region} r             ON p.id_region = r.id
+        LEFT JOIN {technology} t         ON p.id_technology = t.id
+        LEFT JOIN {fuel} f               ON p.id_fuel = f.id
+        LEFT JOIN {emission} e           ON p.id_emission = e.id
+        LEFT JOIN {timeslice} ts         ON p.id_timeslice = ts.id
+        LEFT JOIN {mode_of_operation} mo ON p.id_mode_of_operation = mo.id
+        LEFT JOIN {season} s             ON p.id_season = s.id
+        LEFT JOIN {daytype} dt           ON p.id_daytype = dt.id
+        LEFT JOIN {dailytimebracket} dtb ON p.id_dailytimebracket = dtb.id
+        LEFT JOIN {storage_set} st       ON p.id_storage_set = st.id
+        LEFT JOIN {udc_set} u            ON p.id_udc_set = u.id
+        WHERE p.id_scenario = :scenario_id
+        ORDER BY
+            p.param_name,
+            COALESCE(r.name, ''),
+            COALESCE(t.name, ''),
+            COALESCE(e.name, ''),
+            COALESCE(mo.code, ''),
+            COALESCE(f.name, ''),
+            COALESCE(ts.code, ''),
+            COALESCE(st.code, ''),
+            p.year NULLS FIRST,
+            p.id
+    """)
+
+
 # Para cada set OSeMOSYS: (nombre_set, modelo SQLAlchemy, atributo para el valor).
 # Se usa en _load_catalog_lookups para mapear id <-> nombre/código.
 _CATALOG_MAP: list[tuple[str, type, str]] = [

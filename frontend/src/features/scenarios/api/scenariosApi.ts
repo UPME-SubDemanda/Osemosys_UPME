@@ -682,6 +682,7 @@ export const scenariosApi = {
     const { data, headers } = await httpClient.get(`/scenarios/${scenarioId}/export-excel`, {
       responseType: "blob",
       params: { format },
+      timeout: 1_800_000,
     });
     const blob = data as Blob;
     const disposition = headers["content-disposition"];

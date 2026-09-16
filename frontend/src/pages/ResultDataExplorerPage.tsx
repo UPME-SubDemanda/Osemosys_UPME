@@ -213,7 +213,7 @@ export function ResultDataExplorerPage() {
     let cancelled = false;
     setFacetsLoading(true);
     resultsDataApi
-      .listOutputWideFacets(jobId, { ...buildFilters(), limit_per_column: 500 })
+      .listOutputWideFacets(jobId, { ...buildFilters(), limit_per_column: 2000 })
       .then((resp) => {
         if (!cancelled) setFacets(resp);
       })

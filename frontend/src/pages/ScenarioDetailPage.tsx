@@ -16,6 +16,7 @@
  *
  * La visibilidad de acciones depende de la política del escenario (OWNER_ONLY, OPEN, RESTRICTED).
  */
+import { isApiError } from "@/shared/errors/ApiError";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useCurrentUser } from "@/app/providers/useCurrentUser";
@@ -1274,7 +1275,10 @@ export function ScenarioDetailPage() {
       URL.revokeObjectURL(url);
       push(`Descarga ${format.toUpperCase()} iniciada.`, "success");
     } catch (err) {
-      push(err instanceof Error ? err.message : "No se pudo descargar el Excel.", "error");
+      push(
+        isApiError(err) ? err.message : err instanceof Error ? err.message : "No se pudo descargar el Excel.",
+        "error",
+      );
     } finally {
       setExcelDownloading(false);
     }

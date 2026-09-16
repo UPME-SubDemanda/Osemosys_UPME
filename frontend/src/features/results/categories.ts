@@ -379,15 +379,19 @@ export const CATEGORIES: Category[] = [
 /**
  * Resuelve `technology_prefixes` contra la lista disponible de tecnologías
  * (facets). Devuelve sólo los nombres que empiezan por algún prefijo.
+ * En modo REGIONAL los nombres tienen prefijo geográfico (AN_, CA_, etc.);
+ * se strippea automáticamente antes de matchear.
  */
 export function resolveTechnologyNames(
   prefixes: readonly string[] | undefined,
   available: readonly string[],
 ): string[] {
   if (!prefixes || prefixes.length === 0) return [];
-  return available.filter((name) =>
-    prefixes.some((p) => name.startsWith(p)),
-  );
+  const hasRegionalPrefix = available.some((n) => /^[A-Z]{2}_/.test(n));
+  return available.filter((name) => {
+    const effective = hasRegionalPrefix ? name.replace(/^[A-Z]{2}_/, "") : name;
+    return prefixes.some((p) => effective.startsWith(p));
+  });
 }
 
 /** Idéntico a resolveTechnologyNames pero para combustibles. */

@@ -66,6 +66,10 @@ export type OsemosysWideRow = {
   udc_name: string | null;
   timeslice_code: string | null;
   mode_of_operation_code: string | null;
+  season_code: string | null;
+  daytype_code: string | null;
+  dailytimebracket_code: string | null;
+  storage_code: string | null;
   cells: Record<string, OsemosysWideCell>;
 };
 
@@ -86,6 +90,11 @@ export type OsemosysWideFacets = {
   emission_names: string[];
   udc_names: string[];
   timeslice_codes: string[];
+  mode_codes: string[];
+  season_codes: string[];
+  daytype_codes: string[];
+  dailytimebracket_codes: string[];
+  storage_codes: string[];
 };
 
 export type OsemosysWideFilters = {
@@ -96,6 +105,11 @@ export type OsemosysWideFilters = {
   emission_names?: string[];
   udc_names?: string[];
   timeslice_codes?: string[];
+  mode_codes?: string[];
+  season_codes?: string[];
+  daytype_codes?: string[];
+  dailytimebracket_codes?: string[];
+  storage_codes?: string[];
   /** Reglas sobre años, serializadas como `year:op[:value]` separados por coma. */
   year_rules?: string;
 };
@@ -990,7 +1004,7 @@ export const scenariosApi = {
     } & OsemosysWideFilters = {},
   ) => {
     // Serializa listas como CSV; axios de otro modo emite `?k[]=a&k[]=b`.
-    const { param_names, region_names, technology_names, fuel_names, emission_names, udc_names, timeslice_codes, ...rest } = params;
+     const { param_names, region_names, technology_names, fuel_names, emission_names, udc_names, timeslice_codes, mode_codes, season_codes, daytype_codes, dailytimebracket_codes, storage_codes, ...rest } = params;
     const csv = (v?: string[]) => (v && v.length ? v.join(",") : undefined);
     return httpClient
       .get<OsemosysValuesWidePage>(`/scenarios/${scenarioId}/osemosys-values/wide`, {
@@ -1002,7 +1016,12 @@ export const scenariosApi = {
           ...(csv(fuel_names) ? { fuel_names: csv(fuel_names) } : {}),
           ...(csv(emission_names) ? { emission_names: csv(emission_names) } : {}),
           ...(csv(udc_names) ? { udc_names: csv(udc_names) } : {}),
-          ...(csv(timeslice_codes) ? { timeslice_codes: csv(timeslice_codes) } : {}),
+           ...(csv(timeslice_codes) ? { timeslice_codes: csv(timeslice_codes) } : {}),
+           ...(csv(mode_codes) ? { mode_codes: csv(mode_codes) } : {}),
+           ...(csv(season_codes) ? { season_codes: csv(season_codes) } : {}),
+           ...(csv(daytype_codes) ? { daytype_codes: csv(daytype_codes) } : {}),
+           ...(csv(dailytimebracket_codes) ? { dailytimebracket_codes: csv(dailytimebracket_codes) } : {}),
+           ...(csv(storage_codes) ? { storage_codes: csv(storage_codes) } : {}),
         },
       })
       .then((r) => r.data);
@@ -1016,7 +1035,7 @@ export const scenariosApi = {
       limit_per_column?: number;
     } & OsemosysWideFilters = {},
   ) => {
-    const { param_names, region_names, technology_names, fuel_names, emission_names, udc_names, timeslice_codes, year_rules, ...rest } = params;
+     const { param_names, region_names, technology_names, fuel_names, emission_names, udc_names, timeslice_codes, mode_codes, season_codes, daytype_codes, dailytimebracket_codes, storage_codes, year_rules, ...rest } = params;
     const csv = (v?: string[]) => (v && v.length ? v.join(",") : undefined);
     return httpClient
       .get<OsemosysWideFacets>(`/scenarios/${scenarioId}/osemosys-values/wide/facets`, {
@@ -1028,7 +1047,12 @@ export const scenariosApi = {
           ...(csv(fuel_names) ? { fuel_names: csv(fuel_names) } : {}),
           ...(csv(emission_names) ? { emission_names: csv(emission_names) } : {}),
           ...(csv(udc_names) ? { udc_names: csv(udc_names) } : {}),
-          ...(csv(timeslice_codes) ? { timeslice_codes: csv(timeslice_codes) } : {}),
+           ...(csv(timeslice_codes) ? { timeslice_codes: csv(timeslice_codes) } : {}),
+           ...(csv(mode_codes) ? { mode_codes: csv(mode_codes) } : {}),
+           ...(csv(season_codes) ? { season_codes: csv(season_codes) } : {}),
+           ...(csv(daytype_codes) ? { daytype_codes: csv(daytype_codes) } : {}),
+           ...(csv(dailytimebracket_codes) ? { dailytimebracket_codes: csv(dailytimebracket_codes) } : {}),
+           ...(csv(storage_codes) ? { storage_codes: csv(storage_codes) } : {}),
           ...(year_rules ? { year_rules } : {}),
         },
       })

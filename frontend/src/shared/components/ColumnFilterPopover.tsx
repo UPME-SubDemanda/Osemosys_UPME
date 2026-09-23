@@ -56,7 +56,12 @@ export function ColumnFilterPopover({
     let left = rect.left;
     const maxLeft = window.innerWidth - popoverWidth - margin;
     if (left > maxLeft) left = Math.max(margin, maxLeft);
-    setPos({ top: rect.bottom + 4, left });
+    const estimatedHeight = Math.min(420, Math.max(150, options.length * 32 + 100));
+    const below = rect.bottom + 4;
+    const top = below + estimatedHeight <= window.innerHeight - margin
+      ? below
+      : Math.max(margin, rect.top - estimatedHeight - 4);
+    setPos({ top, left });
   };
 
   useLayoutEffect(() => {

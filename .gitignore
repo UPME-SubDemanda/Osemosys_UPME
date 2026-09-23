@@ -163,3 +163,8 @@ skills-lock.json
 
 # Backups locales del agente
 .pi-backups/
+
+# ──────────────────────────────────────────────
+# Pruebas E2E / Playwright locales
+# ──────────────────────────────────────────────
+.playwright-mcp/

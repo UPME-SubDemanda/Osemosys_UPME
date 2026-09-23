@@ -21,6 +21,10 @@ from app.models import (
     Emission,
     Fuel,
     ModeOfOperation,
+    Season,
+    Daytype,
+    Dailytimebracket,
+    StorageSet,
     OsemosysParamValue,
     OsemosysParamValueAudit,
     Parameter,
@@ -1185,6 +1189,11 @@ class ScenarioService:
         emission_names: list[str] | None,
         udc_names: list[str] | None,
         timeslice_codes: list[str] | None = None,
+        mode_codes: list[str] | None = None,
+        season_codes: list[str] | None = None,
+        daytype_codes: list[str] | None = None,
+        dailytimebracket_codes: list[str] | None = None,
+        storage_codes: list[str] | None = None,
         year_rules: list[tuple[int, str, float | None]] | None = None,
         skip_column: str | None = None,
     ) -> tuple[list, bool]:
@@ -1262,6 +1271,11 @@ class ScenarioService:
             ("emission", OsemosysParamValue.id_emission, Emission, Emission.name, emission_names),
             ("udc", OsemosysParamValue.id_udc_set, UdcSet, UdcSet.code, udc_names),
             ("timeslice", OsemosysParamValue.id_timeslice, Timeslice, Timeslice.code, timeslice_codes),
+            ("mode", OsemosysParamValue.id_mode_of_operation, ModeOfOperation, ModeOfOperation.code, mode_codes),
+            ("season", OsemosysParamValue.id_season, Season, Season.code, season_codes),
+            ("daytype", OsemosysParamValue.id_daytype, Daytype, Daytype.code, daytype_codes),
+            ("dailytimebracket", OsemosysParamValue.id_dailytimebracket, Dailytimebracket, Dailytimebracket.code, dailytimebracket_codes),
+            ("storage", OsemosysParamValue.id_storage_set, StorageSet, StorageSet.code, storage_codes),
         ]
         for col_key, id_col, model, name_col, raw in column_specs:
             if skip_column == col_key:
@@ -1383,6 +1397,11 @@ class ScenarioService:
         emission_names: list[str] | None = None,
         udc_names: list[str] | None = None,
         timeslice_codes: list[str] | None = None,
+        mode_codes: list[str] | None = None,
+        season_codes: list[str] | None = None,
+        daytype_codes: list[str] | None = None,
+        dailytimebracket_codes: list[str] | None = None,
+        storage_codes: list[str] | None = None,
         year_rules: list[tuple[int, str, float | None]] | None = None,
         offset: int = 0,
         limit: int = 50,
@@ -1438,6 +1457,11 @@ class ScenarioService:
             emission_names=emission_names,
             udc_names=udc_names,
             timeslice_codes=timeslice_codes,
+            mode_codes=mode_codes,
+            season_codes=season_codes,
+            daytype_codes=daytype_codes,
+            dailytimebracket_codes=dailytimebracket_codes,
+            storage_codes=storage_codes,
             year_rules=year_rules,
         )
         # Para step 4 (años de surviving groups) NO aplicamos year_rules:
@@ -1455,6 +1479,11 @@ class ScenarioService:
             emission_names=emission_names,
             udc_names=udc_names,
             timeslice_codes=timeslice_codes,
+            mode_codes=mode_codes,
+            season_codes=season_codes,
+            daytype_codes=daytype_codes,
+            dailytimebracket_codes=dailytimebracket_codes,
+            storage_codes=storage_codes,
             year_rules=None,
         )
         search_term = (search or "").strip()
@@ -1471,6 +1500,11 @@ class ScenarioService:
                     .outerjoin(Emission, OsemosysParamValue.id_emission == Emission.id)
                     .outerjoin(UdcSet, OsemosysParamValue.id_udc_set == UdcSet.id)
                     .outerjoin(Timeslice, OsemosysParamValue.id_timeslice == Timeslice.id)
+                    .outerjoin(ModeOfOperation, OsemosysParamValue.id_mode_of_operation == ModeOfOperation.id)
+                    .outerjoin(Season, OsemosysParamValue.id_season == Season.id)
+                    .outerjoin(Daytype, OsemosysParamValue.id_daytype == Daytype.id)
+                    .outerjoin(Dailytimebracket, OsemosysParamValue.id_dailytimebracket == Dailytimebracket.id)
+                    .outerjoin(StorageSet, OsemosysParamValue.id_storage_set == StorageSet.id)
                 )
                 term = f"%{search_term}%"
                 q = q.filter(
@@ -1559,6 +1593,10 @@ class ScenarioService:
                 UdcSet.code.label("udc_name"),
                 Timeslice.code.label("timeslice_code"),
                 ModeOfOperation.code.label("mode_of_operation_code"),
+                Season.code.label("season_code"),
+                Daytype.code.label("daytype_code"),
+                Dailytimebracket.code.label("dailytimebracket_code"),
+                StorageSet.code.label("storage_code"),
             )
             .outerjoin(Region, OsemosysParamValue.id_region == Region.id)
             .outerjoin(Technology, OsemosysParamValue.id_technology == Technology.id)
@@ -1570,6 +1608,10 @@ class ScenarioService:
                 ModeOfOperation,
                 OsemosysParamValue.id_mode_of_operation == ModeOfOperation.id,
             )
+            .outerjoin(Season, OsemosysParamValue.id_season == Season.id)
+            .outerjoin(Daytype, OsemosysParamValue.id_daytype == Daytype.id)
+            .outerjoin(Dailytimebracket, OsemosysParamValue.id_dailytimebracket == Dailytimebracket.id)
+            .outerjoin(StorageSet, OsemosysParamValue.id_storage_set == StorageSet.id)
             .filter(OsemosysParamValue.id_scenario == scenario_id)
             .filter(or_(*group_conditions))
             .all()
@@ -1607,6 +1649,10 @@ class ScenarioService:
                     "udc_name": r.udc_name,
                     "timeslice_code": r.timeslice_code,
                     "mode_of_operation_code": r.mode_of_operation_code,
+                    "season_code": r.season_code,
+                    "daytype_code": r.daytype_code,
+                    "dailytimebracket_code": r.dailytimebracket_code,
+                    "storage_code": r.storage_code,
                     "cells": {},
                 }
                 groups_map[key] = g
@@ -1651,8 +1697,13 @@ class ScenarioService:
         emission_names: list[str] | None = None,
         udc_names: list[str] | None = None,
         timeslice_codes: list[str] | None = None,
+        mode_codes: list[str] | None = None,
+        season_codes: list[str] | None = None,
+        daytype_codes: list[str] | None = None,
+        dailytimebracket_codes: list[str] | None = None,
+        storage_codes: list[str] | None = None,
         year_rules: list[tuple[int, str, float | None]] | None = None,
-        limit_per_column: int = 500,
+        limit_per_column: int = 50000,
     ) -> dict:
         """Valores únicos por columna para el popover de filtros (exclude-self).
 
@@ -1666,7 +1717,7 @@ class ScenarioService:
         """
         ScenarioService._require_access(db, scenario_id=scenario_id, current_user=current_user)
 
-        safe_limit = max(10, min(limit_per_column, 5000))
+        safe_limit = max(10, min(limit_per_column, 50000))
 
         def _build_filtered_query(value_col, column_key: str, needs_catalog_join: bool):
             clauses, needs_search_joins = ScenarioService._wide_filter_clauses(
@@ -1682,6 +1733,11 @@ class ScenarioService:
                 emission_names=emission_names,
                 udc_names=udc_names,
                 timeslice_codes=timeslice_codes,
+                mode_codes=mode_codes,
+                season_codes=season_codes,
+                daytype_codes=daytype_codes,
+                dailytimebracket_codes=dailytimebracket_codes,
+                storage_codes=storage_codes,
                 year_rules=year_rules,
                 skip_column=column_key,
             )
@@ -1699,6 +1755,11 @@ class ScenarioService:
                     .outerjoin(Emission, OsemosysParamValue.id_emission == Emission.id)
                     .outerjoin(UdcSet, OsemosysParamValue.id_udc_set == UdcSet.id)
                     .outerjoin(Timeslice, OsemosysParamValue.id_timeslice == Timeslice.id)
+                    .outerjoin(ModeOfOperation, OsemosysParamValue.id_mode_of_operation == ModeOfOperation.id)
+                    .outerjoin(Season, OsemosysParamValue.id_season == Season.id)
+                    .outerjoin(Daytype, OsemosysParamValue.id_daytype == Daytype.id)
+                    .outerjoin(Dailytimebracket, OsemosysParamValue.id_dailytimebracket == Dailytimebracket.id)
+                    .outerjoin(StorageSet, OsemosysParamValue.id_storage_set == StorageSet.id)
                 )
             if needs_search_joins:
                 term = f"%{(search or '').strip()}%"
@@ -1763,6 +1824,11 @@ class ScenarioService:
                 needs_catalog_join=True,
                 can_be_null=True,
             ),
+            "mode_codes": _facet("mode", ModeOfOperation.code, OsemosysParamValue.id_mode_of_operation, True, True),
+            "season_codes": _facet("season", Season.code, OsemosysParamValue.id_season, True, True),
+            "daytype_codes": _facet("daytype", Daytype.code, OsemosysParamValue.id_daytype, True, True),
+            "dailytimebracket_codes": _facet("dailytimebracket", Dailytimebracket.code, OsemosysParamValue.id_dailytimebracket, True, True),
+            "storage_codes": _facet("storage", StorageSet.code, OsemosysParamValue.id_storage_set, True, True),
         }
 
     @staticmethod

@@ -1496,7 +1496,7 @@ def _preview_sand_matrix_sheet(
             return abs(float(parsed.time_indep_val)) > 1e-12
         return any(abs(float(v)) > 1e-12 for v in parsed.year_values.values())
 
-    logger.info("⏳ [3/3] Derivando sets canónicos del SAND para filtrar preview...")
+    logger.info("⏳ [3/3] Determinando el alcance de comparación del SAND...")
     sets_start_time = time.time()
     canonical_regions: set[int] = set()
     canonical_technologies: set[int] = set()
@@ -1617,23 +1617,28 @@ def _preview_sand_matrix_sheet(
                 if id_technology is not None:
                     canonical_technologies.add(id_technology)
 
-    if not canonical_regions or not canonical_years:
-        canonical_regions.update(all_regions)
-        canonical_years.update(all_years)
-    if not canonical_timeslices:
-        canonical_timeslices.update(all_timeslices)
-    if not canonical_technologies:
-        canonical_technologies.update(all_technologies)
-    if not canonical_fuels:
-        canonical_fuels.update(all_fuels)
-    if not canonical_modes:
-        canonical_modes.update(all_modes)
-    if not canonical_emissions:
-        canonical_emissions.update(all_emissions)
-    if not canonical_storages:
-        canonical_storages.update(storage_map.values())
-    if not canonical_udcs:
-        canonical_udcs.update(udc_map.values())
+    # The preview is a comparison of the uploaded workbook against the
+    # scenario, not a model validation pass.  Every dimension resolved from a
+    # row in the workbook must reach `_try_preview`, otherwise a valid row
+    # that only introduces a new parameter/dimension combination can never be
+    # reported as an INSERT.  The previous implementation built these sets
+    # from a small subset of parameters (for example OutputActivityRatio) and
+    # silently discarded rows such as:
+    #
+    #   TotalTechnologyAnnualActivityLowerLimit / SE_DEMINDCOABOI_MID
+    #
+    # Use all resolved values from the workbook for the comparison scope.
+    # Unknown catalog values still resolve to None and are handled by the
+    # existing insert/apply validation path; they must not be hidden here.
+    canonical_regions = set(all_regions)
+    canonical_technologies = set(all_technologies)
+    canonical_fuels = set(all_fuels)
+    canonical_emissions = set(all_emissions)
+    canonical_timeslices = set(all_timeslices)
+    canonical_modes = set(all_modes)
+    canonical_years = set(all_years)
+    canonical_storages = set(storage_map.values())
+    canonical_udcs = set(udc_map.values())
 
     canonical_sets = {
         "region": canonical_regions,
@@ -1660,23 +1665,16 @@ def _preview_sand_matrix_sheet(
     )
 
     def _passes_canonical_filter(parsed) -> bool:
-        ids = parsed.ids
-        checks = [
-            ("id_region", "region"),
-            ("id_technology", "technology"),
-            ("id_fuel", "fuel"),
-            ("id_emission", "emission"),
-            ("id_timeslice", "timeslice"),
-            ("id_mode_of_operation", "mode_of_operation"),
-        ]
-        for id_key, set_key in checks:
-            id_value = ids.get(id_key)
-            valid_ids = canonical_sets.get(set_key)
-            if id_value is not None and valid_ids and id_value not in valid_ids:
-                return False
+        """Keep every parsed workbook row in the comparison.
+
+        This function name is retained to avoid changing the surrounding
+        processing flow and its diagnostics.  Filtering rows here was the
+        source of missing INSERT previews: membership in a parameter-derived
+        "canonical" set is not evidence that an Excel row is invalid.
+        """
         return True
 
-    logger.info("⏳ [preview] Procesando filas y calculando diferencias (post-filtro canónico)...")
+    logger.info("⏳ [preview] Procesando todas las filas y calculando diferencias...")
     parse_start_time = time.time()
     parsed_rows_count = 0
     grouped_rows_count = 0

@@ -127,6 +127,8 @@ export function ScenarioDetailPage() {
   const [filtersFromDataQuality, setFiltersFromDataQuality] = useState(false);
   const [loading, setLoading] = useState(true);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wideRequestSeqRef = useRef(0);
+  const facetRequestSeqRef = useRef(0);
 
   const [openOsemosysModal, setOpenOsemosysModal] = useState(false);
   const [editingOsemosys, setEditingOsemosys] = useState<OsemosysValueRow | null>(null);
@@ -340,6 +342,7 @@ export function ScenarioDetailPage() {
       colFilters: OsemosysWideFilters = {},
     ) => {
       setOsemosysLoading(true);
+      const requestSeq = ++wideRequestSeqRef.current;
       try {
         const offset = (page - 1) * pageSize;
         const res = await scenariosApi.listOsemosysValuesWide(scId, {
@@ -349,6 +352,7 @@ export function ScenarioDetailPage() {
           ...(paramName.trim() ? { param_name: paramName.trim() } : {}),
           ...colFilters,
         });
+        if (requestSeq !== wideRequestSeqRef.current) return;
         setOsemosysWideRows(res.items);
         setOsemosysWideYears(res.years);
         setOsemosysHasScalar(res.has_scalar);
@@ -375,12 +379,14 @@ export function ScenarioDetailPage() {
   const fetchFacets = useCallback(
     async (scId: number, searchTerm: string, paramName: string, colFilters: OsemosysWideFilters) => {
       setFacetsLoading(true);
+      const requestSeq = ++facetRequestSeqRef.current;
       try {
         const res = await scenariosApi.listOsemosysWideFacets(scId, {
           ...(searchTerm.trim() ? { search: searchTerm.trim() } : {}),
           ...(paramName.trim() ? { param_name: paramName.trim() } : {}),
           ...colFilters,
         });
+        if (requestSeq !== facetRequestSeqRef.current) return;
         setFacets(res);
       } catch (err) {
         push(err instanceof Error ? err.message : "Error cargando filtros.", "error");
@@ -1846,7 +1852,7 @@ export function ScenarioDetailPage() {
               <span style={{ fontSize: 12, opacity: 0.85, fontWeight: 600 }}>
                 Filtros activos:
               </span>
-              {(["param_names", "region_names", "technology_names", "fuel_names", "emission_names", "udc_names", "timeslice_codes"] as const).map(
+              {(["param_names", "region_names", "technology_names", "fuel_names", "emission_names", "udc_names", "timeslice_codes", "mode_codes", "season_codes", "daytype_codes", "dailytimebracket_codes", "storage_codes"] as const).map(
                 (col) => {
                   const values = columnFilters[col];
                   if (!Array.isArray(values) || values.length === 0) return null;
@@ -1858,6 +1864,11 @@ export function ScenarioDetailPage() {
                     emission_names: "Emisión",
                     udc_names: "UDC",
                     timeslice_codes: "Timeslice",
+                    mode_codes: "Modo",
+                    season_codes: "Season",
+                    daytype_codes: "Daytype",
+                    dailytimebracket_codes: "Franja horaria",
+                    storage_codes: "Storage",
                   };
                   return (
                     <FilterChip
@@ -1925,7 +1936,12 @@ export function ScenarioDetailPage() {
                   | "fuel_names"
                   | "emission_names"
                   | "udc_names"
-                  | "timeslice_codes";
+                   | "timeslice_codes"
+                   | "mode_codes"
+                   | "season_codes"
+                   | "daytype_codes"
+                   | "dailytimebracket_codes"
+                   | "storage_codes";
                 const dimHeaders: { label: string; filterKey: CatColKey; facetKey: keyof OsemosysWideFacets }[] = [
                   { label: "Parámetro", filterKey: "param_names", facetKey: "param_names" },
                   { label: "Región", filterKey: "region_names", facetKey: "region_names" },
@@ -1934,9 +1950,13 @@ export function ScenarioDetailPage() {
                   { label: "Emisión", filterKey: "emission_names", facetKey: "emission_names" },
                   { label: "UDC", filterKey: "udc_names", facetKey: "udc_names" },
                   { label: "Timeslice", filterKey: "timeslice_codes", facetKey: "timeslice_codes" },
+                  { label: "Modo", filterKey: "mode_codes", facetKey: "mode_codes" },
+                  { label: "Season", filterKey: "season_codes", facetKey: "season_codes" },
+                  { label: "Daytype", filterKey: "daytype_codes", facetKey: "daytype_codes" },
+                  { label: "Franja horaria", filterKey: "dailytimebracket_codes", facetKey: "dailytimebracket_codes" },
+                  { label: "Storage", filterKey: "storage_codes", facetKey: "storage_codes" },
                 ];
-                const totalCols =
-                  dimHeaders.length + 1 + (scalarShown ? 1 : 0) + yearsShown.length + 1;
+                 const totalCols = dimHeaders.length + (scalarShown ? 1 : 0) + yearsShown.length + 1;
                 return (
                   <div
                     ref={tableScrollRef}
@@ -1976,20 +1996,6 @@ export function ScenarioDetailPage() {
                               </span>
                             </th>
                           ))}
-                          <th
-                            style={{
-                              textAlign: "left",
-                              fontSize: 13,
-                              padding: "8px 10px",
-                              color: "var(--muted)",
-                              background: "rgba(20,20,24,0.95)",
-                              whiteSpace: "nowrap",
-                              position: "sticky",
-                              top: 0,
-                            }}
-                          >
-                            Modo de operación
-                          </th>
                           {scalarShown ? (
                             <th
                               style={{
@@ -2070,9 +2076,13 @@ export function ScenarioDetailPage() {
                                 >
                                   {g.timeslice_code ?? "—"}
                                 </td>
-                                <td style={{ padding: "4px 10px", fontSize: 13, fontFamily: "monospace" }}>
-                                  {g.mode_of_operation_code ?? "—"}
-                                </td>
+                                 <td style={{ padding: "4px 10px", fontSize: 13, fontFamily: "monospace" }}>
+                                   {g.mode_of_operation_code ?? "—"}
+                                 </td>
+                                 <td style={{ padding: "4px 10px", fontSize: 13, fontFamily: "monospace" }}>{g.season_code ?? "—"}</td>
+                                 <td style={{ padding: "4px 10px", fontSize: 13, fontFamily: "monospace" }}>{g.daytype_code ?? "—"}</td>
+                                 <td style={{ padding: "4px 10px", fontSize: 13, fontFamily: "monospace" }}>{g.dailytimebracket_code ?? "—"}</td>
+                                 <td style={{ padding: "4px 10px", fontSize: 13, fontFamily: "monospace" }}>{g.storage_code ?? "—"}</td>
                                 {cellKeys.map((yearKey) => {
                                   const cell = g.cells[yearKey];
                                   const isEditing =

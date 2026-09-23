@@ -424,6 +424,10 @@ class ExcelUpdatePreviewRow(BaseModel):
     season_code: str | None = None
     daytype_code: str | None = None
     dailytimebracket_code: str | None = None
+    storage_code: str | None = None
+    season_code: str | None = None
+    daytype_code: str | None = None
+    dailytimebracket_code: str | None = None
     storage_set_code: str | None = None
     udc_set_code: str | None = None
     year: int | None = None
@@ -549,6 +553,10 @@ class OsemosysWideRow(BaseModel):
     udc_name: str | None = None
     timeslice_code: str | None = None
     mode_of_operation_code: str | None = None
+    season_code: str | None = None
+    daytype_code: str | None = None
+    dailytimebracket_code: str | None = None
+    storage_code: str | None = None
     cells: dict[str, OsemosysWideCell]
 
 
@@ -573,6 +581,11 @@ class OsemosysWideFacets(BaseModel):
     emission_names: list[str]
     udc_names: list[str]
     timeslice_codes: list[str] = []
+    mode_codes: list[str] = []
+    season_codes: list[str] = []
+    daytype_codes: list[str] = []
+    dailytimebracket_codes: list[str] = []
+    storage_codes: list[str] = []
 
 
 class OsemosysParamAuditEntryPublic(BaseModel):

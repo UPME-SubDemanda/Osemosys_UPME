@@ -76,6 +76,8 @@ frontend/dist/
 .env
 .env.local
 .env.*.local
+# Backend runtime config may contain encryption keys and deployment credentials.
+backend/.env
 secrets/
 *.lic
 

@@ -535,6 +535,58 @@ def test_solve_model_does_not_set_glpk_threads(monkeypatch) -> None:
     assert not hasattr(fake_solver, "highs_options") or fake_solver.highs_options == {}
 
 
+def test_solve_model_routes_mosek_to_pyomo_and_applies_thread_option(monkeypatch) -> None:
+    fake_solver = _FakeSolver(status="optimal")
+    factory_calls: list[str] = []
+    monkeypatch.setattr(
+        solver_module,
+        "get_settings",
+        lambda: _fake_settings(sim_solver_threads=4),
+    )
+    monkeypatch.setattr(
+        solver_module,
+        "get_solver_availability",
+        lambda: {"mosek": True, "highs": False, "glpk": False, "gurobi": False},
+    )
+
+    def solver_factory(name: str):
+        factory_calls.append(name)
+        return fake_solver
+
+    monkeypatch.setattr(solver_module.pyo, "SolverFactory", solver_factory)
+    monkeypatch.setattr(solver_module.pyo, "value", lambda _obj: 0.0)
+
+    result = solver_module.solve_model(_FakeInstance(), solver_name="mosek")
+
+    assert factory_calls == ["mosek"]
+    assert result["solver_name"] == "mosek"
+    assert fake_solver.options["MSK_IPAR_NUM_THREADS"] == 4
+
+
+def test_solve_model_does_not_fallback_when_selected_mosek_is_unavailable(monkeypatch) -> None:
+    monkeypatch.setattr(solver_module, "get_settings", lambda: _fake_settings())
+    monkeypatch.setattr(
+        solver_module,
+        "get_solver_availability",
+        lambda: {"mosek": False, "highs": True, "glpk": True, "gurobi": False},
+    )
+
+    with pytest.raises(RuntimeError, match="bindings Python de MOSEK"):
+        solver_module.solve_model(_FakeInstance(), solver_name="mosek")
+
+
+def test_mosek_is_not_a_fallback_for_other_selected_solvers(monkeypatch) -> None:
+    monkeypatch.setattr(solver_module, "get_settings", lambda: _fake_settings())
+    monkeypatch.setattr(
+        solver_module,
+        "get_solver_availability",
+        lambda: {"mosek": True, "highs": False, "glpk": False, "gurobi": False},
+    )
+
+    with pytest.raises(RuntimeError, match="No hay solvers disponibles"):
+        solver_module.solve_model(_FakeInstance(), solver_name="highs")
+
+
 class _FakeConstraint:
     def __init__(self, idx: int) -> None:
         self.name = f"C{idx}"

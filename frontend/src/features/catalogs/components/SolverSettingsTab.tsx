@@ -12,6 +12,8 @@ import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { Card } from "@/shared/components/Card";
 import { TextField } from "@/shared/components/TextField";
+import { mosekLicenseApi } from "@/features/systemSettings/api/mosekLicenseApi";
+import { MosekLicenseControl } from "@/features/systemSettings/components/MosekLicenseControl";
 
 function formatUpdatedAt(iso: string | null): string {
   if (!iso) return "Nunca";
@@ -134,6 +136,15 @@ export function SolverSettingsTab({ canEdit }: SolverSettingsTabProps) {
       {!canEdit ? (
         <Badge variant="neutral">Solo lectura (sin permiso de administración)</Badge>
       ) : null}
+
+      <MosekLicenseControl
+        title="Licencia MOSEK global"
+        description="Licencia compartida para usuarios que no hayan cargado una licencia personal. El archivo se cifra antes de guardarse en la base de datos y nunca se vuelve a mostrar."
+        canEdit={canEdit}
+        load={mosekLicenseApi.getGlobal}
+        upload={mosekLicenseApi.uploadGlobal}
+        remove={mosekLicenseApi.deleteGlobal}
+      />
 
       <Card>
         <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>

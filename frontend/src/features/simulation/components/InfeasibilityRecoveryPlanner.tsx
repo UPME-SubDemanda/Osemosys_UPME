@@ -193,7 +193,7 @@ export function InfeasibilityRecoveryPlanner({
   };
 
   const normalizedSolver = solverName.trim().toLowerCase();
-  const canRelaunch = ["highs", "glpk", "gurobi"].includes(normalizedSolver);
+  const canRelaunch = ["highs", "glpk", "gurobi", "mosek"].includes(normalizedSolver);
   const plan = {
     source_job_id: sourceJobId,
     scenario_id: scenarioId,
@@ -297,7 +297,7 @@ export function InfeasibilityRecoveryPlanner({
         </div>
         <div style={STEP}>
           <strong style={{ width: 26, height: 26, display: "grid", placeItems: "center", borderRadius: "50%", background: "rgba(34,197,94,0.2)" }}>3</strong>
-          <div><strong>Validar la siguiente iteración</strong><p style={{ margin: "3px 0 7px", fontSize: 12, opacity: 0.8 }}>Tras guardar los cambios en el escenario elegido, confírmalo y envía una nueva simulación. El resultado tendrá LP para facilitar el siguiente diagnóstico.</p>{!canRelaunch ? <p style={{ margin: "3px 0 7px", color: "#fbbf24", fontSize: 12 }}>El solver original ({solverName || "desconocido"}) no es relanzable desde este asistente. Elige HiGHS, Gurobi o GLPK en Simulación.</p> : null}<label style={{ display: "flex", gap: 7, fontSize: 12, marginBottom: 8 }}><input type="checkbox" checked={scenarioUpdated} onChange={(event) => setScenarioUpdated(event.target.checked)} /> Confirmo que actualicé el escenario y deseo validarlo.</label><Button onClick={() => void relaunch()} disabled={!scenarioId || !scenarioUpdated || !canRelaunch || relaunching}>{relaunching ? "Enviando validación…" : "Relanzar y validar"}</Button></div>
+          <div><strong>Validar la siguiente iteración</strong><p style={{ margin: "3px 0 7px", fontSize: 12, opacity: 0.8 }}>Tras guardar los cambios en el escenario elegido, confírmalo y envía una nueva simulación. El resultado tendrá LP para facilitar el siguiente diagnóstico.</p>{!canRelaunch ? <p style={{ margin: "3px 0 7px", color: "#fbbf24", fontSize: 12 }}>El solver original ({solverName || "desconocido"}) no es relanzable desde este asistente. Elige HiGHS, Gurobi, GLPK o MOSEK en Simulación.</p> : null}<label style={{ display: "flex", gap: 7, fontSize: 12, marginBottom: 8 }}><input type="checkbox" checked={scenarioUpdated} onChange={(event) => setScenarioUpdated(event.target.checked)} /> Confirmo que actualicé el escenario y deseo validarlo.</label><Button onClick={() => void relaunch()} disabled={!scenarioId || !scenarioUpdated || !canRelaunch || relaunching}>{relaunching ? "Enviando validación…" : "Relanzar y validar"}</Button></div>
         </div>
       </div>
       {message ? <p role="alert" style={{ margin: "12px 0 0", color: "#fecaca", fontSize: 12 }}>{message}</p> : null}

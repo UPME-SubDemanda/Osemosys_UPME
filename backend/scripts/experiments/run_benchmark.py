@@ -235,7 +235,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Runner local de benchmarks OSeMOSYS")
     parser.add_argument("--mode", choices=["csv-dir", "scenario", "excel"], required=True)
     parser.add_argument("--label", default="benchmark")
-    parser.add_argument("--solver", choices=["highs", "glpk", "gurobi"], default="highs")
+    parser.add_argument("--solver", choices=["highs", "glpk", "gurobi", "mosek"], default="highs")
     parser.add_argument("--simulation-type", choices=["NATIONAL", "REGIONAL"], default="NATIONAL")
     parser.add_argument("--csv-dir")
     parser.add_argument("--scenario-id", type=int)

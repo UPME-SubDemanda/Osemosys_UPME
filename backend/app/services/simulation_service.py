@@ -45,8 +45,8 @@ class SimulationService:
 
     @staticmethod
     def _validate_solver_name(solver_name: str) -> str:
-        if solver_name not in {"highs", "glpk", "gurobi"}:
-            raise ConflictError("Solver invalido. Usa 'highs', 'glpk' o 'gurobi'.")
+        if solver_name not in {"highs", "glpk", "gurobi", "mosek"}:
+            raise ConflictError("Solver inválido. Usa 'highs', 'glpk', 'gurobi' o 'mosek'.")
         return solver_name
 
     @staticmethod
@@ -785,7 +785,7 @@ class SimulationService:
             * El job debe existir y pertenecer al usuario (o el usuario tener
               acceso al escenario).
             * Debe estar en ``SUCCEEDED`` y ser infactible.
-            * El solver debe ser HiGHS, Gurobi o GLPK. GLPK entrega un
+            * El solver debe ser HiGHS, Gurobi, GLPK o MOSEK. GLPK entrega un
               análisis heurístico; HiGHS/Gurobi pueden entregar IIS.
             * Si ya hay un diagnóstico en curso (``QUEUED``/``RUNNING``), no
               se re-encola; se devuelve el estado actual.
@@ -829,7 +829,7 @@ class SimulationService:
             )
 
         solver = str(getattr(job, "solver_name", "") or "").lower()
-        if solver not in {"highs", "gurobi", "glpk"}:
+        if solver not in {"highs", "gurobi", "glpk", "mosek"}:
             raise ConflictError(f"Solver no soportado: {solver or '(desconocido)'}.")
         if level not in {"structural", "advanced"} and solver != "highs":
             raise ConflictError(

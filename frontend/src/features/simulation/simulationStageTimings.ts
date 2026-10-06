@@ -100,7 +100,7 @@ export const CANONICAL_STAGES: CanonicalStageDef[] = [
   },
   {
     id: "solver_run",
-    label: "HiGHS: resolver modelo",
+    label: "Resolver modelo",
     timingKey: "solver_run_seconds",
     source: "model_timings",
     logStages: ["solver_run"],
@@ -703,7 +703,7 @@ export function resolveStageTimings(input: ResolveStageTimingsInput): ResolvedSt
   return {
     preambleStages,
     highsGroup: {
-      title: "Optimización HiGHS",
+      title: "Resolución del modelo",
       stages: highsSubStages,
       totalSeconds: highsTotal.seconds,
       totalSource: highsTotal.source,

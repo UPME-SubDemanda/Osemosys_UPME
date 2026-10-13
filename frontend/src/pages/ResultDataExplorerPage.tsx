@@ -47,7 +47,10 @@ type DimFilterKey =
   | "emission_names"
   | "timeslice_names"
   | "mode_names"
-  | "storage_names";
+  | "storage_names"
+  | "season_names"
+  | "daytype_names"
+  | "bracket_names";
 
 type DimHeader = {
   label: string;
@@ -57,14 +60,52 @@ type DimHeader = {
 };
 
 const DIM_HEADERS: DimHeader[] = [
-  { label: "Variable", filterKey: "variable_names", facetKey: "variable_names", rowField: "variable_name" },
+  {
+    label: "Variable",
+    filterKey: "variable_names",
+    facetKey: "variable_names",
+    rowField: "variable_name",
+  },
   { label: "Región", filterKey: "region_names", facetKey: "region_names", rowField: "region_name" },
-  { label: "Tecnología", filterKey: "technology_names", facetKey: "technology_names", rowField: "technology_name" },
+  {
+    label: "Tecnología",
+    filterKey: "technology_names",
+    facetKey: "technology_names",
+    rowField: "technology_name",
+  },
   { label: "Combustible", filterKey: "fuel_names", facetKey: "fuel_names", rowField: "fuel_name" },
-  { label: "Emisión", filterKey: "emission_names", facetKey: "emission_names", rowField: "emission_name" },
-  { label: "Timeslice", filterKey: "timeslice_names", facetKey: "timeslice_names", rowField: "timeslice_name" },
+  {
+    label: "Emisión",
+    filterKey: "emission_names",
+    facetKey: "emission_names",
+    rowField: "emission_name",
+  },
+  {
+    label: "Timeslice",
+    filterKey: "timeslice_names",
+    facetKey: "timeslice_names",
+    rowField: "timeslice_name",
+  },
   { label: "Modo", filterKey: "mode_names", facetKey: "mode_names", rowField: "mode_name" },
-  { label: "Almacenamiento", filterKey: "storage_names", facetKey: "storage_names", rowField: "storage_name" },
+  {
+    label: "Almacenamiento",
+    filterKey: "storage_names",
+    facetKey: "storage_names",
+    rowField: "storage_name",
+  },
+  { label: "Season", filterKey: "season_names", facetKey: "season_names", rowField: "season_name" },
+  {
+    label: "Daytype",
+    filterKey: "daytype_names",
+    facetKey: "daytype_names",
+    rowField: "daytype_name",
+  },
+  {
+    label: "Franja horaria",
+    filterKey: "bracket_names",
+    facetKey: "bracket_names",
+    rowField: "bracket_name",
+  },
 ];
 
 function formatCellValue(v: number): string {
@@ -75,6 +116,20 @@ function formatCellValue(v: number): string {
   if (abs < 5e-5) return (0).toLocaleString("es-CO");
   if (abs >= 1e6 || abs < 1e-3) return v.toExponential(3);
   return v.toLocaleString("es-CO", { maximumFractionDigits: 4 });
+}
+
+function formatYearRule(rule: YearRule): string {
+  const labels: Record<YearRule["op"], string> = {
+    gt: ">",
+    lt: "<",
+    gte: "≥",
+    lte: "≤",
+    eq: "=",
+    ne: "≠",
+    nonzero: "≠ 0",
+    zero: "= 0",
+  };
+  return rule.value == null ? labels[rule.op] : `${labels[rule.op]} ${rule.value}`;
 }
 
 export function ResultDataExplorerPage() {
@@ -94,10 +149,15 @@ export function ResultDataExplorerPage() {
     timeslice_names: [],
     mode_names: [],
     storage_names: [],
+    season_names: [],
+    daytype_names: [],
+    bracket_names: [],
   });
 
   // Reglas por año
   const [yearRules, setYearRules] = useState<Record<string, YearRule>>({});
+  const [visibleYears, setVisibleYears] = useState<string[]>([]);
+  const [technologyOrFuel, setTechnologyOrFuel] = useState(false);
 
   // Paginación
   const [page, setPage] = useState(1);
@@ -110,6 +170,7 @@ export function ResultDataExplorerPage() {
   const [hasScalar, setHasScalar] = useState(false);
 
   const [facets, setFacets] = useState<OutputWideFacets | null>(null);
+  const [catalogFacets, setCatalogFacets] = useState<OutputWideFacets | null>(null);
   const [facetsLoading, setFacetsLoading] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -139,21 +200,22 @@ export function ResultDataExplorerPage() {
   }, [jobId]);
 
   const buildFilters = useCallback(() => {
-    const f: Record<string, string[] | string | undefined> = {};
+    const f: Record<string, string[] | string | boolean | undefined> = {};
     for (const [k, v] of Object.entries(columnFilters)) {
       if (v && v.length) f[k] = v;
     }
     const yr = serializeYearRules(yearRules);
     if (yr) f.year_rules = yr;
+    if (technologyOrFuel) f.technology_or_fuel = true;
     return f as Parameters<typeof resultsDataApi.listOutputValuesWide>[1];
-  }, [columnFilters, yearRules]);
+  }, [columnFilters, yearRules, technologyOrFuel]);
 
   // True cuando hay al menos un filtro activo de dimensión o año.
   const hasActiveFilters = useMemo(() => {
     if (Object.values(columnFilters).some((v) => v && v.length > 0)) return true;
     if (Object.keys(yearRules).length > 0) return true;
-    return false;
-  }, [columnFilters, yearRules]);
+    return technologyOrFuel;
+  }, [columnFilters, yearRules, technologyOrFuel]);
 
   // Cargar página
   useEffect(() => {
@@ -213,7 +275,7 @@ export function ResultDataExplorerPage() {
     let cancelled = false;
     setFacetsLoading(true);
     resultsDataApi
-      .listOutputWideFacets(jobId, { ...buildFilters(), limit_per_column: 500 })
+      .listOutputWideFacets(jobId, { ...buildFilters(), limit_per_column: 50000 })
       .then((resp) => {
         if (!cancelled) setFacets(resp);
       })
@@ -228,13 +290,29 @@ export function ResultDataExplorerPage() {
     };
   }, [jobId, buildFilters]);
 
-  const applyColumnFilter = useCallback(
-    (key: DimFilterKey, next: string[]) => {
-      setColumnFilters((prev) => ({ ...prev, [key]: next }));
-      setPage(1);
-    },
-    [],
-  );
+  // Catálogo estable de la simulación: los presets se resuelven sobre el
+  // universo completo, nunca sobre facets ya estrechados por la selección.
+  useEffect(() => {
+    if (!Number.isFinite(jobId)) return;
+    let cancelled = false;
+    resultsDataApi
+      .listOutputWideFacets(jobId, { limit_per_column: 50000 })
+      .then((response) => {
+        if (!cancelled) setCatalogFacets(response);
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogFacets(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId]);
+
+  const applyColumnFilter = useCallback((key: DimFilterKey, next: string[]) => {
+    setColumnFilters((prev) => ({ ...prev, [key]: next }));
+    if (key === "technology_names" || key === "fuel_names") setTechnologyOrFuel(false);
+    setPage(1);
+  }, []);
 
   const applyYearRule = useCallback((year: number | string, rule: YearRule | null) => {
     setYearRules((prev) => {
@@ -264,6 +342,9 @@ export function ResultDataExplorerPage() {
         timeslice_names: [],
         mode_names: [],
         storage_names: [],
+        season_names: [],
+        daytype_names: [],
+        bracket_names: [],
       };
       if (preset.variable_names?.length) {
         empty.variable_names = [...preset.variable_names];
@@ -271,22 +352,31 @@ export function ResultDataExplorerPage() {
       if (preset.emission_names?.length) {
         empty.emission_names = [...preset.emission_names];
       }
-      if (preset.technology_prefixes?.length && facets?.technology_names) {
+      if (preset.technology_prefixes?.length && catalogFacets?.technology_names) {
         const resolved = resolveTechnologyNames(
           preset.technology_prefixes,
-          facets.technology_names,
+          catalogFacets.technology_names,
         );
-        empty.technology_names = resolved;
+        empty.technology_names =
+          resolved.length || preset.fuel_prefixes?.length ? resolved : ["__NO_MATCH__"];
+      }
+      if (preset.fuel_prefixes?.length && catalogFacets?.fuel_names) {
+        const resolved = resolveFuelNames(preset.fuel_prefixes, catalogFacets.fuel_names);
+        empty.fuel_names =
+          resolved.length || preset.technology_prefixes?.length ? resolved : ["__NO_MATCH__"];
       }
       return empty;
     },
-    [facets],
+    [catalogFacets],
   );
 
   const applyPreset = useCallback(
     (cat: Category, sub: SubCategory | null) => {
       const preset = sub?.filters ?? cat.filters;
       setColumnFilters(buildColumnFiltersFromPreset(preset));
+      setTechnologyOrFuel(
+        Boolean(preset.technology_prefixes?.length && preset.fuel_prefixes?.length),
+      );
       setYearRules({});
       setActiveCategory(cat.id);
       setActiveSubCategory(sub?.id ?? null);
@@ -294,6 +384,16 @@ export function ResultDataExplorerPage() {
     },
     [buildColumnFiltersFromPreset],
   );
+
+  useEffect(() => {
+    if (!catalogFacets || !activeCategory || activeCategory === "todos") return;
+    const category = CATEGORIES.find((item) => item.id === activeCategory);
+    const preset = activeSubCategory
+      ? category?.sub?.find((item) => item.id === activeSubCategory)?.filters
+      : category?.filters;
+    if (!preset) return;
+    setColumnFilters(buildColumnFiltersFromPreset(preset));
+  }, [catalogFacets, activeCategory, activeSubCategory, buildColumnFiltersFromPreset]);
 
   const handleSelectCategory = useCallback(
     (cat: Category) => {
@@ -322,7 +422,10 @@ export function ResultDataExplorerPage() {
     const parseList = (key: string): string[] => {
       const raw = urlSearchParams.get(key);
       if (!raw) return [];
-      return raw.split(",").map((s) => s.trim()).filter(Boolean);
+      return raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
     };
 
     const variableNames = parseList("variable_names");
@@ -346,8 +449,8 @@ export function ResultDataExplorerPage() {
 
     // Si hay prefijos pendientes de resolver, esperar a que ``facets`` cargue.
     const needsFacetResolve =
-      (technologyPrefixes.length > 0 && !facets?.technology_names) ||
-      (fuelPrefixes.length > 0 && !facets?.fuel_names);
+      (technologyPrefixes.length > 0 && !catalogFacets?.technology_names) ||
+      (fuelPrefixes.length > 0 && !catalogFacets?.fuel_names);
     if (needsFacetResolve) return;
 
     const next: Record<DimFilterKey, string[]> = {
@@ -359,24 +462,27 @@ export function ResultDataExplorerPage() {
       timeslice_names: [],
       mode_names: [],
       storage_names: [],
+      season_names: [],
+      daytype_names: [],
+      bracket_names: [],
     };
 
     if (technologyNames.length) {
       next.technology_names = technologyNames;
-    } else if (technologyPrefixes.length && facets?.technology_names) {
-      next.technology_names = resolveTechnologyNames(
-        technologyPrefixes,
-        facets.technology_names,
-      );
+    } else if (technologyPrefixes.length && catalogFacets?.technology_names) {
+      const resolved = resolveTechnologyNames(technologyPrefixes, catalogFacets.technology_names);
+      next.technology_names = resolved.length ? resolved : ["__NO_MATCH__"];
     }
 
     if (fuelNames.length) {
       next.fuel_names = fuelNames;
-    } else if (fuelPrefixes.length && facets?.fuel_names) {
-      next.fuel_names = resolveFuelNames(fuelPrefixes, facets.fuel_names);
+    } else if (fuelPrefixes.length && catalogFacets?.fuel_names) {
+      const resolved = resolveFuelNames(fuelPrefixes, catalogFacets.fuel_names);
+      next.fuel_names = resolved.length ? resolved : ["__NO_MATCH__"];
     }
 
     setColumnFilters(next);
+    setTechnologyOrFuel(false);
     setActiveCategory(null);
     setActiveSubCategory(null);
     setPage(1);
@@ -384,7 +490,7 @@ export function ResultDataExplorerPage() {
 
     // Limpia los query params del URL para no re-aplicar al navegar.
     setUrlSearchParams(new URLSearchParams(), { replace: true });
-  }, [jobId, urlSearchParams, facets, setUrlSearchParams]);
+  }, [jobId, urlSearchParams, catalogFacets, setUrlSearchParams]);
 
   // Preset activo (madre + submadre) para derivar el universo de variables
   // disponible en el tercer nivel y manejar el click de "Todas".
@@ -427,18 +533,15 @@ export function ResultDataExplorerPage() {
 
     const fetchAll = async () => {
       const presetFuelNames =
-        activePresetFilters.fuel_prefixes && facets?.fuel_names
-          ? resolveFuelNames(
-              activePresetFilters.fuel_prefixes,
-              facets.fuel_names,
-            )
+        activePresetFilters.fuel_prefixes && catalogFacets?.fuel_names
+          ? resolveFuelNames(activePresetFilters.fuel_prefixes, catalogFacets.fuel_names)
           : [];
 
       const presetTechNames =
-        activePresetFilters.technology_prefixes && facets?.technology_names
+        activePresetFilters.technology_prefixes && catalogFacets?.technology_names
           ? resolveTechnologyNames(
               activePresetFilters.technology_prefixes,
-              facets.technology_names,
+              catalogFacets.technology_names,
             )
           : [];
 
@@ -499,8 +602,8 @@ export function ResultDataExplorerPage() {
     activePresetFilters,
     columnFilters,
     yearRules,
-    facets?.technology_names,
-    facets?.fuel_names,
+    catalogFacets?.technology_names,
+    catalogFacets?.fuel_names,
   ]);
 
   const handleSelectVariable = useCallback(
@@ -524,9 +627,7 @@ export function ResultDataExplorerPage() {
     if (!activeCategory || activeCategory === "todos") return;
     const cat = CATEGORIES.find((c) => c.id === activeCategory);
     if (!cat) return;
-    const activeSub = activeSubCategory
-      ? cat.sub?.find((s) => s.id === activeSubCategory)
-      : null;
+    const activeSub = activeSubCategory ? cat.sub?.find((s) => s.id === activeSubCategory) : null;
 
     const matches = (presetFilters: CategoryFilters): boolean => {
       const expected = buildColumnFiltersFromPreset(presetFilters);
@@ -539,11 +640,21 @@ export function ResultDataExplorerPage() {
         "timeslice_names",
         "mode_names",
         "storage_names",
+        "season_names",
+        "daytype_names",
+        "bracket_names",
       ];
       for (const k of nonVarKeys) {
         if (!arraysEqualUnordered(expected[k], columnFilters[k] ?? [])) {
           return false;
         }
+      }
+      if (
+        Boolean(
+          presetFilters.technology_prefixes?.length && presetFilters.fuel_prefixes?.length,
+        ) !== technologyOrFuel
+      ) {
+        return false;
       }
       // variable_names: si el preset restringe, el actual debe ser
       // igual o subconjunto no-vacío de esa lista. Si el preset no
@@ -563,7 +674,13 @@ export function ResultDataExplorerPage() {
     if (!matches(cat.filters) && !activeSub) {
       setActiveCategory(null);
     }
-  }, [columnFilters, activeCategory, activeSubCategory, buildColumnFiltersFromPreset]);
+  }, [
+    columnFilters,
+    activeCategory,
+    activeSubCategory,
+    buildColumnFiltersFromPreset,
+    technologyOrFuel,
+  ]);
 
   // ------------------------------------------------------------------
   //  Visibilidad de columnas
@@ -599,19 +716,16 @@ export function ResultDataExplorerPage() {
     [isColumnVisible, dimIsEmpty],
   );
 
-  const handleColumnModeChange = useCallback(
-    (id: string, mode: ColumnVisibilityMode) => {
-      setColumnModes((prev) => {
-        if (mode === "auto") {
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        }
-        return { ...prev, [id]: mode };
-      });
-    },
-    [],
-  );
+  const handleColumnModeChange = useCallback((id: string, mode: ColumnVisibilityMode) => {
+    setColumnModes((prev) => {
+      if (mode === "auto") {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      }
+      return { ...prev, [id]: mode };
+    });
+  }, []);
 
   const handleResetColumnModes = useCallback(() => setColumnModes({}), []);
 
@@ -669,9 +783,7 @@ export function ResultDataExplorerPage() {
     }
   }, [jobId]);
 
-  const selectedYearsSet = useMemo(() => {
-    return new Set(Object.keys(yearRules));
-  }, [yearRules]);
+  const selectedYearsSet = useMemo(() => new Set(visibleYears), [visibleYears]);
 
   const yearsShown = useMemo(() => {
     if (selectedYearsSet.size > 0) {
@@ -680,16 +792,23 @@ export function ResultDataExplorerPage() {
     return years;
   }, [years, selectedYearsSet]);
 
-  // Escalar se oculta si hay selección explícita de años
+  // Escalar se oculta si hay selección explícita de años visibles.
   const scalarShown = hasScalar && selectedYearsSet.size === 0;
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const totalCols =
-    visibleDimHeaders.length + (scalarShown ? 1 : 0) + yearsShown.length;
+  const totalCols = visibleDimHeaders.length + (scalarShown ? 1 : 0) + yearsShown.length;
 
   return (
     <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Link
             to={paths.results}
@@ -704,9 +823,7 @@ export function ResultDataExplorerPage() {
           <h2 style={{ margin: 0, fontSize: 18 }}>
             Data Explorer
             {jobLabel ? (
-              <span style={{ opacity: 0.65, fontWeight: 400, marginLeft: 8 }}>
-                · {jobLabel}
-              </span>
+              <span style={{ opacity: 0.65, fontWeight: 400, marginLeft: 8 }}>· {jobLabel}</span>
             ) : null}
           </h2>
         </div>
@@ -748,11 +865,97 @@ export function ResultDataExplorerPage() {
         variableOptions={thirdLevelAvailable ? thirdLevelVars : undefined}
         activeVariable={
           columnFilters.variable_names.length === 1
-            ? columnFilters.variable_names[0] ?? null
+            ? (columnFilters.variable_names[0] ?? null)
             : null
         }
         onSelectVariable={thirdLevelAvailable ? handleSelectVariable : undefined}
       />
+
+      {hasActiveFilters || visibleYears.length > 0 ? (
+        <div
+          style={{
+            padding: "10px 12px",
+            borderRadius: 8,
+            background: "rgba(56,189,248,0.06)",
+            border: "1px solid rgba(56,189,248,0.30)",
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ fontSize: 12, opacity: 0.85, fontWeight: 600 }}>Filtros activos:</span>
+          {DIM_HEADERS.map((header) => {
+            const values = columnFilters[header.filterKey];
+            if (!values?.length) return null;
+            return (
+              <FilterChip
+                key={header.filterKey}
+                label={header.label}
+                values={values}
+                onClear={() => applyColumnFilter(header.filterKey, [])}
+              />
+            );
+          })}
+          {Object.entries(yearRules).map(([year, rule]) => (
+            <FilterChip
+              key={`rule-${year}`}
+              label={`Valor ${year}`}
+              values={[formatYearRule(rule)]}
+              onClear={() => applyYearRule(year, null)}
+            />
+          ))}
+          {visibleYears.length > 0 ? (
+            <FilterChip
+              label="Años visibles"
+              values={visibleYears}
+              onClear={() => setVisibleYears([])}
+            />
+          ) : null}
+          <div style={{ marginLeft: "auto" }}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setColumnFilters({
+                  variable_names: [],
+                  region_names: [],
+                  technology_names: [],
+                  fuel_names: [],
+                  emission_names: [],
+                  timeslice_names: [],
+                  mode_names: [],
+                  storage_names: [],
+                  season_names: [],
+                  daytype_names: [],
+                  bracket_names: [],
+                });
+                setYearRules({});
+                setVisibleYears([]);
+                setTechnologyOrFuel(false);
+                setActiveCategory("todos");
+                setActiveSubCategory(null);
+                setPage(1);
+              }}
+            >
+              Limpiar todo
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+        <span style={{ opacity: 0.8 }}>Años visibles:</span>
+        <ColumnFilterPopover
+          columnLabel="Años visibles"
+          options={years.map(String)}
+          selected={visibleYears}
+          onChange={setVisibleYears}
+          loading={loading}
+        />
+        <small style={{ opacity: 0.65 }}>
+          {visibleYears.length === 0 ? "todos" : `${visibleYears.length} seleccionados`}
+        </small>
+      </div>
 
       {error ? (
         <div
@@ -770,7 +973,9 @@ export function ResultDataExplorerPage() {
         </div>
       ) : null}
 
-      <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12 }}>
+      <div
+        style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12 }}
+      >
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead style={{ background: "rgba(255,255,255,0.03)" }}>
             <tr>
@@ -840,13 +1045,13 @@ export function ResultDataExplorerPage() {
           <tbody>
             {loading && rows.length === 0 ? (
               <tr>
-                <td colSpan={totalCols} style={{ padding: 14, opacity: 0.75 }}>
+                <td colSpan={Math.max(1, totalCols)} style={{ padding: 14, opacity: 0.75 }}>
                   Cargando…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={totalCols} style={{ padding: 14, opacity: 0.75 }}>
+                <td colSpan={Math.max(1, totalCols)} style={{ padding: 14, opacity: 0.75 }}>
                   Sin registros.
                 </td>
               </tr>
@@ -1005,6 +1210,73 @@ export function ResultDataExplorerPage() {
   );
 }
 
+function FilterChip({
+  label,
+  values,
+  onClear,
+}: {
+  label: string;
+  values: string[];
+  onClear: () => void;
+}) {
+  const displayValues = values.map((value) =>
+    value === "__NULL__" ? "(vacío)" : value === "__NO_MATCH__" ? "Sin coincidencias" : value,
+  );
+  const shown =
+    displayValues.length === 1
+      ? displayValues[0]
+      : displayValues.length <= 3
+        ? displayValues.join(", ")
+        : `${displayValues.slice(0, 2).join(", ")} +${displayValues.length - 2}`;
+  return (
+    <span
+      title={values.join(", ")}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 8px 4px 10px",
+        borderRadius: 999,
+        background: "rgba(56,189,248,0.14)",
+        border: "1px solid rgba(56,189,248,0.40)",
+        fontSize: 12,
+        maxWidth: 320,
+      }}
+    >
+      <span style={{ opacity: 0.75 }}>{label}:</span>
+      <strong
+        style={{
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          maxWidth: 220,
+        }}
+      >
+        {shown}
+      </strong>
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={`Quitar filtro de ${label}`}
+        title={`Quitar filtro de ${label}`}
+        style={{
+          marginLeft: 2,
+          background: "transparent",
+          border: "none",
+          color: "inherit",
+          cursor: "pointer",
+          fontSize: 14,
+          lineHeight: 1,
+          padding: "2px 4px",
+          opacity: 0.75,
+        }}
+      >
+        ×
+      </button>
+    </span>
+  );
+}
+
 // ─── Export Excel: split-button con submenú cuando hay filtros activos ────
 
 type ExportExcelMenuProps = {
@@ -1081,7 +1353,17 @@ function ExportExcelMenu({
           opacity: exporting || disabled ? 0.6 : 1,
         }}
       >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
@@ -1155,9 +1437,7 @@ function MenuItem({
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
       <span style={{ fontSize: 13, fontWeight: 600 }}>{title}</span>
-      <span style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35 }}>
-        {description}
-      </span>
+      <span style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35 }}>{description}</span>
     </button>
   );
 }

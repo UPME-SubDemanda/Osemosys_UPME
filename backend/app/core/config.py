@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     sim_solver_glpk_profile: str = Field(default="fast", alias="SIM_SOLVER_GLPK_PROFILE")
     sim_solver_glpk_time_limit: float = Field(default=0.0, alias="SIM_SOLVER_GLPK_TIME_LIMIT")
     sim_solver_glpk_options_json: str = Field(default="", alias="SIM_SOLVER_GLPK_OPTIONS_JSON")
+    mosek_license_encryption_key: SecretStr | None = Field(
+        default=None, alias="MOSEK_LICENSE_ENCRYPTION_KEY"
+    )
     osemosys_activity_lower_prune_tol: float = Field(
         default=0.0,
         alias="OSEMOSYS_ACTIVITY_LOWER_PRUNE_TOL",

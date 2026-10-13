@@ -283,6 +283,7 @@ FRONTEND_API_UPSTREAM="${FRONTEND_API_UPSTREAM:-api:8000}"
 APP_USERS="${APP_USERS:-lcardona,jchavez,dbedoya}"
 APP_PASSWORD="${APP_PASSWORD:-Cambio123!}"
 SECRET_KEY="${SECRET_KEY:-}"
+MOSEK_LICENSE_ENCRYPTION_KEY="${MOSEK_LICENSE_ENCRYPTION_KEY:-}"
 APP_ADMIN_USERS="${APP_ADMIN_USERS:-$APP_USERS}"
 BACKUP_BEFORE_MIGRATIONS="${BACKUP_BEFORE_MIGRATIONS:-1}"
 BACKUP_DIR="${BACKUP_DIR:-${REPO_ROOT}/backups}"
@@ -401,6 +402,9 @@ upsert_env_key .env VITE_API_BASE_URL "${VITE_API_BASE_URL}"
 upsert_env_key .env VITE_APP_ENV "${VITE_APP_ENV}"
 upsert_env_key .env VITE_SIMULATION_MODE "${VITE_SIMULATION_MODE}"
 upsert_env_key backend/.env SECRET_KEY "${SECRET_KEY}"
+if [[ -n "${MOSEK_LICENSE_ENCRYPTION_KEY}" ]]; then
+  upsert_env_key backend/.env MOSEK_LICENSE_ENCRYPTION_KEY "${MOSEK_LICENSE_ENCRYPTION_KEY}"
+fi
 upsert_env_key backend/.env SIM_WORKER_REPLICAS "${SIM_WORKER_REPLICAS}"
 upsert_env_key backend/.env SIM_MAX_CONCURRENCY "${SIM_MAX_CONCURRENCY}"
 upsert_env_key backend/.env SIM_USER_ACTIVE_LIMIT "${SIM_USER_ACTIVE_LIMIT}"
@@ -559,9 +563,9 @@ else
   log "Omitiendo sincronización de usuarios de aplicación (SYNC_APP_USERS=0)"
 fi
 
-HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
 if [[ -z "${HOST_IP}" ]]; then
-  HOST_IP="$(ip route get 1 2>/dev/null | awk '{print $7; exit}')"
+  HOST_IP="$(ip route get 1 2>/dev/null | awk '{print $7; exit}' || true)"
 fi
 
 log "Estado final del stack"

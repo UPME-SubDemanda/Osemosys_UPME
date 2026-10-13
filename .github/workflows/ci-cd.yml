@@ -117,6 +117,7 @@ jobs:
         env:
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          MOSEK_LICENSE_ENCRYPTION_KEY: ${{ secrets.MOSEK_LICENSE_ENCRYPTION_KEY }}
         run: |
           if [ -z "${APP_PASSWORD}" ]; then
             echo "::error::Missing GitHub secret APP_PASSWORD"
@@ -134,6 +135,7 @@ jobs:
           APP_ADMIN_USERS: ${{ vars.APP_ADMIN_USERS }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          MOSEK_LICENSE_ENCRYPTION_KEY: ${{ secrets.MOSEK_LICENSE_ENCRYPTION_KEY }}
           FRONTEND_BIND_HOST: ${{ vars.FRONTEND_BIND_HOST }}
           FRONTEND_PORT: ${{ vars.FRONTEND_PORT }}
           FRONTEND_API_UPSTREAM: ${{ vars.FRONTEND_API_UPSTREAM }}
@@ -197,6 +199,7 @@ jobs:
           APP_ADMIN_USERS="${APP_ADMIN_USERS:-${APP_USERS:-lcardona,jchavez,dbedoya}}" \
           APP_PASSWORD="${APP_PASSWORD}" \
           SECRET_KEY="${SECRET_KEY}" \
+          MOSEK_LICENSE_ENCRYPTION_KEY="${MOSEK_LICENSE_ENCRYPTION_KEY:-}" \
           FRONTEND_BIND_HOST="${FRONTEND_BIND_HOST:-0.0.0.0}" \
           FRONTEND_PORT="${FRONTEND_PORT:-18080}" \
           FRONTEND_API_UPSTREAM="${FRONTEND_API_UPSTREAM:-api:8000}" \
@@ -412,6 +415,7 @@ jobs:
           APP_ADMIN_USERS="${APP_ADMIN_USERS:-${APP_USERS:-lcardona,jchavez,dbedoya}}" \
           APP_PASSWORD="${APP_PASSWORD}" \
           SECRET_KEY="${SECRET_KEY}" \
+          MOSEK_LICENSE_ENCRYPTION_KEY="${MOSEK_LICENSE_ENCRYPTION_KEY:-}" \
           FRONTEND_BIND_HOST="${FRONTEND_BIND_HOST:-0.0.0.0}" \
           FRONTEND_PORT="${FRONTEND_PORT:-80}" \
           FRONTEND_API_UPSTREAM="${FRONTEND_API_UPSTREAM:-api:8000}" \

@@ -52,6 +52,9 @@ class OutputWideFacets(BaseModel):
     timeslice_names: list[str]
     mode_names: list[str]
     storage_names: list[str]
+    season_names: list[str]
+    daytype_names: list[str]
+    bracket_names: list[str]
 
 
 class OutputValuesTotals(BaseModel):

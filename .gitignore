@@ -76,6 +76,8 @@ frontend/dist/
 .env
 .env.local
 .env.*.local
+# Backend runtime config may contain encryption keys and deployment credentials.
+backend/.env
 secrets/
 *.lic
 
@@ -168,3 +170,18 @@ skills-lock.json
 # Pruebas E2E / Playwright locales
 # ──────────────────────────────────────────────
 .playwright-mcp/
+
+# ──────────────────────────────────────────────
+# Experimentos de rendimiento de la Tabla 6 (artefactos locales)
+# ──────────────────────────────────────────────
+experiments/notes/table6_methodology.md
+experiments/notes/table6_fixed_methodology.md
+experiments/notes/table6_remote_methodology.md
+experiments/results/table6_2026-10-09/
+experiments/results/table6_fixed_166_224_3trials/
+experiments/results/table6_remote_166_224_5trials/
+experiments/scripts/run_table6_benchmark.py
+experiments/scripts/run_fixed_table6_benchmark.py
+experiments/scripts/run_remote_table6_benchmark.py
+experiments/scripts/summarize_table6_resources.py
+experiments/scripts/render_fixed_table6_report.py

@@ -55,7 +55,7 @@ def _main() -> int:
     # Origen: directorio de CSVs
     p_csv = sub.add_parser("csv", help="Directorio con CSVs ya generados")
     p_csv.add_argument("csv_dir", type=Path, help="Ruta al directorio de CSVs")
-    p_csv.add_argument("--solver", default="glpk", choices=("glpk", "highs"))
+    p_csv.add_argument("--solver", default="glpk", choices=("glpk", "highs", "gurobi", "mosek"))
     p_csv.add_argument(
         "--simulation-type",
         default="NATIONAL",
@@ -70,7 +70,7 @@ def _main() -> int:
     # Origen: archivo Excel
     p_excel = sub.add_parser("excel", help="Archivo Excel SAND (.xlsm/.xlsx)")
     p_excel.add_argument("excel_path", type=Path, help="Ruta al Excel")
-    p_excel.add_argument("--solver", default="glpk", choices=("glpk", "highs"))
+    p_excel.add_argument("--solver", default="glpk", choices=("glpk", "highs", "gurobi", "mosek"))
     p_excel.add_argument(
         "--simulation-type",
         default="NATIONAL",
@@ -85,7 +85,7 @@ def _main() -> int:
     # Origen: base de datos (escenario)
     p_db = sub.add_parser("db", help="Escenario desde PostgreSQL")
     p_db.add_argument("scenario_id", type=int, help="ID del escenario")
-    p_db.add_argument("--solver", default="glpk", choices=("glpk", "highs"))
+    p_db.add_argument("--solver", default="glpk", choices=("glpk", "highs", "gurobi", "mosek"))
     p_db.add_argument(
         "--simulation-type",
         default="NATIONAL",

@@ -29,6 +29,7 @@ from app.api.v1 import (
     simulations,
     solvers,
     model_parameter_defaults,
+    mosek_licenses,
     system_settings,
     technologies,
     users,
@@ -41,6 +42,7 @@ router = APIRouter()
 router.include_router(health.router, tags=["health"])
 router.include_router(auth.router, tags=["auth"])
 router.include_router(users.router, tags=["users"])
+router.include_router(mosek_licenses.router, tags=["mosek_licenses"])
 
 router.include_router(parameters.router, tags=["parameters"])
 router.include_router(regions.router, tags=["regions"])

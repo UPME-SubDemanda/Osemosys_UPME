@@ -34,6 +34,7 @@ from app.models import OsemosysParamValue, OsemosysOutputParamValue, SimulationJ
 from app.repositories.simulation_repository import SimulationRepository
 from app.simulation.core.data_processing import PARAM_INDEX
 from app.simulation.core.results_processing import VARIABLE_INDEX_NAMES
+from app.services.mosek_license_service import MosekLicenseService
 from app.simulation.osemosys_core import run_osemosys_from_csv_dir, run_osemosys_from_db
 from app.simulation.runtime_observability import ResourceTrace, collect_runtime_context
 
@@ -106,7 +107,7 @@ STAGE_EVENT_MESSAGES: Final[dict[str, tuple[str, str]]] = {
     "solver_write_lp": ("Escribiendo archivo LP para HiGHS.", "STAGE"),
     "solver_read_model": ("HiGHS cargando el modelo LP en memoria.", "STAGE"),
     "solver_run": (
-        "HiGHS resolviendo el modelo (puede tardar varios minutos).",
+        "El solver está resolviendo el modelo (puede tardar varios minutos).",
         "STAGE",
     ),
     "solver_map_solution": ("Mapeando solución de HiGHS al modelo Pyomo.", "STAGE"),
@@ -716,19 +717,22 @@ def run_pipeline(db: Session, *, job_id: int) -> None:
     _lp_basename_eff = (
         _lp_basename_for_job(job, scenario_name=_scenario_name) if _gen_lp else None
     )
-    solution = run_osemosys_from_db(
-        db,
-        scenario_id=job.scenario_id,
-        solver_name=job.solver_name,
-        on_stage=_on_stage,
-        run_iis_analysis=bool(getattr(job, "run_iis_analysis", False)),
-        generate_lp=_gen_lp,
-        lp_dir=str(_lp_dir_eff) if _lp_dir_eff else None,
-        lp_basename=_lp_basename_eff,
-        job_id=job_id,
-        materialize_intermediate=False,
-        simulation_type=getattr(job, "simulation_type", None),
-    )
+    with MosekLicenseService.for_simulation(
+        db, solver_name=job.solver_name, user_id=job.user_id
+    ):
+        solution = run_osemosys_from_db(
+            db,
+            scenario_id=job.scenario_id,
+            solver_name=job.solver_name,
+            on_stage=_on_stage,
+            run_iis_analysis=bool(getattr(job, "run_iis_analysis", False)),
+            generate_lp=_gen_lp,
+            lp_dir=str(_lp_dir_eff) if _lp_dir_eff else None,
+            lp_basename=_lp_basename_eff,
+            job_id=job_id,
+            materialize_intermediate=False,
+            simulation_type=getattr(job, "simulation_type", None),
+        )
 
     # Persistimos la ruta del .lp si se generó: habilita descarga vía
     # GET /simulations/{id}/lp-file. El path queda estable aunque después
@@ -892,18 +896,21 @@ def run_pipeline_from_csv(db: Session, *, job_id: int) -> None:
     _gen_lp = bool(getattr(job, "generate_lp", False))
     _lp_dir_eff = _lp_dir_for_jobs() if _gen_lp else None
     _lp_basename_eff = _lp_basename_for_job(job) if _gen_lp else "osemosys"
-    solution = run_osemosys_from_csv_dir(
-        csv_root,
-        solver_name=job.solver_name,
-        on_stage=_on_stage,
-        run_iis_analysis=bool(getattr(job, "run_iis_analysis", False)),
-        generate_lp=_gen_lp,
-        lp_dir=str(_lp_dir_eff) if _lp_dir_eff else None,
-        lp_basename=_lp_basename_eff,
-        job_id=job_id,
-        materialize_intermediate=False,
-        simulation_type=getattr(job, "simulation_type", None),
-    )
+    with MosekLicenseService.for_simulation(
+        db, solver_name=job.solver_name, user_id=job.user_id
+    ):
+        solution = run_osemosys_from_csv_dir(
+            csv_root,
+            solver_name=job.solver_name,
+            on_stage=_on_stage,
+            run_iis_analysis=bool(getattr(job, "run_iis_analysis", False)),
+            generate_lp=_gen_lp,
+            lp_dir=str(_lp_dir_eff) if _lp_dir_eff else None,
+            lp_basename=_lp_basename_eff,
+            job_id=job_id,
+            materialize_intermediate=False,
+            simulation_type=getattr(job, "simulation_type", None),
+        )
 
     if _gen_lp and _lp_dir_eff:
         candidate = _lp_dir_eff / f"{_lp_basename_eff}.lp"

@@ -141,10 +141,10 @@ async def submit_simulation_from_csv(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Encola una simulación desde un ZIP con CSV procesados."""
-    if solver_name not in {"highs", "glpk", "gurobi"}:
+    if solver_name not in {"highs", "glpk", "gurobi", "mosek"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Solver inválido. Usa 'highs', 'glpk' o 'gurobi'.",
+            detail="Solver inválido. Usa 'highs', 'glpk', 'gurobi' o 'mosek'.",
         )
     if not csv_zip.filename or not csv_zip.filename.lower().endswith(".zip"):
         raise HTTPException(
@@ -522,6 +522,10 @@ def list_output_values_wide(
     timeslice_names: str | None = None,
     mode_names: str | None = None,
     storage_names: str | None = None,
+    season_names: str | None = None,
+    daytype_names: str | None = None,
+    bracket_names: str | None = None,
+    technology_or_fuel: bool = False,
     year_rules: str | None = None,
     offset: int = 0,
     limit: int = 50,
@@ -548,6 +552,10 @@ def list_output_values_wide(
             timeslice_names=_parse_csv_list_sim(timeslice_names),
             mode_names=_parse_csv_list_sim(mode_names),
             storage_names=_parse_csv_list_sim(storage_names),
+            season_names=_parse_csv_list_sim(season_names),
+            daytype_names=_parse_csv_list_sim(daytype_names),
+            bracket_names=_parse_csv_list_sim(bracket_names),
+            technology_or_fuel=technology_or_fuel,
             year_rules=_parse_year_rules_sim(year_rules),
             offset=offset,
             limit=limit,
@@ -575,6 +583,10 @@ def list_output_wide_facets(
     timeslice_names: str | None = None,
     mode_names: str | None = None,
     storage_names: str | None = None,
+    season_names: str | None = None,
+    daytype_names: str | None = None,
+    bracket_names: str | None = None,
+    technology_or_fuel: bool = False,
     year_rules: str | None = None,
     limit_per_column: int = 500,
     db: Session = Depends(get_db),
@@ -595,6 +607,10 @@ def list_output_wide_facets(
             timeslice_names=_parse_csv_list_sim(timeslice_names),
             mode_names=_parse_csv_list_sim(mode_names),
             storage_names=_parse_csv_list_sim(storage_names),
+            season_names=_parse_csv_list_sim(season_names),
+            daytype_names=_parse_csv_list_sim(daytype_names),
+            bracket_names=_parse_csv_list_sim(bracket_names),
+            technology_or_fuel=technology_or_fuel,
             year_rules=_parse_year_rules_sim(year_rules),
             limit_per_column=limit_per_column,
         )
@@ -621,6 +637,10 @@ def get_output_totals(
     timeslice_names: str | None = None,
     mode_names: str | None = None,
     storage_names: str | None = None,
+    season_names: str | None = None,
+    daytype_names: str | None = None,
+    bracket_names: str | None = None,
+    technology_or_fuel: bool = False,
     year_rules: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -640,6 +660,10 @@ def get_output_totals(
             timeslice_names=_parse_csv_list_sim(timeslice_names),
             mode_names=_parse_csv_list_sim(mode_names),
             storage_names=_parse_csv_list_sim(storage_names),
+            season_names=_parse_csv_list_sim(season_names),
+            daytype_names=_parse_csv_list_sim(daytype_names),
+            bracket_names=_parse_csv_list_sim(bracket_names),
+            technology_or_fuel=technology_or_fuel,
             year_rules=_parse_year_rules_sim(year_rules),
         )
     except NotFoundError as e:
@@ -662,6 +686,10 @@ def export_output_values(
     timeslice_names: str | None = None,
     mode_names: str | None = None,
     storage_names: str | None = None,
+    season_names: str | None = None,
+    daytype_names: str | None = None,
+    bracket_names: str | None = None,
+    technology_or_fuel: bool = False,
     year_rules: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -681,6 +709,10 @@ def export_output_values(
             timeslice_names=_parse_csv_list_sim(timeslice_names),
             mode_names=_parse_csv_list_sim(mode_names),
             storage_names=_parse_csv_list_sim(storage_names),
+            season_names=_parse_csv_list_sim(season_names),
+            daytype_names=_parse_csv_list_sim(daytype_names),
+            bracket_names=_parse_csv_list_sim(bracket_names),
+            technology_or_fuel=technology_or_fuel,
             year_rules=_parse_year_rules_sim(year_rules),
         )
     except NotFoundError as e:

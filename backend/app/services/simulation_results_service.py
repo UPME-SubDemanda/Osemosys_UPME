@@ -14,7 +14,7 @@ import io
 import logging
 from typing import Iterable
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, literal, or_, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ForbiddenError, NotFoundError
@@ -166,6 +166,10 @@ class SimulationResultsService:
         timeslice_names: list[str] | None,
         mode_names: list[str] | None,
         storage_names: list[str] | None,
+        season_names: list[str] | None = None,
+        daytype_names: list[str] | None = None,
+        bracket_names: list[str] | None = None,
+        technology_or_fuel: bool = False,
         year_rules: list[tuple[int, str, float | None]] | None,
         skip_column: str | None = None,
     ) -> tuple[list, bool]:
@@ -186,23 +190,94 @@ class SimulationResultsService:
                 clauses.append(OsemosysOutputParamValue.variable_name.in_(variable_names))
 
         if db is not None:
+            if technology_or_fuel and skip_column not in {
+                "technology_names",
+                "fuel_names",
+            }:
+                technology_ids = _resolve_catalog_ids(
+                    db, model_cls=Technology, attr="name", names=technology_names
+                ) or []
+                fuel_ids = _resolve_catalog_ids(
+                    db, model_cls=Fuel, attr="name", names=fuel_names
+                ) or []
+                alternatives = []
+                if technology_ids:
+                    alternatives.append(
+                        _in_or_isnull(
+                            OsemosysOutputParamValue.id_technology, technology_ids
+                        )
+                    )
+                technology_fallbacks = [
+                    name for name in (technology_names or []) if name != _NULL_SENTINEL
+                ]
+                if technology_fallbacks:
+                    alternatives.append(OsemosysOutputParamValue.technology_name.in_(technology_fallbacks))
+                if fuel_ids:
+                    alternatives.append(
+                        _in_or_isnull(OsemosysOutputParamValue.id_fuel, fuel_ids)
+                    )
+                fuel_fallbacks = [
+                    name for name in (fuel_names or []) if name != _NULL_SENTINEL
+                ]
+                if fuel_fallbacks:
+                    alternatives.append(OsemosysOutputParamValue.fuel_name.in_(fuel_fallbacks))
+                clauses.append(or_(*alternatives) if alternatives else literal(False))
             _catalog_filters = [
                 ("region_names", region_names, Region, "name", OsemosysOutputParamValue.id_region),
-                ("technology_names", technology_names, Technology, "name", OsemosysOutputParamValue.id_technology),
-                ("fuel_names", fuel_names, Fuel, "name", OsemosysOutputParamValue.id_fuel),
-                ("emission_names", emission_names, Emission, "name", OsemosysOutputParamValue.id_emission),
+                (
+                    "technology_names", technology_names, Technology, "name",
+                    OsemosysOutputParamValue.id_technology,
+                    OsemosysOutputParamValue.technology_name,
+                ),
+                (
+                    "fuel_names", fuel_names, Fuel, "name",
+                    OsemosysOutputParamValue.id_fuel,
+                    OsemosysOutputParamValue.fuel_name,
+                ),
+                (
+                    "emission_names", emission_names, Emission, "name",
+                    OsemosysOutputParamValue.id_emission,
+                    OsemosysOutputParamValue.emission_name,
+                ),
                 ("timeslice_names", timeslice_names, Timeslice, "code", OsemosysOutputParamValue.id_timeslice),
                 ("mode_names", mode_names, ModeOfOperation, "code", OsemosysOutputParamValue.id_mode_of_operation),
                 ("storage_names", storage_names, StorageSet, "code", OsemosysOutputParamValue.id_storage),
+                ("season_names", season_names, Season, "code", OsemosysOutputParamValue.id_season),
+                ("daytype_names", daytype_names, Daytype, "code", OsemosysOutputParamValue.id_daytype),
+                (
+                    "bracket_names", bracket_names, Dailytimebracket, "code",
+                    OsemosysOutputParamValue.id_dailytimebracket,
+                ),
             ]
-            for col_key, names, model_cls, attr, col in _catalog_filters:
+            for spec in _catalog_filters:
+                col_key, names, model_cls, attr, col = spec[:5]
+                fallback_col = spec[5] if len(spec) > 5 else None
+                if technology_or_fuel and col_key in {"technology_names", "fuel_names"}:
+                    continue
                 if skip_column == col_key:
                     continue
                 ids = _resolve_catalog_ids(
                     db, model_cls=model_cls, attr=attr, names=names
                 )
                 if ids is not None:
-                    clauses.append(_in_or_isnull(col, ids))
+                    if fallback_col is None:
+                        clauses.append(_in_or_isnull(col, ids))
+                    else:
+                        choices = []
+                        real_names = [name for name in (names or []) if name != _NULL_SENTINEL]
+                        resolved_ids = [value for value in ids if value is not None]
+                        if resolved_ids:
+                            choices.append(col.in_(resolved_ids))
+                        if real_names:
+                            choices.append(fallback_col.in_(real_names))
+                        if None in ids:
+                            choices.append(
+                                and_(
+                                    col.is_(None),
+                                    or_(fallback_col.is_(None), fallback_col == ""),
+                                )
+                            )
+                        clauses.append(or_(*choices) if choices else literal(False))
 
         if year_rules and db is not None:
             clauses.extend(
@@ -219,11 +294,11 @@ class SimulationResultsService:
     ) -> list:
         """Filtra por reglas de año usando intersección de tuplas de dimensión.
 
-        Una sola regla → subquery `id IN (...)`. Múltiples reglas → intersecta
+        Una sola regla → subquery de grupos. Múltiples reglas → intersecta
         en Python las tuplas de dimensión que matchean cada regla y luego
         OR-ands reconstruidos.
         """
-        from sqlalchemy import literal, select
+        from sqlalchemy import select
         if not year_rules:
             return []
 
@@ -238,12 +313,12 @@ class SimulationResultsService:
             year, op, val = valid[0]
             rule = _value_rule_clause(OsemosysOutputParamValue.value, op, val)
             return [
-                OsemosysOutputParamValue.id.in_(
-                    select(OsemosysOutputParamValue.id).where(
+                tuple_(*_GROUP_COLS).in_(
+                    select(*_GROUP_COLS).where(
                         OsemosysOutputParamValue.id_simulation_job == job_id,
                         OsemosysOutputParamValue.year == int(year),
                         rule,
-                    )
+                    ).distinct()
                 )
             ]
 
@@ -305,6 +380,10 @@ class SimulationResultsService:
         timeslice_names: list[str] | None = None,
         mode_names: list[str] | None = None,
         storage_names: list[str] | None = None,
+        season_names: list[str] | None = None,
+        daytype_names: list[str] | None = None,
+        bracket_names: list[str] | None = None,
+        technology_or_fuel: bool = False,
         year_rules: list[tuple[int, str, float | None]] | None = None,
         offset: int = 0,
         limit: int = 50,
@@ -332,6 +411,10 @@ class SimulationResultsService:
             timeslice_names=timeslice_names,
             mode_names=mode_names,
             storage_names=storage_names,
+            season_names=season_names,
+            daytype_names=daytype_names,
+            bracket_names=bracket_names,
+            technology_or_fuel=technology_or_fuel,
             year_rules=year_rules,
         )
 
@@ -370,6 +453,10 @@ class SimulationResultsService:
             timeslice_names=timeslice_names,
             mode_names=mode_names,
             storage_names=storage_names,
+            season_names=season_names,
+            daytype_names=daytype_names,
+            bracket_names=bracket_names,
+            technology_or_fuel=technology_or_fuel,
             year_rules=None,
         )
         years_rows = (
@@ -518,6 +605,10 @@ class SimulationResultsService:
         timeslice_names: list[str] | None = None,
         mode_names: list[str] | None = None,
         storage_names: list[str] | None = None,
+        season_names: list[str] | None = None,
+        daytype_names: list[str] | None = None,
+        bracket_names: list[str] | None = None,
+        technology_or_fuel: bool = False,
         year_rules: list[tuple[int, str, float | None]] | None = None,
         limit_per_column: int = 500,
     ) -> dict:
@@ -532,7 +623,7 @@ class SimulationResultsService:
             db, job_id=job_id, current_user=current_user
         )
 
-        lpc = max(1, min(int(limit_per_column or 500), 2000))
+        lpc = max(1, min(int(limit_per_column or 500), 50000))
 
         shared_filter_kwargs = dict(
             job_id=job_id,
@@ -545,10 +636,14 @@ class SimulationResultsService:
             timeslice_names=timeslice_names,
             mode_names=mode_names,
             storage_names=storage_names,
+            season_names=season_names,
+            daytype_names=daytype_names,
+            bracket_names=bracket_names,
+            technology_or_fuel=technology_or_fuel,
             year_rules=year_rules,
         )
 
-        def _distinct(col, skip_column: str, *extra_joins) -> list[str]:
+        def _distinct(col, id_col, skip_column: str, *extra_joins, fallback_col=None) -> list[str]:
             clauses, _ = SimulationResultsService._wide_filter_clauses(
                 db, **shared_filter_kwargs, skip_column=skip_column
             )
@@ -556,47 +651,79 @@ class SimulationResultsService:
             for join_tgt, on_clause in extra_joins:
                 q = q.outerjoin(join_tgt, on_clause)
             q = q.filter(*clauses, col.is_not(None)).distinct().order_by(col.asc()).limit(lpc)
-            return [str(r[0]) for r in q.all() if r[0] is not None]
+            values = [str(r[0]) for r in q.all() if r[0] is not None]
+            if fallback_col is not None and len(values) < lpc:
+                fallback_values = db.query(fallback_col).filter(
+                    *clauses, fallback_col.is_not(None), fallback_col != ""
+                ).distinct().order_by(fallback_col.asc()).limit(lpc - len(values)).all()
+                values = sorted(set(values).union(str(row[0]) for row in fallback_values))[:lpc]
+            null_clause = id_col.is_(None)
+            if fallback_col is not None:
+                null_clause = and_(
+                    null_clause,
+                    or_(fallback_col.is_(None), fallback_col == ""),
+                )
+            has_null = db.query(OsemosysOutputParamValue.id).filter(
+                *clauses, null_clause
+            ).first() is not None
+            if has_null:
+                values.insert(0, _NULL_SENTINEL)
+            return values
 
         return {
             "variable_names": _distinct(
-                OsemosysOutputParamValue.variable_name, "variable_name"
+                OsemosysOutputParamValue.variable_name,
+                OsemosysOutputParamValue.variable_name,
+                "variable_name",
             ),
             "region_names": _distinct(
                 Region.name,
+                OsemosysOutputParamValue.id_region,
                 "region_names",
                 (Region, OsemosysOutputParamValue.id_region == Region.id),
             ),
             "technology_names": _distinct(
                 Technology.name,
+                OsemosysOutputParamValue.id_technology,
                 "technology_names",
                 (Technology, OsemosysOutputParamValue.id_technology == Technology.id),
+                fallback_col=OsemosysOutputParamValue.technology_name,
             ),
             "fuel_names": _distinct(
                 Fuel.name,
+                OsemosysOutputParamValue.id_fuel,
                 "fuel_names",
                 (Fuel, OsemosysOutputParamValue.id_fuel == Fuel.id),
+                fallback_col=OsemosysOutputParamValue.fuel_name,
             ),
             "emission_names": _distinct(
                 Emission.name,
+                OsemosysOutputParamValue.id_emission,
                 "emission_names",
                 (Emission, OsemosysOutputParamValue.id_emission == Emission.id),
+                fallback_col=OsemosysOutputParamValue.emission_name,
             ),
             "timeslice_names": _distinct(
                 Timeslice.code,
+                OsemosysOutputParamValue.id_timeslice,
                 "timeslice_names",
                 (Timeslice, OsemosysOutputParamValue.id_timeslice == Timeslice.id),
             ),
             "mode_names": _distinct(
                 ModeOfOperation.code,
+                OsemosysOutputParamValue.id_mode_of_operation,
                 "mode_names",
                 (ModeOfOperation, OsemosysOutputParamValue.id_mode_of_operation == ModeOfOperation.id),
             ),
             "storage_names": _distinct(
                 StorageSet.code,
+                OsemosysOutputParamValue.id_storage,
                 "storage_names",
                 (StorageSet, OsemosysOutputParamValue.id_storage == StorageSet.id),
             ),
+            "season_names": _distinct(Season.code, OsemosysOutputParamValue.id_season, "season_names", (Season, OsemosysOutputParamValue.id_season == Season.id)),
+            "daytype_names": _distinct(Daytype.code, OsemosysOutputParamValue.id_daytype, "daytype_names", (Daytype, OsemosysOutputParamValue.id_daytype == Daytype.id)),
+            "bracket_names": _distinct(Dailytimebracket.code, OsemosysOutputParamValue.id_dailytimebracket, "bracket_names", (Dailytimebracket, OsemosysOutputParamValue.id_dailytimebracket == Dailytimebracket.id)),
         }
 
     # ------------------------------------------------------------------
@@ -618,6 +745,10 @@ class SimulationResultsService:
         timeslice_names: list[str] | None = None,
         mode_names: list[str] | None = None,
         storage_names: list[str] | None = None,
+        season_names: list[str] | None = None,
+        daytype_names: list[str] | None = None,
+        bracket_names: list[str] | None = None,
+        technology_or_fuel: bool = False,
         year_rules: list[tuple[int, str, float | None]] | None = None,
     ) -> dict:
         """Suma de ``value`` agrupada por año (y escalar) tras aplicar filtros.
@@ -642,6 +773,10 @@ class SimulationResultsService:
             timeslice_names=timeslice_names,
             mode_names=mode_names,
             storage_names=storage_names,
+            season_names=season_names,
+            daytype_names=daytype_names,
+            bracket_names=bracket_names,
+            technology_or_fuel=technology_or_fuel,
             year_rules=year_rules,
         )
 
@@ -689,6 +824,10 @@ class SimulationResultsService:
         timeslice_names: list[str] | None = None,
         mode_names: list[str] | None = None,
         storage_names: list[str] | None = None,
+        season_names: list[str] | None = None,
+        daytype_names: list[str] | None = None,
+        bracket_names: list[str] | None = None,
+        technology_or_fuel: bool = False,
         year_rules: list[tuple[int, str, float | None]] | None = None,
     ) -> bytes:
         """Exporta TODOS los resultados filtrados a un Excel wide (un solo sheet)."""
@@ -710,6 +849,10 @@ class SimulationResultsService:
             timeslice_names=timeslice_names,
             mode_names=mode_names,
             storage_names=storage_names,
+            season_names=season_names,
+            daytype_names=daytype_names,
+            bracket_names=bracket_names,
+            technology_or_fuel=technology_or_fuel,
             year_rules=year_rules,
         )
 

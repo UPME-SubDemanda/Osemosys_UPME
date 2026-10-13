@@ -45,11 +45,12 @@ class HighsIncompleteSolveError(RuntimeError):
         self.solver_failure_metadata = metadata
 
 
-# Alias usado en solve_model -> nombre del factory Pyomo (appsi_highs, glpk, gurobi).
+# Alias usado en solve_model -> nombre del factory Pyomo.
 SOLVER_FACTORIES: dict[str, str] = {
     "highs": "appsi_highs",
     "glpk": "glpk",
     "gurobi": "gurobi",
+    "mosek": "mosek",
 }
 
 
@@ -69,11 +70,22 @@ def _gurobi_lightweight_available() -> bool:
     return True
 
 
+def _mosek_python_available() -> bool:
+    try:
+        import mosek  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
 def get_solver_availability() -> dict[str, bool]:
     availability: dict[str, bool] = {}
     for solver_alias, solver_factory in SOLVER_FACTORIES.items():
         if solver_alias == "gurobi":
             availability[solver_alias] = _gurobi_lightweight_available()
+            continue
+        if solver_alias == "mosek":
+            availability[solver_alias] = _mosek_python_available()
             continue
         solver = pyo.SolverFactory(solver_factory)
         availability[solver_alias] = bool(
@@ -225,6 +237,15 @@ def _apply_solver_runtime_options(
             return int(effective) if effective is not None else None
         except (KeyError, TypeError, ValueError):
             return None
+
+    if candidate == "mosek":
+        options = getattr(solver, "options", None)
+        if options is None:
+            return None
+        if highs_config.threads > 0:
+            options["MSK_IPAR_NUM_THREADS"] = highs_config.threads
+            return highs_config.threads
+        return None
 
     return None
 
@@ -1098,11 +1119,20 @@ def solve_model(
 
     solver_availability = get_solver_availability()
 
-    fallback_order = (
-        [solver_name, *[n for n in SOLVER_FACTORIES if n != solver_name]]
-        if solver_name in SOLVER_FACTORIES
-        else list(SOLVER_FACTORIES.keys())
-    )
+    if solver_name == "mosek":
+        # A commercial solver selected by the user must not silently fall back
+        # to a different engine when its package or license is unavailable.
+        fallback_order = [solver_name]
+    elif solver_name in SOLVER_FACTORIES:
+        # MOSEK is opt-in: never route another solver's request to a license-
+        # protected commercial backend as a side effect of availability.
+        fallback_solvers = [name for name in SOLVER_FACTORIES if name != "mosek"]
+        fallback_order = [
+            solver_name,
+            *[name for name in fallback_solvers if name != solver_name],
+        ]
+    else:
+        fallback_order = [name for name in SOLVER_FACTORIES if name != "mosek"]
 
     for candidate in fallback_order:
         factory_name = SOLVER_FACTORIES.get(candidate)
@@ -1200,4 +1230,9 @@ def solve_model(
     raise RuntimeError(
         f"No hay solvers disponibles. Solicitado: '{solver_name}'. "
         f"Disponibilidad: {avail_text}."
+        + (
+            " Instala las bindings Python de MOSEK y configura una licencia personal o global."
+            if solver_name == "mosek"
+            else ""
+        )
     )

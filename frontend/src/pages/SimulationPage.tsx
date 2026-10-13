@@ -2,7 +2,7 @@
  * SimulationPage - Encolar y gestionar simulaciones OSeMOSYS
  *
  * Funcionalidades:
- * - Seleccionar escenario y solver (HiGHS/GLPK) para encolar una simulación
+ * - Seleccionar escenario y solver (HiGHS/GLPK/Gurobi/MOSEK) para encolar una simulación
  * - Ver historial de jobs con filtro por estado (QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED)
  * - Polling automático cada 3s cuando hay jobs activos (en cola o ejecutando)
  * - Cancelar jobs en curso
@@ -82,7 +82,7 @@ const SIMULATION_LOG_STAGE_LABELS: Record<string, string> = {
   solver_start: "Preparar optimización",
   solver_write_lp: "Escribir archivo LP",
   solver_read_model: "HiGHS: cargar LP",
-  solver_run: "HiGHS: resolver modelo",
+  solver_run: "Resolver modelo",
   solver_map_solution: "HiGHS: mapear solución",
   solver: "Optimización finalizada",
   release_model: "Liberar memoria del modelo",
@@ -114,6 +114,8 @@ function getSolverLabel(solverName: SimulationSolver) {
       return "GLPK";
     case "gurobi":
       return "Gurobi";
+    case "mosek":
+      return "MOSEK";
   }
 }
 
@@ -1153,6 +1155,7 @@ export function SimulationPage() {
               <option value="highs">HiGHS</option>
               <option value="glpk">GLPK</option>
               <option value="gurobi">Gurobi</option>
+              <option value="mosek">MOSEK</option>
             </select>
           </label>
           <Button variant="primary" onClick={runSimulation} disabled={submitting || !selectedScenario}>
@@ -1321,6 +1324,7 @@ export function SimulationPage() {
               <option value="highs">HiGHS</option>
               <option value="glpk">GLPK</option>
               <option value="gurobi">Gurobi</option>
+              <option value="mosek">MOSEK</option>
             </select>
           </label>
           <label className="field" style={{ margin: 0 }}>
@@ -1958,6 +1962,7 @@ export function SimulationPage() {
                   { value: "HiGHS", label: "HiGHS" },
                   { value: "GLPK", label: "GLPK" },
                   { value: "Gurobi", label: "Gurobi" },
+                  { value: "MOSEK", label: "MOSEK" },
                 ],
               },
             },
@@ -2349,12 +2354,13 @@ export function SimulationPage() {
                   }
                 }
 
-                // Infactible + solver no soportado (ni highs/gurobi/glpk)
+                // Infactible + solver no soportado
                 if (
                   isInfeasible &&
                   solver !== "highs" &&
                   solver !== "gurobi" &&
-                  solver !== "glpk"
+                  solver !== "glpk" &&
+                  solver !== "mosek"
                 ) {
                   buttons.push(
                     <span

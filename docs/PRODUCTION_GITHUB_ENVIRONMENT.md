@@ -50,6 +50,8 @@ HiGHS simplex no mostró una mejora material al aumentar los hilos; por eso `SIM
 
 `APP_USERS` y `APP_ADMIN_USERS` pueden conservar sus listas actuales. Con `SYNC_APP_USERS=0` no se recrean usuarios durante cada despliegue.
 
+Para habilitar licencias MOSEK desde la interfaz, crear el secreto de GitHub `MOSEK_LICENSE_ENCRYPTION_KEY` con una clave Fernet generada por Python (`Fernet.generate_key()`). El deploy la instala en `backend/.env`, compartida por API y workers. Mantenerla estable: si se pierde o cambia, no podrán descifrarse las licencias ya almacenadas.
+
 `BACKEND_API_ALIAS` es una variable heredada; no es necesaria para el flujo Compose actual y no debe usarse como sustituto de `FRONTEND_API_UPSTREAM`.
 
 ## 3. Backup previo a migraciones
@@ -154,6 +156,8 @@ Deben existir como **Environment secrets** en `production`, pero sus valores nun
 - `SIMULATION_OPS_REMOTE_ENVIRONMENTS`
 - `SIMULATION_OPS_SHARED_TOKEN`
 
+Para habilitar la carga de licencias MOSEK, también debe existir `MOSEK_LICENSE_ENCRYPTION_KEY`. Generarla una sola vez con `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`, guardarla como **Environment secret** y conservar el mismo valor en todos los despliegues y workers. Rotarla sin migrar las licencias cifradas las volvería ilegibles.
+
 No guardar estos valores como variables normales, en `.env.example`, documentación, logs o argumentos de shell.
 
 Las credenciales actuales de PostgreSQL son administradas por los archivos protegidos del host. No migrarlas a GitHub ni rotarlas durante este despliegue sin un procedimiento específico de respaldo y rotación.
@@ -248,6 +252,7 @@ gh secret set APP_PASSWORD --env production -R UPME-SubDemanda/Osemosys_UPME
 gh secret set SECRET_KEY --env production -R UPME-SubDemanda/Osemosys_UPME
 gh secret set SIMULATION_OPS_REMOTE_ENVIRONMENTS --env production -R UPME-SubDemanda/Osemosys_UPME
 gh secret set SIMULATION_OPS_SHARED_TOKEN --env production -R UPME-SubDemanda/Osemosys_UPME
+gh secret set MOSEK_LICENSE_ENCRYPTION_KEY --env production -R UPME-SubDemanda/Osemosys_UPME
 ```
 
 ## 9. Auditoría en GitHub antes del merge a `main`

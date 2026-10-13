@@ -44,6 +44,9 @@ export type OutputWideFacets = {
   timeslice_names: string[];
   mode_names: string[];
   storage_names: string[];
+  season_names: string[];
+  daytype_names: string[];
+  bracket_names: string[];
 };
 
 export type OutputValuesTotals = {
@@ -61,6 +64,10 @@ export type OutputWideFilters = {
   timeslice_names?: string[];
   mode_names?: string[];
   storage_names?: string[];
+  season_names?: string[];
+  daytype_names?: string[];
+  bracket_names?: string[];
+  technology_or_fuel?: boolean;
   /** Serializadas como `year:op[:value]` separadas por coma. */
   year_rules?: string;
 };
@@ -83,6 +90,9 @@ function buildParams(filters: OutputWideFilters & Record<string, unknown>) {
     timeslice_names,
     mode_names,
     storage_names,
+    season_names,
+    daytype_names,
+    bracket_names,
     year_rules,
     ...rest
   } = filters;
@@ -96,6 +106,9 @@ function buildParams(filters: OutputWideFilters & Record<string, unknown>) {
     ...(csv(timeslice_names) ? { timeslice_names: csv(timeslice_names) } : {}),
     ...(csv(mode_names) ? { mode_names: csv(mode_names) } : {}),
     ...(csv(storage_names) ? { storage_names: csv(storage_names) } : {}),
+    ...(csv(season_names) ? { season_names: csv(season_names) } : {}),
+    ...(csv(daytype_names) ? { daytype_names: csv(daytype_names) } : {}),
+    ...(csv(bracket_names) ? { bracket_names: csv(bracket_names) } : {}),
     ...(year_rules ? { year_rules } : {}),
   };
 }
@@ -123,16 +136,12 @@ export const resultsDataApi = {
     } & OutputWideFilters = {},
   ) =>
     httpClient
-      .get<OutputWideFacets>(
-        `/simulations/${jobId}/output-values/wide/facets`,
-        { params: buildParams(params) },
-      )
+      .get<OutputWideFacets>(`/simulations/${jobId}/output-values/wide/facets`, {
+        params: buildParams(params),
+      })
       .then((r) => r.data),
 
-  getOutputTotals: (
-    jobId: number,
-    params: { variable_name?: string } & OutputWideFilters = {},
-  ) =>
+  getOutputTotals: (jobId: number, params: { variable_name?: string } & OutputWideFilters = {}) =>
     httpClient
       .get<OutputValuesTotals>(`/simulations/${jobId}/output-values/totals`, {
         params: buildParams(params),
@@ -144,13 +153,10 @@ export const resultsDataApi = {
     jobId: number,
     params: { variable_name?: string } & OutputWideFilters = {},
   ): Promise<Blob> => {
-    const response = await httpClient.get<Blob>(
-      `/simulations/${jobId}/output-values/export`,
-      {
-        params: buildParams(params),
-        responseType: "blob",
-      },
-    );
+    const response = await httpClient.get<Blob>(`/simulations/${jobId}/output-values/export`, {
+      params: buildParams(params),
+      responseType: "blob",
+    });
     return response.data;
   },
 };

@@ -117,7 +117,7 @@ cd backend
 ../.venv/bin/python scripts/run_osemosys_cli.py csv -h
 ```
 
-Opciones habituales: `--solver` (`glpk` o `highs`), `--output-dir` / `-o` (exporta CSV y `simulation_result.json`; por defecto crea una subcarpeta `run_YYYYMMDD_HHMMSS` dentro de la ruta indicada), `--overwrite` (escribe directamente en `-o` sin subcarpeta con timestamp), `--lp` (genera archivo `.lp` del modelo), `--lp-dir`, `--lp-name`.
+Opciones habituales: `--solver` (`glpk`, `highs`, `gurobi` o `mosek`), `--output-dir` / `-o` (exporta CSV y `simulation_result.json`; por defecto crea una subcarpeta `run_YYYYMMDD_HHMMSS` dentro de la ruta indicada), `--overwrite` (escribe directamente en `-o` sin subcarpeta con timestamp), `--lp` (genera archivo `.lp` del modelo), `--lp-dir`, `--lp-name`. Para MOSEK fuera de la aplicación, define `MOSEKLM_LICENSE_FILE` con la ruta al archivo de licencia.
 
 **Referencias**
 
@@ -340,4 +340,3 @@ Frontend y backend siguen igual:
 - Autorización JWT se adjunta automáticamente en todas las requests.
 - Si backend responde `401`, la app hace logout y redirecciona a `/login`.
 - `Simulación/Resultados` usa endpoints reales (`/simulations`, `/simulations/{id}/logs`, `/simulations/{id}/result`).
-

@@ -132,6 +132,7 @@ backend/scripts/trace_*.py
 backend/scripts/verify_*.py
 backend/scripts/validate_*.py
 !backend/scripts/validate_simulation_parity.py
+!backend/scripts/validate_employment_factor_delivery.py
 backend/scripts/find_*.py
 backend/scripts/extract_*.py
 backend/scripts/parity_test.py

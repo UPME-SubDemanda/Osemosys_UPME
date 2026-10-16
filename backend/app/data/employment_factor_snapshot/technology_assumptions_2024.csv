@@ -1,0 +1,22 @@
+Technology,Catalogue_Tech,lifetime_years,lifetime_source_year,construction_time_years,construction_time_source_year,construction_time_source,technology_sheet,lifetime_row_number,construction_time_row_number,mapping_type,notes
+Battery storage (distributed),Small-scale Lithium-ion,15,2024,0.2,2024,Colombian Technology Catalogue,14.b. Small-scale Lithium-ion,14,15,direct,
+Battery storage (grid),Utility-scale Lithium-ion,15,2024,0.2,2024,Colombian Technology Catalogue,14.a. Utility-scale Lithium-ion,14,15,direct,
+Biomass power,Biomass power plant,25,2024,2,2024,Colombian Technology Catalogue,7. Biomass power plant,10,11,direct,
+Coal power,Coal Supercritical,30,2024,4,2024,Colombian Technology Catalogue,9. Coal Supercritical,10,11,direct,
+Gas CCGT/OCGT,CCGT (GAS),25,2024,2.5,2024,Colombian Technology Catalogue,10. CCGT (GAS),10,11,direct,
+Geothermal,Geothermal large,30,2024,2,2024,Colombian Technology Catalogue,6.a. Geothermal large,10,11,direct,
+Hydro (large),Large Hydro reservoir,50,2024,5,2024,Colombian Technology Catalogue,5.d. Large Hydro reservoir,10,11,direct,
+Hydro (small),Small RoR hydro power,50,2024,3,2024,Colombian Technology Catalogue,5.b. Small RoR hydro power,9,10,direct,
+Nuclear,Nuclear PWR,60,2024,7.4,2024,Colombian Technology Catalogue,13.a. Nuclear PWR,11,12,direct,
+Ocean,,,,2,2015,Rutovitz 2015 Table 1,,,,unmapped_constant,No matching catalogue row; construction time from Rutovitz 2015 Table 1.
+Offshore wind (fixed),Wind Offshore fixed bottom,27,2024,3,2024,Colombian Technology Catalogue,4.a. Wind Offshore fixed bottom,9,10,direct,
+Offshore wind (floating),Wind offshore floating,30,2030,2.5,2030,Colombian Technology Catalogue,4.b. Wind offshore floating,8,9,partial,2024 catalogue lifetime unavailable; 2030 catalogue value used. 2024 catalogue construction time unavailable; 2030 catalogue value used.
+Oil and diesel,SCGT (GAS),25,2024,1.5,2024,Colombian Technology Catalogue,11. SCGT (GAS),10,11,proxy,
+Onshore wind,Wind Onshore,27,2024,1.5,2024,Colombian Technology Catalogue,3.a. Wind Onshore,8,9,direct,
+Pumped hydro storage,Hydro pumped storage,50,2024,5,2024,Colombian Technology Catalogue,15. Hydro pumped storage,10,11,direct,
+Rooftop solar PV,Residential PV (rooftop),27,2024,0.1,2024,Colombian Technology Catalogue,2.a. Residential PV (rooftop),7,8,direct,
+Solar thermal (CSP),,,,2,2015,Rutovitz 2015 Table 1,,,,unmapped_constant,No matching catalogue row; construction time from Rutovitz 2015 Table 1.
+Transmission (double circuit),,,,,,,,,,unmapped_constant,No matching Technology Catalogue or Rutovitz 2015 Table 1 construction-time row.
+Transmission (other),,,,,,,,,,unmapped_constant,No matching Technology Catalogue or Rutovitz 2015 Table 1 construction-time row.
+Transmission (single circuit),,,,,,,,,,unmapped_constant,No matching Technology Catalogue or Rutovitz 2015 Table 1 construction-time row.
+Utility-scale solar PV,Utility scale PV(tracking),27,2024,0.5,2024,Colombian Technology Catalogue,2.d. Utility scale PV(tracking),7,8,direct,

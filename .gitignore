@@ -185,3 +185,8 @@ experiments/scripts/run_fixed_table6_benchmark.py
 experiments/scripts/run_remote_table6_benchmark.py
 experiments/scripts/summarize_table6_resources.py
 experiments/scripts/render_fixed_table6_report.py
+
+# ──────────────────────────────────────────────
+# Diagramas Excalidraw (locales)
+# ──────────────────────────────────────────────
+diagrams/

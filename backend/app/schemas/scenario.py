@@ -212,6 +212,7 @@ class ScenarioPublic(BaseModel):
 
     id: int
     name: str
+    simulation_count: int = 0
     description: str | None
     owner: str
     base_scenario_id: int | None = None

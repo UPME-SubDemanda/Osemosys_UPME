@@ -9,6 +9,8 @@ import { useNavigate } from "react-router-dom";
 import { useCurrentUser } from "@/app/providers/useCurrentUser";
 import { useToast } from "@/app/providers/useToast";
 import { officialImportApi } from "@/features/officialImport/api/officialImportApi";
+import { simulationApi } from "@/features/simulation/api/simulationApi";
+import { getSimulationRunStatusDisplay } from "@/features/simulation/simulationRunStatus";
 import {
   scenariosApi,
   type ScenarioDeleteImpact,
@@ -34,6 +36,7 @@ import type {
   ScenarioOperationJob,
   ScenarioTag,
   ScenarioTagCategory,
+  SimulationRun,
   SimulationType,
 } from "@/types/domain";
 
@@ -169,6 +172,13 @@ export function ScenariosPage() {
   const { push } = useToast();
   const { user } = useCurrentUser();
   const [rows, setRows] = useState<Scenario[]>([]);
+  const [simulationListScenario, setSimulationListScenario] = useState<Scenario | null>(null);
+  const [scenarioSimulationRuns, setScenarioSimulationRuns] = useState<SimulationRun[]>([]);
+  const [scenarioSimulationTotal, setScenarioSimulationTotal] = useState(0);
+  const [scenarioSimulationPage, setScenarioSimulationPage] = useState(1);
+  const [scenarioSimulationTotalPages, setScenarioSimulationTotalPages] = useState(1);
+  const [scenarioSimulationLoading, setScenarioSimulationLoading] = useState(false);
+  const [scenarioSimulationError, setScenarioSimulationError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
@@ -365,6 +375,51 @@ export function ScenariosPage() {
   useEffect(() => {
     void loadScenarioTags();
   }, [loadScenarioTags]);
+
+  useEffect(() => {
+    if (!simulationListScenario) return;
+    let active = true;
+    setScenarioSimulationLoading(true);
+    setScenarioSimulationError(null);
+    void simulationApi
+      .listRuns({
+        scope: "global",
+        scenario_id: simulationListScenario.id,
+        cantidad: 10,
+        offset: scenarioSimulationPage,
+      })
+      .then((res) => {
+        if (!active) return;
+        setScenarioSimulationRuns(res.data);
+        setScenarioSimulationTotal(res.meta.total);
+        setScenarioSimulationTotalPages(Math.max(1, res.meta.total_pages));
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setScenarioSimulationError(
+          error instanceof Error ? error.message : "No se pudieron cargar las simulaciones.",
+        );
+      })
+      .finally(() => {
+        if (active) setScenarioSimulationLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [simulationListScenario, scenarioSimulationPage]);
+
+  function openScenarioSimulations(scenario: Scenario) {
+    setScenarioSimulationRuns([]);
+    setScenarioSimulationPage(1);
+    setSimulationListScenario(scenario);
+  }
+
+  function closeScenarioSimulations() {
+    setSimulationListScenario(null);
+    setScenarioSimulationRuns([]);
+    setScenarioSimulationTotal(0);
+    setScenarioSimulationPage(1);
+  }
 
   const refreshCloneJobs = useCallback(async () => {
     if (!user) return;
@@ -1246,6 +1301,9 @@ export function ScenariosPage() {
                 </span>
               </th>
               <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
+                Simulaciones
+              </th>
+              <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
                 Calidad
               </th>
               <th style={{ textAlign: "left", fontSize: 13, padding: "10px 12px", color: "var(--muted)" }}>
@@ -1260,13 +1318,13 @@ export function ScenariosPage() {
           <tbody>
             {loadingRows ? (
               <tr>
-                <td colSpan={11} style={{ padding: 14, opacity: 0.75 }}>
+                <td colSpan={12} style={{ padding: 14, opacity: 0.75 }}>
                   Cargando escenarios...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={11} style={{ padding: 14, opacity: 0.75 }}>
+                <td colSpan={12} style={{ padding: 14, opacity: 0.75 }}>
                   Sin registros.
                 </td>
               </tr>
@@ -1383,6 +1441,19 @@ export function ScenariosPage() {
                     <Badge variant="neutral">
                       {simulationTypeLabel[row.simulation_type] ?? row.simulation_type}
                     </Badge>
+                  </td>
+                  <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <strong>{row.simulation_count ?? 0}</strong>
+                      <Button
+                        variant="ghost"
+                        onClick={() => openScenarioSimulations(row)}
+                        style={{ padding: "4px 8px", fontSize: "0.8rem" }}
+                        aria-label={`Ver simulaciones del escenario ${row.name}`}
+                      >
+                        Ver lista
+                      </Button>
+                    </div>
                   </td>
                   <td style={{ padding: "10px 12px" }}>
                     <DataQualityBadge
@@ -2310,6 +2381,75 @@ export function ScenariosPage() {
             )}
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={simulationListScenario !== null}
+        title={`Simulaciones · ${simulationListScenario?.name ?? ""}`}
+        onClose={closeScenarioSimulations}
+        wide
+        footer={
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <small style={{ opacity: 0.75 }}>
+              {scenarioSimulationTotal} simulación(es) visibles · Página {scenarioSimulationPage} de {scenarioSimulationTotalPages}
+            </small>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button
+                variant="ghost"
+                disabled={scenarioSimulationLoading || scenarioSimulationPage <= 1}
+                onClick={() => setScenarioSimulationPage((page) => Math.max(1, page - 1))}
+              >
+                Anterior
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={scenarioSimulationLoading || scenarioSimulationPage >= scenarioSimulationTotalPages}
+                onClick={() => setScenarioSimulationPage((page) => Math.min(scenarioSimulationTotalPages, page + 1))}
+              >
+                Siguiente
+              </Button>
+              <Button variant="ghost" onClick={closeScenarioSimulations}>Cerrar</Button>
+            </div>
+          </div>
+        }
+      >
+        {scenarioSimulationLoading ? (
+          <p style={{ margin: 0, opacity: 0.75 }}>Cargando simulaciones...</p>
+        ) : scenarioSimulationError ? (
+          <p role="alert" style={{ margin: 0, color: "#fca5a5" }}>{scenarioSimulationError}</p>
+        ) : scenarioSimulationRuns.length === 0 ? (
+          <p style={{ margin: 0, opacity: 0.75 }}>Este escenario no tiene simulaciones visibles.</p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left", color: "var(--muted)" }}>
+                  <th style={{ padding: "8px 10px" }}>Simulación</th>
+                  <th style={{ padding: "8px 10px" }}>Estado</th>
+                  <th style={{ padding: "8px 10px" }}>Solver</th>
+                  <th style={{ padding: "8px 10px" }}>Solicitada</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scenarioSimulationRuns.map((run) => {
+                  const status = getSimulationRunStatusDisplay(run);
+                  return (
+                    <tr key={run.id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                      <td style={{ padding: "9px 10px" }}>
+                        {run.display_name?.trim() || run.description?.trim() || `Simulación #${run.id}`}
+                      </td>
+                      <td style={{ padding: "9px 10px" }}><Badge variant={status.variant}>{status.label}</Badge></td>
+                      <td style={{ padding: "9px 10px" }}>{run.solver_name}</td>
+                      <td style={{ padding: "9px 10px", whiteSpace: "nowrap" }}>
+                        {new Date(run.queued_at).toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Modal>
 
       <ConfirmDialog

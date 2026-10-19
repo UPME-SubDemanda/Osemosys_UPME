@@ -85,6 +85,7 @@ export type ScenarioTagConflict = {
 export type Scenario = {
   id: number;
   name: string;
+  simulation_count?: number;
   description: string | null;
   owner: string;
   base_scenario_id?: number | null;

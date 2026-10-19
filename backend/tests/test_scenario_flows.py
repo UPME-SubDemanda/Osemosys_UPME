@@ -15,6 +15,7 @@ from app.models import (
     ModeOfOperation,
     OsemosysParamValue,
     Scenario,
+    SimulationJob,
     Technology,
     Timeslice,
 )
@@ -65,6 +66,35 @@ def test_scenario_visibility_metadata_and_changed_params(db_session, monkeypatch
         can_edit_direct=True,
         can_manage_values=True,
     )
+    db_session.add_all(
+        [
+            SimulationJob(
+                user_id=owner.id,
+                scenario_id=open_scenario.id,
+                status="SUCCEEDED",
+                input_mode="SCENARIO",
+                simulation_type="NATIONAL",
+                is_public=True,
+            ),
+            SimulationJob(
+                user_id=owner.id,
+                scenario_id=open_scenario.id,
+                status="FAILED",
+                input_mode="SCENARIO",
+                simulation_type="NATIONAL",
+                is_public=False,
+            ),
+            SimulationJob(
+                user_id=viewer.id,
+                scenario_id=open_scenario.id,
+                status="QUEUED",
+                input_mode="SCENARIO",
+                simulation_type="NATIONAL",
+                is_public=False,
+            ),
+        ]
+    )
+    db_session.flush()
 
     listed = ScenarioService.list(
         db_session,
@@ -81,6 +111,8 @@ def test_scenario_visibility_metadata_and_changed_params(db_session, monkeypatch
     assert "Abierto" in listed_names
     assert "Restringido" in listed_names
     assert "Privado" not in listed_names
+    open_scenario_public = next(row for row in listed["data"] if row["name"] == "Abierto")
+    assert open_scenario_public["simulation_count"] == 2
 
     restricted_public = ScenarioService.get_public(
         db_session, scenario_id=restricted.id, current_user=viewer

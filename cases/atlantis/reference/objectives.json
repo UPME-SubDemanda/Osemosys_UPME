@@ -1,0 +1,50 @@
+{
+  "1TS_NOSTO": {
+    "cols": 62531,
+    "objective": 6059.574751271059,
+    "rows": 53349,
+    "status": "Optimal"
+  },
+  "1TS_NOSTO_NORE": {
+    "cols": 62531,
+    "objective": 3281.1069019637653,
+    "rows": 53349,
+    "status": "Optimal"
+  },
+  "2TS_NOSTO": {
+    "cols": 94796,
+    "objective": 6140.66547423906,
+    "rows": 78675,
+    "status": "Optimal"
+  },
+  "2TS_NOSTO_NORE": {
+    "cols": 94796,
+    "objective": 3348.136423197856,
+    "rows": 78675,
+    "status": "Optimal"
+  },
+  "6TS": {
+    "cols": 225017,
+    "objective": 6254.971663656913,
+    "rows": 182760,
+    "status": "Optimal"
+  },
+  "6TS_NORE": {
+    "cols": 225017,
+    "objective": 3657.7871962115332,
+    "rows": 182760,
+    "status": "Optimal"
+  },
+  "6TS_NOSTO": {
+    "cols": 223856,
+    "objective": 6196.680332110566,
+    "rows": 179979,
+    "status": "Optimal"
+  },
+  "6TS_NOSTO_NORE": {
+    "cols": 223856,
+    "objective": 3507.0839005311004,
+    "rows": 179979,
+    "status": "Optimal"
+  }
+}

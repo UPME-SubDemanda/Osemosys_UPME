@@ -108,6 +108,10 @@ const DIM_HEADERS: DimHeader[] = [
   },
 ];
 
+const DEFAULT_COLUMN_MODES: Record<string, ColumnVisibilityMode> = {
+  mode_names: "visible",
+};
+
 function formatCellValue(v: number): string {
   if (!Number.isFinite(v)) return "—";
   const abs = Math.abs(v);
@@ -687,6 +691,10 @@ export function ResultDataExplorerPage() {
   // ------------------------------------------------------------------
   const [columnModes, setColumnModes] = useState<Record<string, ColumnVisibilityMode>>({});
   const [autoHideEnabled, setAutoHideEnabled] = useState(true);
+  const effectiveColumnModes = useMemo(
+    () => ({ ...DEFAULT_COLUMN_MODES, ...columnModes }),
+    [columnModes],
+  );
 
   const dimIsEmpty = useCallback(
     (h: DimHeader): boolean => {
@@ -701,14 +709,14 @@ export function ResultDataExplorerPage() {
 
   const isColumnVisible = useCallback(
     (id: string, emptyInCurrentPage: boolean): boolean => {
-      const mode = columnModes[id] ?? "auto";
+      const mode = effectiveColumnModes[id] ?? "auto";
       if (mode === "visible") return true;
       if (mode === "hidden") return false;
       // auto
       if (autoHideEnabled && emptyInCurrentPage) return false;
       return true;
     },
-    [columnModes, autoHideEnabled],
+    [effectiveColumnModes, autoHideEnabled],
   );
 
   const visibleDimHeaders = useMemo(
@@ -718,7 +726,7 @@ export function ResultDataExplorerPage() {
 
   const handleColumnModeChange = useCallback((id: string, mode: ColumnVisibilityMode) => {
     setColumnModes((prev) => {
-      if (mode === "auto") {
+      if (mode === "auto" && DEFAULT_COLUMN_MODES[id] !== "visible") {
         const next = { ...prev };
         delete next[id];
         return next;
@@ -727,7 +735,7 @@ export function ResultDataExplorerPage() {
     });
   }, []);
 
-  const handleResetColumnModes = useCallback(() => setColumnModes({}), []);
+  const handleResetColumnModes = useCallback(() => setColumnModes({ ...DEFAULT_COLUMN_MODES }), []);
 
   /**
    * Exporta los resultados a Excel.
@@ -834,7 +842,7 @@ export function ResultDataExplorerPage() {
               label: h.label,
               isEmpty: dimIsEmpty(h),
             }))}
-            modes={columnModes}
+            modes={effectiveColumnModes}
             autoHideEnabled={autoHideEnabled}
             onChangeMode={handleColumnModeChange}
             onToggleAutoHide={setAutoHideEnabled}

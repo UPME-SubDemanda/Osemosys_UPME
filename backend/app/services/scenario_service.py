@@ -33,6 +33,7 @@ from app.models import (
     Region,
     Scenario,
     ScenarioPermission,
+    SimulationJob,
     ScenarioTag,
     ScenarioTagCategory,
     ScenarioTagLink,
@@ -269,6 +270,7 @@ class ScenarioService:
         current_user: User,
         base_scenario_name: str | None,
         tags: list[ScenarioTag] | None = None,
+        simulation_count: int = 0,
     ) -> dict:
         tag_dicts = ScenarioService._tags_for_scenario(db, scenario, tags=tags)
         # Solo devolvemos el `summary` del data_quality_warnings (no el detalle
@@ -279,6 +281,7 @@ class ScenarioService:
         return {
             "id": int(scenario.id),
             "name": scenario.name,
+            "simulation_count": simulation_count,
             "description": scenario.description,
             "owner": scenario.owner,
             "base_scenario_id": int(scenario.base_scenario_id) if scenario.base_scenario_id is not None else None,
@@ -529,6 +532,23 @@ class ScenarioService:
         meta = build_meta(page, page_size, total, busqueda)
         # Batch lookup: tags por escenario en un solo query
         scenario_ids = [int(s.id) for s, _ in items]
+        simulation_counts: dict[int, int] = {}
+        if scenario_ids:
+            simulation_counts = {
+                int(scenario_id): int(count)
+                for scenario_id, count in db.query(
+                    SimulationJob.scenario_id, func.count(SimulationJob.id)
+                )
+                .filter(
+                    SimulationJob.scenario_id.in_(scenario_ids),
+                    or_(
+                        SimulationJob.is_public.is_(True),
+                        SimulationJob.user_id == current_user.id,
+                    ),
+                )
+                .group_by(SimulationJob.scenario_id)
+                .all()
+            }
         tags_by_scenario: dict[int, list[ScenarioTag]] = {sid: [] for sid in scenario_ids}
         if scenario_ids:
             link_rows = db.execute(
@@ -554,6 +574,7 @@ class ScenarioService:
                     current_user=current_user,
                     base_scenario_name=base_scenario_name,
                     tags=tags_by_scenario.get(int(scenario.id), []),
+                    simulation_count=simulation_counts.get(int(scenario.id), 0),
                 )
                 for scenario, base_scenario_name in items
             ],

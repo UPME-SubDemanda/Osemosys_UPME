@@ -719,6 +719,17 @@ export function ScenariosPage() {
 
   async function deleteSelectedDeleteChildren() {
     if (!deleteCandidate || selectedDeleteChildIds.length === 0) return;
+    const selectedWithChildren = (deleteImpact?.direct_children ?? []).filter(
+      (child) => selectedDeleteChildIds.includes(child.id) && child.child_count > 0,
+    );
+    if (selectedWithChildren.length > 0) {
+      const names = selectedWithChildren.map((child) => `${child.name} (#${child.id})`).join(", ");
+      push(
+        `No se pueden borrar porque tienen dependencias: ${names}. Usa “Independizar seleccionados” para conservarlos con su árbol y poder borrar el escenario padre.`,
+        "error",
+      );
+      return;
+    }
     setResolvingDeleteChildren(true);
     try {
       let deleted = 0;
@@ -2166,7 +2177,13 @@ export function ScenariosPage() {
                   <Button
                     variant="ghost"
                     onClick={() => void deleteSelectedDeleteChildren()}
-                    disabled={resolvingDeleteChildren || selectedDeleteChildIds.length === 0}
+                    disabled={
+                      resolvingDeleteChildren ||
+                      selectedDeleteChildIds.length === 0 ||
+                      deleteImpact.direct_children.some(
+                        (child) => selectedDeleteChildIds.includes(child.id) && child.child_count > 0,
+                      )
+                    }
                     style={{ color: "rgba(248,113,113,0.95)" }}
                   >
                     Borrar dependencias seleccionadas
@@ -2269,16 +2286,21 @@ export function ScenariosPage() {
                         <small style={{ opacity: 0.75 }}>
                           Dueño: {child.owner} · {simulationTypeLabel[child.simulation_type]} ·{" "}
                           {child.simulation_job_count} simulación(es)
-                          {child.child_count > 0 ? ` · ${child.child_count} dependencia(s)` : ""}
+                          {child.child_count > 0 ? (
+                            <strong style={{ color: "#fbbf24" }}>
+                              {` · No se puede borrar: tiene ${child.child_count} dependencia(s)`}
+                            </strong>
+                          ) : ""}
                         </small>
                       </span>
                     </label>
                   ))}
                 </div>
-                <small style={{ opacity: 0.72 }}>
-                  Si una dependencia seleccionada también tiene dependencias, su borrado se
-                  bloqueará y podrás resolverlo en el mismo flujo al abrir ese
-                  escenario.
+                <small style={{ opacity: 0.85 }}>
+                  Si un escenario tiene dependencias propias, no se puede borrar desde esta lista.
+                  Para conservarlo junto con su árbol y poder borrar el escenario principal,
+                  selecciónalo y pulsa <strong>Independizar seleccionados</strong>. El borrado queda
+                  deshabilitado mientras haya seleccionados con dependencias propias.
                 </small>
               </div>
             ) : (

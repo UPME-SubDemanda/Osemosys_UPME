@@ -1,0 +1,3 @@
+# Generated employment snapshots are checksum-locked across Windows/Linux.
+backend/app/data/employment_factor_snapshot/*.csv text eol=lf
+backend/app/data/employment_factor_snapshot/*.json text eol=lf

@@ -1,0 +1,18 @@
+{
+  "reproducible_csv_files": 4,
+  "packaged_csv_files_identical": 4,
+  "scenario_ordering_passed": true,
+  "source_and_output_checksums_passed": true,
+  "rooftop_and_nuclear_unchanged": true,
+  "native_workbooks_unchanged": true,
+  "baseline_replay_rows": 3052,
+  "source_refresh_policy_attribution_passed": true,
+  "maximum_csv_rounding_residual_fte": 1.0000658221542835e-06,
+  "source_content_sha256": "c131b1a06b8fffea5ceee6a343e0678a1fa3cdfb00a09e097340f1523d32a73b",
+  "model_table_sha256": "fe834af4968d3edbe875b1e96d0c52aeeaca09ba73e290b30e40b69e7887daac",
+  "unchanged_technologies": [
+    "Nuclear",
+    "Rooftop solar PV"
+  ],
+  "solar_transfer_status": "pending utility run; published rooftop retained"
+}

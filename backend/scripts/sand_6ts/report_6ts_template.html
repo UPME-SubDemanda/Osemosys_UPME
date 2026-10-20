@@ -1,0 +1,599 @@
+<title>Benchmark 2 TS vs 6TS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+@font-face { font-family: "Excalifont"; src: url(data:font/woff2;base64,/*__EXCALIFONT__*/) format("woff2"); font-display: swap; }
+/* Layout: informe técnico de una columna sobre papel blanco. Método con diagrama, casos y archivos, resumen y después el detalle. Color = escenario (PD azul, PA naranja, CN verde azulado); trazo discontinuo = 2 TS, continuo = 6 TS. Un solo tema claro, a propósito: es un documento para leer e imprimir en pantalla. */
+:root {
+  color-scheme: light;
+  --bg: #ffffff; --panel: #ffffff; --fg: #1d2025; --muted: #5c636e; --rule: #dcdfe4; --band: #f3f4f6; --soft: #f7f8f9;
+  --pd: #2563c9; --pa: #d07a1c; --cn: #0b6f63;
+  --good: #1d7a46; --warn: #a15c00;
+  --c-hidro: #4572c5; --c-solar: #e3a21a; --c-eol: #7a3fb0; --c-ter: #8a6d5a;
+  --s1: #2f3b52; --s2: #a3477a;
+  --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.5; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 40px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 40px; }
+header, section { display: flex; flex-direction: column; gap: 14px; }
+header { gap: 8px; }
+h1 { font-family: var(--font-display); font-size: 2.1rem; line-height: 1.15; margin: 0; text-wrap: balance; font-weight: 700; }
+h2 { font-family: var(--font-display); font-size: 1.35rem; margin: 0; text-wrap: balance; font-weight: 600; display: flex; gap: 10px; align-items: baseline; }
+h2 .n { font-family: var(--font-mono); font-size: .8rem; color: var(--muted); font-weight: 500; }
+section { border-top: 1px solid var(--rule); padding-top: 22px; }
+h3 { font-size: .95rem; margin: 0; font-weight: 600; }
+p { margin: 0; max-width: 72ch; color: var(--muted); }
+.eyebrow { font-family: var(--font-mono); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); }
+.grid.three { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.grid.four { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 14px 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+svg { width: 100%; height: auto; display: block; }
+svg text { fill: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .9rem; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 20px; height: 3px; border-radius: 2px; display: inline-block; }
+.sw.box { height: 12px; width: 12px; border-radius: 2px; }
+.sw.dash { height: 0; border-top: 2.5px dashed currentColor; border-radius: 0; background: none !important; }
+.note { background: var(--soft); border: 1px solid var(--rule); border-radius: 4px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.note ul { margin: 0; padding-left: 20px; color: var(--muted); max-width: 84ch; display: flex; flex-direction: column; gap: 4px; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--fg); }
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--rule); white-space: nowrap; vertical-align: top; }
+th { font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; background: var(--soft); }
+tbody tr:last-child td { border-bottom: none; }
+td.r, th.r { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+td.mono { font-family: var(--font-mono); font-size: .82rem; }
+tr.sep td { border-top: 2px solid var(--rule); }
+th.grp { text-align: center; border-bottom: 2px solid currentColor; }
+.scen { font-weight: 700; display: inline-flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.file { display: flex; flex-direction: column; gap: 2px; }
+.file b { font-family: var(--font-mono); font-size: .85rem; font-weight: 500; color: var(--fg); }
+.file small { color: var(--muted); font-family: var(--font-mono); font-size: .72rem; }
+.ok { color: var(--good); font-weight: 600; } .bad { color: var(--warn); font-weight: 600; }
+.up { color: var(--fg); } .muted { color: var(--muted); }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tabs button { font: inherit; font-size: .92rem; padding: 6px 13px; border-radius: 4px; cursor: pointer;
+  background: var(--panel); color: var(--fg); border: 1px solid var(--rule); display: inline-flex; align-items: center; gap: 8px; }
+.tabs button[aria-selected="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.tabs button:focus-visible { outline: 2px solid var(--pd); outline-offset: 2px; }
+.findings { display: flex; flex-direction: column; }
+.finding { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: start; background: var(--panel);
+  border-bottom: 1px solid var(--rule); padding: 12px 2px; }
+.finding:last-child { border-bottom: none; }
+.finding > div { min-width: 0; color: var(--muted); }
+.finding b { color: var(--fg); }
+.chip { font-family: var(--font-mono); font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px;
+  border-radius: 999px; text-align: center; border: 1px solid currentColor; justify-self: start; }
+@media (max-width: 560px) { .finding { grid-template-columns: 1fr; } }
+code { font-family: var(--font-mono); font-size: .88em; }
+.uilist { display: flex; flex-direction: column; gap: 22px; }
+.uichart { display: flex; flex-direction: column; gap: 8px; }
+.uichart .sub { font-family: var(--font-mono); font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.trio { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.col > h4 { margin: 0; font-size: .85rem; display: flex; align-items: center; gap: 8px; }
+.col .card { padding: 8px 8px 4px; gap: 2px; }
+.col .card h5 { margin: 0; font-size: .75rem; color: var(--muted); font-weight: 600; font-family: var(--font-mono); }
+.uichart .legend { font-size: .8rem; gap: 4px 12px; }
+.empty { color: var(--muted); font-size: .9rem; padding: 26px 0; text-align: center; }
+.masthead { display: flex; flex-direction: column; gap: 10px; padding-bottom: 20px; border-bottom: 2px solid var(--fg); }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: .92rem; color: var(--muted); }
+.meta b { color: var(--fg); font-weight: 600; }
+.lead { font-size: 1.06rem; color: var(--fg); max-width: 78ch; }
+.diagram-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 4px; background: var(--soft); }
+.diagram { min-width: 820px; padding: 8px 4px; }
+.diagram svg text { fill: var(--fg); font-family: "Excalifont", "Segoe Print", "Comic Sans MS", var(--font-body); font-size: 14px; }
+.diagram svg text.t { font-size: 17px; }
+.diagram svg text.f { font-family: var(--font-mono); font-size: 11px; fill: var(--muted); }
+.diagram svg text.lab { font-size: 12.5px; fill: var(--muted); }
+figure { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+figcaption { font-size: .9rem; color: var(--muted); max-width: 80ch; }
+#tip { position: fixed; z-index: 20; pointer-events: none; background: var(--panel); color: var(--fg); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 6px 9px; font-size: .8rem; box-shadow: 0 4px 14px rgb(0 0 0 / .14); max-width: 280px; }
+#tip .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+#tip .row span:last-child { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: no-preference) { .tabs button { transition: background .15s, color .15s; } }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div class="eyebrow">Informe técnico · OSeMOSYS UPME · SAND 2022–2055</div>
+    <h1>Escenarios PD, PA y CN con 2 y 6 timeslices</h1>
+    <p class="lead">Seis corridas con HiGHS: cada escenario con su SAND de 2 TS (día y noche) y con el de 6 TS (dos semestres × madrugada, día y tarde-noche). Este informe compara costos, capacidad, emisiones y despacho, e indica el archivo SAND de cada corrida.</p>
+    <div class="meta"><span>Elaborado por <b>Juan Dominguez, PhD</b></span><span>Generado el <b>/*__GENERATED__*/</b></span><span>Rama <b>feature/sand-6ts</b></span></div>
+  </header>
+
+  <section id="metodo">
+    <h2><span class="n">1</span>Método: de 2 a 6 TS</h2>
+    <p>Cada SAND de 6 TS parte del SAND de 2 TS del mismo escenario y solo cambia lo que depende de los timeslices. De <code>6TS_parameters_SAND.xlsx</code> se toman el <code>YearSplit</code>, el perfil de demanda y la forma horaria del CF de solar, eólica e hidro. El nivel anual de cada CF se ajusta al del 2 TS, así que cada tecnología produce la misma energía al año. Para cubrir la punta de la tarde-noche, la capacidad existente y los topes de inversión de las tecnologías que atienden demandas con perfil se multiplican por 1,077, y sus costos de capital y fijo se dividen por el mismo factor. El 1,077 es el bloque de mayor demanda frente al promedio: en la tarde-noche del semestre 2 (S203) el perfil pone el 15,50 % de la demanda del año en un bloque que tiene el 14,38 % de las horas, y 0,1550 / 0,1438 = 1,077. El AF queda en 1 y los límites de energía no cambian.</p>
+    <figure>
+      <div class="diagram-wrap"><div class="diagram">
+<svg viewBox="0 0 1090 430" role="img" aria-label="Del SAND de 2 TS de cada escenario y de 6TS_parameters_SAND.xlsx, el script de cada escenario completa CF, aplica YearSplit, perfil y forma del CF, escala la capacidad de demanda por 1,077, valida y escribe el SAND de 6 TS, que se resuelve con HiGHS.">
+  <defs>
+    <filter id="sketch" x="-2%" y="-2%" width="104%" height="104%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="3"/></filter>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" style="fill:var(--fg)"/></marker>
+  </defs>
+  <g filter="url(#sketch)"><rect x="20" y="30" width="290" height="150" rx="10" style="fill:var(--panel);stroke:var(--fg)" stroke-width="1.6"/><rect x="20" y="220" width="290" height="190" rx="10" style="fill:var(--panel);stroke:var(--fg)" stroke-width="1.6"/><rect x="400" y="30" width="320" height="380" rx="10" style="fill:var(--panel);stroke:var(--fg)" stroke-width="2.2"/><rect x="800" y="30" width="270" height="150" rx="10" style="fill:var(--panel);stroke:var(--fg)" stroke-width="2.2"/><rect x="800" y="250" width="270" height="90" rx="10" style="fill:var(--panel);stroke:var(--fg)" stroke-width="1.6"/><circle cx="430" cy="87" r="12" style="fill:var(--soft);stroke:var(--fg)" stroke-width="1.4"/><circle cx="430" cy="139" r="12" style="fill:var(--soft);stroke:var(--fg)" stroke-width="1.4"/><circle cx="430" cy="191" r="12" style="fill:var(--soft);stroke:var(--fg)" stroke-width="1.4"/><circle cx="430" cy="243" r="12" style="fill:var(--soft);stroke:var(--fg)" stroke-width="1.4"/><circle cx="430" cy="295" r="12" style="fill:var(--soft);stroke:var(--fg)" stroke-width="1.4"/><circle cx="430" cy="347" r="12" style="fill:var(--soft);stroke:var(--fg)" stroke-width="1.4"/><line x1="310" y1="105" x2="396" y2="105" style="stroke:var(--fg)" stroke-width="1.6" marker-end="url(#ah)"/><line x1="310" y1="315" x2="396" y2="315" style="stroke:var(--fg)" stroke-width="1.6" marker-end="url(#ah)"/><line x1="720" y1="105" x2="796" y2="105" style="stroke:var(--fg)" stroke-width="1.6" marker-end="url(#ah)"/><line x1="935" y1="180" x2="935" y2="246" style="stroke:var(--fg)" stroke-width="1.6" marker-end="url(#ah)"/></g>
+  <text x="36" y="58" class="t" text-anchor="start">SAND de 2 TS del escenario</text><text x="36" y="80" class="lab" text-anchor="start">S101 día · S102 noche, 12 h cada uno</text><text x="36" y="108" class="f" text-anchor="start">PD_2TS_41D_2055_SAND_03Jun2026.xlsx</text><text x="36" y="128" class="f" text-anchor="start">PA_scenario_167_Parameters_SAND.xlsx</text><text x="36" y="148" class="f" text-anchor="start">CN_scenario_166_Parameters_SAND.xlsx</text><text x="36" y="168" class="lab" text-anchor="start">todo lo que no depende de los TS</text><text x="36" y="248" class="t" text-anchor="start">6TS_parameters_SAND.xlsx</text><text x="36" y="270" class="lab" text-anchor="start">608 filas, 6 parámetros (UPME)</text><text x="36" y="298" text-anchor="start">Se toma:</text><text x="48" y="318" text-anchor="start">· YearSplit</text><text x="48" y="336" text-anchor="start">· perfil de demanda</text><text x="48" y="354" text-anchor="start">· forma del CF solar, eólica, hidro</text><text x="36" y="380" class="lab" text-anchor="start">No se toma: AF (duplica la reducción),</text><text x="36" y="398" class="lab" text-anchor="start">demandas pasadas a anuales, 2055 vacío</text><text x="416" y="58" class="t" text-anchor="start">build_pd / pa / cn_6ts.py</text><text x="430" y="92" class="t" text-anchor="middle">1</text><text x="452" y="92" text-anchor="start">Completar CF omitidos</text><text x="452" y="109" class="lab" text-anchor="start">solo PA y CN (exportes de la BD)</text><text x="430" y="144" class="t" text-anchor="middle">2</text><text x="452" y="144" text-anchor="start">YearSplit de 6 bloques</text><text x="452" y="161" class="lab" text-anchor="start">de 6TS_parameters_SAND.xlsx</text><text x="430" y="196" class="t" text-anchor="middle">3</text><text x="452" y="196" text-anchor="start">Perfil de demanda</text><text x="452" y="213" class="lab" text-anchor="start">a las 41 demandas de uso final</text><text x="430" y="248" class="t" text-anchor="middle">4</text><text x="452" y="248" text-anchor="start">CF = forma 6 TS × nivel 2 TS</text><text x="452" y="265" class="lab" text-anchor="start">misma energía anual por tecnología</text><text x="430" y="300" class="t" text-anchor="middle">5</text><text x="452" y="300" text-anchor="start">Capacidad de demanda × 1,077</text><text x="452" y="317" class="lab" text-anchor="start">CapitalCost y FixedCost ÷ 1,077</text><text x="430" y="352" class="t" text-anchor="middle">6</text><text x="452" y="352" text-anchor="start">Validar antes de escribir</text><text x="452" y="369" class="lab" text-anchor="start">suma 1, CF de 0 a 1, energía, punta</text><text x="816" y="58" class="t" text-anchor="start">SAND de 6 TS</text><text x="816" y="80" class="lab" text-anchor="start">2 semestres × 3 bloques al día</text><text x="816" y="108" class="f" text-anchor="start">PD_6TS_41D_2055_SAND_19Oct2026.xlsx</text><text x="816" y="128" class="f" text-anchor="start">PA_6TS_41D_2055_SAND_19Oct2026.xlsx</text><text x="816" y="148" class="f" text-anchor="start">CN_6TS_41D_2055_SAND_19Oct2026.xlsx</text><text x="816" y="168" class="lab" text-anchor="start">mismo formato que el de 2 TS</text><text x="816" y="280" class="t" text-anchor="start">HiGHS</text><text x="816" y="302" class="f" text-anchor="start">run_osemosys_cli.py excel</text><text x="816" y="322" class="f" text-anchor="start">resultados en out/pd_6ts/</text><text x="353" y="97" class="lab" text-anchor="middle">parámetros</text><text x="353" y="307" class="lab" text-anchor="middle">formas</text><text x="758" y="97" class="lab" text-anchor="middle">escribe</text><text x="945" y="218" class="lab" text-anchor="start">resuelve</text>
+</svg>
+      </div></div>
+      <figcaption>Recorrido de los datos. A la izquierda, los dos archivos de entrada; al centro, los pasos del script de cada escenario; a la derecha, el SAND de 6 TS que se resuelve.</figcaption>
+    </figure>
+  </section>
+
+  <section id="casos">
+    <h2><span class="n">2</span>Casos y archivos de referencia</h2>
+    <p>Cada fila es una corrida. El archivo SAND es el que recibió el solver, leído del log de la corrida.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Escenario</th><th>TS</th><th>Archivo SAND (.xlsx)</th><th>Estado</th><th class="r">Costo total</th><th class="r">Δ vs 2 TS</th><th class="r">Solver</th></tr></thead>
+        <tbody id="runs"></tbody>
+      </table>
+    </div>
+    <p>Los SAND de 2 TS del PA y del CN son exportes de la base de datos de la app (escenarios 167 y 166). El del PD es <code>PD_2TS_41D_2055_SAND_03Jun2026.xlsx</code>; su exporte desde la base de datos (<code>PD_scenario_168_Parameters_SAND.xlsx</code>) tiene las mismas filas y da exactamente el mismo costo. Costo: valor presente del horizonte 2022–2055, en las unidades del SAND.</p>
+  </section>
+
+  <section>
+    <h2><span class="n">3</span>Resumen por escenario</h2>
+    <p>Indicadores de 2055 y costo total. La columna Δ es 6 TS menos 2 TS del mismo escenario.</p>
+    <div class="tablewrap"><table id="kpi"></table></div>
+  </section>
+
+  <section>
+    <h2><span class="n">4</span>Lo que cambia al pasar a 6 TS</h2>
+    <div class="findings" id="findings"><div class="finding"><span class="chip" style="color:var(--fg)">Los tres</span>
+        <div><b>El costo casi no cambia.</b> PD −0,13 %, PA −0,13 % y CN −0,35 %. Ningún caso usa el backstop. Resolver con 6 TS toma de 18 a 41 minutos, frente a 1–3 minutos con 2 TS.</div></div>
+      <div class="finding"><span class="chip" style="color:var(--fg)">Los tres</span>
+        <div><b>El 2 TS sobrevalora la eólica y subvalora la solar.</b> Con 2 TS la eólica tiene el mismo CF de día y de noche. Con 6 TS, en 2055 los tres escenarios tienen menos eólica y más solar (PD 8,3 → 11,0 GW; PA 9,1 → 13,5; CN 22,5 → 42,6). La hidro de embalse cubre la punta de la tarde-noche.</div></div>
+      <div class="finding"><span class="chip" style="color:var(--cn)">CN</span>
+        <div><b>La solar casi se duplica y el hidrógeno se produce de día.</b> Solar 2055: 22,5 → 42,6 GW; eólica 51,5 → 47,0 GW; hidro 19,4 → 16,6 GW (menos hidro nueva). Con la misma capacidad de electrolizadores, 204 de los 221 PJ de H₂ de 2055 se producen en los bloques de día (S102 y S202). Con 2 TS el modelo no ve esa ventaja. Las emisiones casi no cambian (22,1 MtCO₂eq en 2055).</div></div>
+      <div class="finding"><span class="chip" style="color:var(--pa)">PA</span>
+        <div><b>Más solar, cero gas eléctrico en 2055 y menos emisiones.</b> Solar 2055: 9,1 → 13,5 GW. La generación a gas de 2055 baja de 17,7 PJ a 0. GEI 2055: 76,7 → 73,5 MtCO₂eq (−4,2 %).</div></div>
+      <div class="finding"><span class="chip" style="color:var(--pd)">PD</span>
+        <div><b>Menos electrificación del calor industrial.</b> En 2055 los hornos eléctricos de alta temperatura caen de 19,4 a ~6,5 PJ y los de carbón suben de 27,6 a ~42 PJ. GEI 2055: 102,7 → 104,0 MtCO₂eq (+1,3 %). Esto no se repite en PA ni en CN.</div></div>
+      <div class="finding"><span class="chip" style="color:var(--warn)">Dato del SAND</span>
+        <div><b>El CF de las térmicas parece un factor de planta histórico.</b> Carbón 0,38, diésel 0,29, gas de ciclo combinado 0,51, con AF = 1 en los tres escenarios. Como el CF limita cada bloque, una planta a carbón no puede pasar del 38 % de su capacidad ni en la punta, y en los tres escenarios el carbón y el diésel operan en ese tope en la madrugada y la tarde-noche. Llevar el factor histórico al AF y dejar en el CF la disponibilidad técnica conservaría la energía anual y permitiría concentrar la térmica en la punta. Por confirmar con la UPME.</div></div>
+      <div class="finding"><span class="chip" style="color:var(--warn)">Dato del SAND</span>
+        <div><b>Problemas del SAND revisados en el PD.</b> Tecnologías con capacidad gratis (p. ej. Diésel Barco con 31 710 GW), carbón con margen cero entre minería y exportación, y carga liviana a gasolina o híbrida con el mismo costo. Mueven resultados entre corridas sin cambiar el costo. Falta confirmar si también están en PA y CN.</div></div>
+      <div class="finding"><span class="chip" style="color:var(--muted)">Gráfica de la app</span>
+        <div><b>"Emisiones - Total" y "Emisiones - Por Sector" mezclan unidades:</b> suman GEI (Mt) con contaminantes (kt). Este reporte usa "Emisiones GEI por Sector", que filtra bien.</div></div></div>
+  </section>
+
+  <section>
+    <h2><span class="n">5</span>Capacidad eléctrica 2022–2055 por familia</h2>
+    <p>GW instalados. Pasa el cursor sobre una gráfica para ver los seis valores del año.</p>
+    <div class="legend" id="caselegend"></div>
+    <div class="grid four" id="famgrid"></div>
+  </section>
+
+  <section>
+    <h2><span class="n">6</span>Emisiones GEI</h2>
+    <p>MtCO₂eq por año: total de la gráfica "Emisiones GEI por Sector" de la app, que suma CO₂, CH₄ y N₂O tal como vienen en el SAND.</p>
+    <div class="card"><svg id="geichart" role="img" aria-label="Emisiones GEI totales 2022-2055 por caso"></svg></div>
+  </section>
+
+  <section>
+    <h2><span class="n">7</span>Planeación del sector eléctrico</h2>
+    <p>Las gráficas Matriz Eléctrica y Producción de Electricidad de la app, con sus nombres y colores. Elige el caso.</p>
+    <div class="tabs" role="tablist" aria-label="Caso" id="plantabs"></div>
+    <div class="legend" id="planlegend"></div>
+    <div class="card"><h3>Matriz Eléctrica (Capacidad) · GW</h3><svg id="plancap" role="img" aria-label="Capacidad eléctrica por tecnología"></svg></div>
+    <div class="card"><h3>Producción de Electricidad · % de la generación</h3><svg id="planprd" role="img" aria-label="Participación de la generación eléctrica por tecnología"></svg></div>
+  </section>
+
+  <section>
+    <h2><span class="n">8</span>Despacho eléctrico <span id="dyear"></span> por bloque</h2>
+    <p>Potencia media de generación en cada bloque (GW). Con 2 TS el día va de 06 a 18 h; con 6 TS hay tres bloques por día en cada semestre.</p>
+    <div class="legend">
+      <span><i class="sw box" style="background:var(--c-hidro)"></i>Hidro</span>
+      <span><i class="sw box" style="background:var(--c-solar)"></i>Solar</span>
+      <span><i class="sw box" style="background:var(--c-eol)"></i>Eólica</span>
+      <span><i class="sw box" style="background:var(--c-ter)"></i>Térmica y otras</span>
+    </div>
+    <div id="dispatch" style="display:flex;flex-direction:column;gap:16px"></div>
+  </section>
+
+  <section>
+    <h2><span class="n">9</span>Todas las gráficas de la app</h2>
+    <p>Generadas con el motor de gráficas de la aplicación (mismos filtros, agrupación por defecto, colores y nombres). Una columna por escenario, 2 TS arriba y 6 TS abajo, con la misma escala en las seis. Pasa el cursor sobre una barra para ver el valor.</p>
+    <div class="tabs" role="tablist" aria-label="Módulo" id="uitabs"></div>
+    <div id="uicharts" class="uilist"></div>
+  </section>
+
+  <section>
+    <h2><span class="n">10</span>Entradas de 6 TS: demanda y factor de capacidad</h2>
+    <p id="inputs-same"></p>
+    <div class="grid">
+      <div class="card"><h3>Demanda con perfil · semestre 1</h3><svg id="dem1" role="img" aria-label="Perfil de demanda, semestre 1"></svg></div>
+      <div class="card"><h3>Demanda con perfil · semestre 2</h3><svg id="dem2" role="img" aria-label="Perfil de demanda, semestre 2"></svg></div>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--s1)"></i>Semestre 1</span>
+      <span><i class="sw" style="background:var(--s2)"></i>Semestre 2</span>
+      <span style="color:var(--muted)"><i class="sw dash"></i>2 TS</span>
+    </div>
+    <div class="grid four" id="cfgrid"></div>
+  </section>
+
+  <div class="note">
+    <h3>Supuestos y lectura</h3>
+    <ul>
+      <li><code>6TS_parameters_SAND.xlsx</code> no define horas ni meses. Se asume madrugada 00–06 h (6 h), día 06–17 h (11 h) y tarde-noche 17–24 h (7 h). Los semestres duran 185 y 180 días.</li>
+      <li>De <code>6TS_parameters_SAND.xlsx</code> solo se toman el <code>YearSplit</code>, el perfil de demanda (punta ×1,077 en la tarde-noche) y la forma del CF de solar, eólica e hidro. El nivel anual del CF es el del SAND de 2 TS de cada escenario. Su AF no se usa: trae el promedio anual en el AF y la forma en el CF, y el modelo multiplica los dos.</li>
+      <li>El año 2055 viene vacío en <code>6TS_parameters_SAND.xlsx</code>; se usa la forma de 2054. La CSP y la solar con baterías no tienen forma en ese archivo y conservan su CF día/noche del 2 TS.</li>
+      <li>La capacidad de las tecnologías que abastecen demandas con perfil se multiplica por el factor de punta, y su costo de capital y fijo se divide por el mismo factor: el costo por energía no cambia.</li>
+      <li>Las demandas anuales (<code>AccumulatedAnnualDemand</code>: transporte, combustibles y, en el CN, hidrógeno) no tienen perfil. El modelo puede atenderlas en cualquier bloque, pero la electricidad que consumen sí se balancea en cada bloque.</li>
+      <li>Las térmicas conservan su CF plano del 2 TS en los seis bloques; ver el hallazgo sobre su valor.</li>
+      <li>Entre corridas cambian algunas decisiones de costo casi igual (exportar carbón o no, gasolina o híbridos en carga) sin mover el total; no son efecto de los timeslices.</li>
+    </ul>
+  </div>
+</div>
+<div id="tip" hidden></div>
+
+<script>
+const D = /*__DATA__*/null;
+const NS = "http://www.w3.org/2000/svg";
+const SCEN = { PD: "--pd", PA: "--pa", CN: "--cn" };
+const fmt = (v, d = 2) => Number(v).toLocaleString("es-CO", { minimumFractionDigits: d, maximumFractionDigits: d });
+const nfmt = v => Math.abs(v) >= 100 ? fmt(v, 0) : fmt(v, Math.abs(v) >= 10 ? 1 : 2);
+const caseName = r => `${r.scen} ${r.ts === "2TS" ? "2 TS" : "6 TS"}`;
+const runOf = folder => D.runs.find(r => r.folder === folder);
+const years = D.years;
+
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function h(tag, attrs = {}, html = "") {
+  const e = document.createElement(tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  e.innerHTML = html;
+  return e;
+}
+
+// Tooltip compartido: cualquier marca con data-tip, o un manejador propio.
+const tip = document.getElementById("tip");
+function showTip(html, x, y) {
+  tip.innerHTML = html; tip.hidden = false;
+  const w = tip.offsetWidth, hh = tip.offsetHeight;
+  tip.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, x + 14)) + "px";
+  tip.style.top = Math.max(8, Math.min(window.innerHeight - hh - 8, y + 14)) + "px";
+}
+const hideTip = () => { tip.hidden = true; };
+document.addEventListener("pointermove", e => {
+  const t = e.target.closest && e.target.closest("[data-tip]");
+  if (t) showTip(t.getAttribute("data-tip"), e.clientX, e.clientY);
+  else if (!e.target.closest || !e.target.closest(".hoverplot")) hideTip();
+});
+document.addEventListener("pointerleave", hideTip);
+
+// 1. Casos y archivos
+(() => {
+  const base = {};
+  D.runs.forEach(r => { if (r.ts === "2TS") base[r.scen] = r.cost; });
+  document.getElementById("runs").innerHTML = D.runs.map((r, i) => {
+    const d = r.cost - base[r.scen];
+    const delta = r.ts === "2TS" ? "—" : `${d > 0 ? "+" : "−"}${fmt(Math.abs(d), 0)} (${d > 0 ? "+" : "−"}${fmt(Math.abs(d) / base[r.scen] * 100)} %)`;
+    const status = r.status === "optimal" ? `<span class="ok">Óptimo</span>` : `<span class="bad">${r.status}</span>`;
+    const bs = r.backstop > 1e-6 ? ` · <span class="bad">backstop ${fmt(r.backstop, 1)} PJ</span>` : "";
+    return `<tr class="${i && r.ts === "2TS" ? "sep" : ""}">` +
+      `<td><span class="scen"><i class="dot" style="background:var(${SCEN[r.scen]})"></i>${r.scen}</span></td>` +
+      `<td>${r.ts === "2TS" ? "2 TS" : "6 TS"}</td>` +
+      `<td><div class="file"><b>${r.file}</b><small>${r.path.replace(/\/[^/]+$/, "/")} · ${fmt(r.rows, 0)} filas</small></div></td>` +
+      `<td>${status}${bs}</td>` +
+      `<td class="r">${fmt(r.cost, 0)}</td><td class="r">${delta}</td>` +
+      `<td class="r">${r.solver_s ? fmt(r.solver_s / 60, 1) + " min" : "—"}</td></tr>`;
+  }).join("");
+})();
+
+// 2. Resumen (KPI): columnas agrupadas por escenario
+(() => {
+  const iy = years.indexOf(D.kpi_years[D.kpi_years.length - 1]);
+  const y0 = years.indexOf(D.kpi_years[0]);
+  const scens = ["PD", "PA", "CN"];
+  const by = (s, ts) => D.runs.find(r => r.scen === s && r.ts === ts);
+  const rows = [
+    ["Costo total", r => r.cost, 0, "", true],
+    ["Capacidad eólica 2055", r => D.fam[r.folder].cap["Eólica"][iy], 1, "GW"],
+    ["Capacidad solar 2055", r => D.fam[r.folder].cap["Solar"][iy], 1, "GW"],
+    ["Capacidad hidro 2055", r => D.fam[r.folder].cap["Hidro"][iy], 1, "GW"],
+    ["Capacidad gas 2055", r => D.fam[r.folder].cap["Gas"][iy], 1, "GW"],
+    ["Generación solar 2055", r => D.fam[r.folder].gen["Solar"][iy], 1, "PJ"],
+    ["Generación eólica 2055", r => D.fam[r.folder].gen["Eólica"][iy], 1, "PJ"],
+    ["Generación hidro 2055", r => D.fam[r.folder].gen["Hidro"][iy], 1, "PJ"],
+    ["Generación a gas 2055", r => D.fam[r.folder].gen["Gas"][iy], 1, "PJ"],
+    [`GEI ${years[y0]}`, r => D.gei[r.folder][y0], 1, "MtCO₂eq"],
+    ["GEI 2055", r => D.gei[r.folder][iy], 1, "MtCO₂eq"],
+    ["GEI 2055 (variación)", r => D.gei[r.folder][iy], 1, "", true],
+  ];
+  let html = `<thead><tr><th rowspan="2">Indicador</th>` +
+    scens.map(s => `<th class="grp" colspan="3" style="color:var(${SCEN[s]})">${s}</th>`).join("") + `</tr><tr>` +
+    scens.map(() => `<th class="r">2 TS</th><th class="r">6 TS</th><th class="r">Δ</th>`).join("") + `</tr></thead><tbody>`;
+  rows.forEach(([name, f, nd, unit, pct]) => {
+    html += `<tr><td>${name}${unit ? ` <span class="muted">· ${unit}</span>` : ""}</td>`;
+    scens.forEach(s => {
+      const a = f(by(s, "2TS")), b = f(by(s, "6TS")), d = b - a;
+      const dtxt = pct ? `${d >= 0 ? "+" : "−"}${fmt(Math.abs(d) / a * 100)} %` : `${d >= 0 ? "+" : "−"}${fmt(Math.abs(d), nd)}`;
+      html += `<td class="r muted">${fmt(a, nd)}</td><td class="r">${fmt(b, nd)}</td><td class="r up">${Math.abs(d) < Math.pow(10, -nd) / 2 ? "0" : dtxt}</td>`;
+    });
+    html += `</tr>`;
+  });
+  document.getElementById("kpi").innerHTML = html + `</tbody>`;
+})();
+
+// 3. Líneas 2022–2055 (familias y GEI): color = escenario, trazo = TS
+document.getElementById("caselegend").innerHTML = D.runs.map(r =>
+  `<span style="color:var(${SCEN[r.scen]})"><i class="sw ${r.ts === "2TS" ? "dash" : ""}" style="background:var(${SCEN[r.scen]})"></i><span style="color:var(--fg)">${caseName(r)}</span></span>`).join("");
+
+function niceStep(span, n = 4) {
+  const raw = span / n, p = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+  return [1, 2, 2.5, 5, 10].map(k => k * p).find(s => s >= raw) || p * 10;
+}
+
+function lineChart(svg, series, { W = 400, H = 230, unit = "", nd = 1, title = "" }) {
+  // series: [{name, color, dash, vals}]
+  svg.innerHTML = ""; svg.classList.add("hoverplot");
+  const m = { l: 44, r: 10, t: 10, b: 26 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const max = Math.max(1e-9, ...series.flatMap(s => s.vals));
+  const step = niceStep(max), ymax = Math.ceil(max / step) * step;
+  const x = i => m.l + i / (years.length - 1) * (W - m.l - m.r);
+  const y = v => m.t + (1 - v / ymax) * (H - m.t - m.b);
+  for (let v = 0; v <= ymax + 1e-9; v += step) {
+    el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), style: `stroke:var(${v === 0 ? "--muted" : "--rule"})` }, svg);
+    el("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = nfmt(v);
+  }
+  years.forEach((yr, i) => { if (yr % 8 === 6 || i === years.length - 1) el("text", { x: x(i), y: H - 8, "text-anchor": "middle" }, svg).textContent = yr; });
+  series.forEach(s => {
+    const d = s.vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+    el("path", { d, fill: "none", style: `stroke:var(${s.color})`, "stroke-width": s.dash ? 2 : 2.2, "stroke-dasharray": s.dash ? "5 4" : "none", "stroke-linejoin": "round" }, svg);
+  });
+  const cross = el("line", { y1: m.t, y2: H - m.b, style: "stroke:var(--muted)", "stroke-width": 1, visibility: "hidden" }, svg);
+  const hit = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" }, svg);
+  hit.addEventListener("pointermove", e => {
+    const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * W;
+    const i = Math.max(0, Math.min(years.length - 1, Math.round((px - m.l) / (W - m.l - m.r) * (years.length - 1))));
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
+    showTip(`<b>${title ? title + " · " : ""}${years[i]}</b>` + series.map(s =>
+      `<div class="row"><span style="color:var(${s.color})">${s.dash ? "┄" : "━"} <span style="color:var(--fg)">${s.name}</span></span><span>${fmt(s.vals[i], nd)} ${unit}</span></div>`).join(""), e.clientX, e.clientY);
+  });
+  hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
+}
+
+const caseSeries = get => D.runs.map(r => ({ name: caseName(r), color: SCEN[r.scen], dash: r.ts === "2TS", vals: get(r) }));
+const famGrid = document.getElementById("famgrid");
+["Eólica", "Solar", "Hidro", "Gas", "Carbón", "Nuclear", "Geotermia", "Otras"].forEach(fam => {
+  const vals = caseSeries(r => D.fam[r.folder].cap[fam]);
+  if (Math.max(...vals.flatMap(s => s.vals)) < 0.05) return;
+  const card = h("div", { class: "card" }, `<h3>${fam}</h3>`);
+  const svg = el("svg", { role: "img", "aria-label": `Capacidad ${fam} por caso 2022-2055` }, card);
+  famGrid.appendChild(card);
+  lineChart(svg, vals, { unit: "GW", nd: 2, title: fam });
+});
+lineChart(document.getElementById("geichart"), caseSeries(r => D.gei[r.folder]), { W: 960, H: 300, nd: 1, unit: "Mt", title: "GEI" });
+
+// 4. Planeación (cap_electricidad / prd_electricidad de la app)
+function stackedYears(svg, cd, { pct = false, unit = "" }) {
+  svg.innerHTML = "";
+  const W = 960, H = 320, m = { l: 46, r: 10, t: 12, b: 28 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const n = cd.cats.length, bw = (W - m.l - m.r) / n;
+  const tot = cd.cats.map((_, i) => cd.s.reduce((a, s) => a + Math.max(0, s[2][i] || 0), 0));
+  const val = (s, i) => pct ? (tot[i] ? (s[2][i] || 0) / tot[i] * 100 : 0) : (s[2][i] || 0);
+  const max = pct ? 100 : Math.max(...tot);
+  const step = pct ? 25 : niceStep(max), ymax = pct ? 100 : Math.ceil(max / step) * step;
+  const y = v => m.t + (1 - v / ymax) * (H - m.t - m.b);
+  for (let v = 0; v <= ymax + 1e-9; v += step) {
+    el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), style: `stroke:var(${v === 0 ? "--muted" : "--rule"})` }, svg);
+    el("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = pct ? `${v}%` : nfmt(v);
+  }
+  cd.cats.forEach((c, i) => {
+    let base = 0;
+    cd.s.forEach(s => {
+      const v = val(s, i); if (v <= 0) return;
+      el("rect", { x: m.l + bw * i + bw * .12, width: bw * .76, y: y(base + v), height: Math.max(0, y(base) - y(base + v) - 1), fill: s[1],
+        "data-tip": `<b>${c}</b> · ${s[0]}<br>${fmt(v, pct ? 1 : 2)} ${unit}` }, svg);
+      base += v;
+    });
+    if (+c % 4 === 2 || i === n - 1) el("text", { x: m.l + bw * (i + .5), y: H - 8, "text-anchor": "middle" }, svg).textContent = c;
+  });
+}
+const plantabs = document.getElementById("plantabs");
+function showPlan(folder) {
+  plantabs.querySelectorAll("button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.case === folder)));
+  const cap = D.ui.charts.cap_electricidad.cases[folder], prd = D.ui.charts.prd_electricidad.cases[folder];
+  const names = new Map(); [cap, prd].forEach(cd => cd && cd.s.forEach(([n, c]) => names.set(n, c)));
+  document.getElementById("planlegend").innerHTML = [...names].map(([n, c]) => `<span><i class="sw box" style="background:${c}"></i>${n}</span>`).join("");
+  if (cap) stackedYears(document.getElementById("plancap"), cap, { unit: "GW" });
+  if (prd) stackedYears(document.getElementById("planprd"), prd, { pct: true, unit: "%" });
+  try { localStorage.setItem("plan-case-3esc", folder); } catch (e) {}
+}
+D.runs.forEach(r => {
+  const b = h("button", { type: "button", role: "tab", "data-case": r.folder }, `<i class="dot" style="background:var(${SCEN[r.scen]})"></i>${caseName(r)}`);
+  b.addEventListener("click", () => showPlan(r.folder));
+  plantabs.appendChild(b);
+});
+let startPlan = D.runs[1].folder;
+try { const s = localStorage.getItem("plan-case-3esc"); if (s && runOf(s)) startPlan = s; } catch (e) {}
+showPlan(startPlan);
+
+// 5. Despacho por bloque
+document.getElementById("dyear").textContent = D.dispatch_year;
+const BLOCKS = [[0, 6, "madrugada"], [6, 17, "día"], [17, 24, "tarde-noche"]];
+const segs6 = s => [[0, 6, `S${s}01`], [6, 17, `S${s}02`], [17, 24, `S${s}03`]];
+const segs2 = [[0, 6, "S102"], [6, 18, "S101"], [18, 24, "S102"]];
+const GROUPS = [["Hidro", "--c-hidro", ["Hidro"]], ["Solar", "--c-solar", ["Solar"]], ["Eólica", "--c-eol", ["Eólica"]],
+  ["Térmica y otras", "--c-ter", ["Gas", "Carbón", "Nuclear", "Geotermia", "Otras"]]];
+const grouped = folder => Object.fromEntries(GROUPS.map(([g, , fams]) => {
+  const o = {}; fams.forEach(f => Object.entries(D.disp[folder][f] || {}).forEach(([ts, v]) => { o[ts] = (o[ts] || 0) + v; }));
+  return [g, o];
+}));
+const dispMax = Math.max(...D.runs.map(r => { const g = grouped(r.folder); const tss = Object.keys(g.Hidro);
+  return Math.max(...tss.map(ts => GROUPS.reduce((a, [n]) => a + (g[n][ts] || 0), 0))); }));
+const dispTop = Math.ceil(dispMax / 3) * 3;
+
+function frame(svg, { W = 400, H = 250, ymin, ymax, ticks, yfmt, band = true }) {
+  const m = { l: 40, r: 10, t: 14, b: 38 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const x = hh => m.l + (hh / 24) * (W - m.l - m.r);
+  const y = v => m.t + (1 - (v - ymin) / (ymax - ymin)) * (H - m.t - m.b);
+  BLOCKS.forEach(([a, b, name], i) => {
+    if (band && i % 2 === 1) el("rect", { x: x(a), y: m.t, width: x(b) - x(a), height: H - m.t - m.b, style: "fill:var(--band)" }, svg);
+    el("text", { x: (x(a) + x(b)) / 2, y: H - 6, "text-anchor": "middle" }, svg).textContent = name;
+  });
+  ticks.forEach(v => {
+    el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), style: "stroke:var(--rule)", "stroke-width": 1 }, svg);
+    el("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = yfmt(v);
+  });
+  [0, 6, 12, 18, 24].forEach(hh => { el("text", { x: x(hh), y: H - 22, "text-anchor": "middle" }, svg).textContent = `${String(hh).padStart(2, "0")}h`; });
+  el("line", { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, style: "stroke:var(--muted)", "stroke-width": 1 }, svg);
+  return { x, y };
+}
+function stackedDay(svg, segs, data, label) {
+  const ticks = []; for (let v = 0; v <= dispTop; v += 3) ticks.push(v);
+  const sc = frame(svg, { ymin: 0, ymax: dispTop, ticks, yfmt: v => `${v}`, band: false });
+  segs.forEach(([a, b, k]) => {
+    let base = 0;
+    GROUPS.forEach(([g, c]) => {
+      const v = data[g][k] || 0;
+      if (v > 0.001) el("rect", { x: sc.x(a) + 1, width: sc.x(b) - sc.x(a) - 2, y: sc.y(base + v), height: Math.max(0, sc.y(base) - sc.y(base + v) - 1),
+        style: `fill:var(${c})`, "data-tip": `<b>${label} · ${k}</b><br>${g}: ${fmt(v, 2)} GW` }, svg);
+      base += v;
+    });
+    el("text", { x: (sc.x(a) + sc.x(b)) / 2, y: sc.y(base) - 4, "text-anchor": "middle", style: "fill:var(--fg)" }, svg).textContent = fmt(base, 1);
+  });
+}
+["PD", "PA", "CN"].forEach(s => {
+  const r2 = D.runs.find(r => r.scen === s && r.ts === "2TS"), r6 = D.runs.find(r => r.scen === s && r.ts === "6TS");
+  const row = h("div", { class: "grid three" });
+  [[r2, segs2, "2 TS · año completo"], [r6, segs6(1), "6 TS · semestre 1"], [r6, segs6(2), "6 TS · semestre 2"]].forEach(([r, segs, t]) => {
+    const card = h("div", { class: "card" }, `<h3><span class="scen"><i class="dot" style="background:var(${SCEN[s]})"></i>${s}</span> · ${t}</h3>`);
+    stackedDay(el("svg", { role: "img", "aria-label": `Despacho ${s} ${t}` }, card), segs, grouped(r.folder), `${s} ${t}`);
+    row.appendChild(card);
+  });
+  document.getElementById("dispatch").appendChild(row);
+});
+
+// 6. Todas las gráficas de la app
+function extent(chart) {
+  let lo = 0, hi = 0;
+  Object.values(chart.cases).forEach(cd => {
+    if (!cd) return;
+    cd.cats.forEach((_, i) => {
+      if (chart.kind === "line") { cd.s.forEach(s => { const v = s[2][i]; if (v != null) { hi = Math.max(hi, v); lo = Math.min(lo, v); } }); return; }
+      let up = 0, dn = 0; cd.s.forEach(s => { const v = s[2][i] || 0; if (v > 0) up += v; else dn += v; });
+      hi = Math.max(hi, up); lo = Math.min(lo, dn);
+    });
+  });
+  return [lo, hi || 1];
+}
+function uiChart(svg, data, kind, lo, hi, caption) {
+  const W = 420, H = 230, m = { l: 52, r: 8, t: 8, b: 22 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const cats = data.cats, n = cats.length, bw = (W - m.l - m.r) / n;
+  const step = niceStep(hi - lo), y0 = Math.floor(lo / step) * step, y1 = Math.ceil(hi / step) * step || step;
+  const y = v => m.t + (1 - (v - y0) / (y1 - y0)) * (H - m.t - m.b);
+  const xc = i => m.l + bw * (i + .5);
+  for (let v = y0; v <= y1 + step / 2; v += step) {
+    el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), style: `stroke:var(${Math.abs(v) < 1e-9 ? "--muted" : "--rule"})` }, svg);
+    el("text", { x: m.l - 5, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = nfmt(v);
+  }
+  cats.forEach((c, i) => { if (n <= 12 || i % 8 === 0 || i === n - 1) el("text", { x: xc(i), y: H - 5, "text-anchor": "middle" }, svg).textContent = c; });
+  if (kind === "line") {
+    data.s.forEach(([name, color, vals]) => {
+      const d = vals.map((v, i) => v == null ? "" : `${i && vals[i - 1] != null ? "L" : "M"}${xc(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+      el("path", { d, fill: "none", stroke: color, "stroke-width": 1.8, "data-tip": `<b>${caption}</b><br>${name}` }, svg);
+    });
+    return;
+  }
+  cats.forEach((c, i) => {
+    let up = 0, dn = 0;
+    [...data.s].reverse().forEach(([name, color, vals]) => {
+      const v = vals[i] || 0; if (!v) return;
+      const a = v > 0 ? up : dn, b = a + v;
+      el("rect", { x: m.l + bw * i + bw * .1, width: bw * .8, y: y(Math.max(a, b)), height: Math.max(.5, Math.abs(y(a) - y(b))), fill: color,
+        "data-tip": `<b>${caption} · ${c}</b><br>${name}: ${nfmt(v)}` }, svg);
+      if (v > 0) up = b; else dn = b;
+    });
+  });
+}
+function renderModule(idx) {
+  document.querySelectorAll("#uitabs button").forEach((b, i) => b.setAttribute("aria-selected", String(i === idx)));
+  const box = document.getElementById("uicharts"); box.innerHTML = "";
+  D.ui.modules[idx].charts.forEach(([tipo, sub]) => {
+    const chart = D.ui.charts[tipo]; if (!chart) return;
+    const wrap = h("div", { class: "uichart" }, `${sub ? `<div class="sub">${sub}</div>` : ""}<h3>${chart.label} <span class="num" style="color:var(--muted);font-weight:400">· ${chart.unit}</span></h3>`);
+    const names = new Map();
+    Object.values(chart.cases).forEach(cd => cd && cd.s.forEach(([n, c]) => names.set(n, c)));
+    const [lo, hi] = extent(chart);
+    const trio = h("div", { class: "trio" });
+    ["PD", "PA", "CN"].forEach(s => {
+      const col = h("div", { class: "col" }, `<h4><i class="dot" style="background:var(${SCEN[s]})"></i>${s}</h4>`);
+      D.runs.filter(r => r.scen === s).forEach(r => {
+        const card = h("div", { class: "card" }, `<h5>${r.ts === "2TS" ? "2 TS" : "6 TS"}</h5>`);
+        const cd = chart.cases[r.folder];
+        if (!cd || !cd.s.length) card.appendChild(h("div", { class: "empty" }, "Sin datos"));
+        else uiChart(el("svg", { role: "img", "aria-label": `${chart.label}, ${caseName(r)}` }, card), cd, chart.kind, lo, hi, caseName(r));
+        col.appendChild(card);
+      });
+      trio.appendChild(col);
+    });
+    wrap.appendChild(trio);
+    if (names.size) wrap.appendChild(h("div", { class: "legend" }, [...names].map(([n, c]) => `<span><i class="sw box" style="background:${c}"></i>${n}</span>`).join("")));
+    box.appendChild(wrap);
+  });
+  try { localStorage.setItem("ui-module", String(idx)); } catch (e) {}
+}
+const uitabs = document.getElementById("uitabs");
+D.ui.modules.forEach((m, i) => {
+  const b = h("button", { type: "button", role: "tab" }, `${m.label} (${m.charts.length})`);
+  b.addEventListener("click", () => renderModule(i));
+  uitabs.appendChild(b);
+});
+let startModule = 0;
+try { startModule = Math.min(D.ui.modules.length - 1, parseInt(localStorage.getItem("ui-module") || "0", 10) || 0); } catch (e) {}
+renderModule(startModule);
+
+// 7. Entradas: perfil de demanda y CF
+(() => {
+  const I = D.inputs, same = I.same;
+  const all = same.ratio && same.cf6;
+  document.getElementById("inputs-same").textContent = all
+    ? `El perfil de demanda y los CF por bloque de ${D.dispatch_year} son idénticos en los SAND de 6 TS de PD, PA y CN (comprobado al generar este reporte). Demanda con perfil en ${D.dispatch_year}: PD ${fmt(I.sad_pj.PD, 0)} PJ, PA ${fmt(I.sad_pj.PA, 0)} PJ, CN ${fmt(I.sad_pj.CN, 0)} PJ.`
+    : `Atención: el perfil de demanda o los CF por bloque no son iguales en los tres escenarios; se muestran los del PD.`;
+  const stepPath = (sc, segs, vals) => segs.map(([a, b, k], i) => `${i ? "L" : "M"}${sc.x(a)},${sc.y(vals[k])}L${sc.x(b)},${sc.y(vals[k])}`).join("");
+  const line = (svg, sc, segs, vals, color, dash) => el("path", { d: stepPath(sc, segs, vals), fill: "none", style: `stroke:var(${color})`,
+    "stroke-width": dash ? 2 : 2.6, "stroke-dasharray": dash ? "6 4" : "none", "stroke-linejoin": "round" }, svg);
+  [1, 2].forEach(s => {
+    const svg = document.getElementById(`dem${s}`);
+    const sc = frame(svg, { W: 560, H: 240, ymin: 0.7, ymax: 1.2, ticks: [0.7, 0.8, 0.9, 1.0, 1.1, 1.2], yfmt: v => `×${fmt(v)}` });
+    line(svg, sc, [[0, 24, "x"]], { x: 1 }, "--muted", true);
+    line(svg, sc, segs6(s), I.ratio, s === 1 ? "--s1" : "--s2");
+    const k = `S${s}03`;
+    el("text", { x: sc.x(20.5), y: sc.y(I.ratio[k]) - 7, "text-anchor": "middle", style: "fill:var(--fg);font-weight:500" }, svg).textContent = `×${fmt(I.ratio[k], 3)}`;
+    const k1 = `S${s}01`;
+    el("text", { x: sc.x(3), y: sc.y(I.ratio[k1]) + 16, "text-anchor": "middle", style: "fill:var(--fg)" }, svg).textContent = `×${fmt(I.ratio[k1], 3)}`;
+  });
+  const grid = document.getElementById("cfgrid");
+  Object.keys(I.cf6).forEach(name => {
+    const card = h("div", { class: "card" }, `<h3>CF · ${name}</h3>`);
+    const svg = el("svg", { role: "img", "aria-label": `Factor de capacidad, ${name}` }, card);
+    grid.appendChild(card);
+    const top = Math.max(0.6, Math.ceil(Math.max(...Object.values(I.cf6[name]), ...Object.values(I.cf2[name])) * 5) / 5);
+    const ticks = []; for (let v = 0; v <= top + 1e-9; v += 0.2) ticks.push(+v.toFixed(1));
+    const sc = frame(svg, { W: 400, H: 230, ymin: 0, ymax: top, ticks, yfmt: v => fmt(v, 1) });
+    line(svg, sc, segs2, I.cf2[name], "--muted", true);
+    line(svg, sc, segs6(1), I.cf6[name], "--s1");
+    line(svg, sc, segs6(2), I.cf6[name], "--s2");
+  });
+})();
+</script>

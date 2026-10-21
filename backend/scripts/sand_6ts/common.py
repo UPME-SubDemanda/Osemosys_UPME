@@ -48,9 +48,10 @@ TOL = 1e-9
 SCALAR_COLUMN = "Time indipendent variables"  # así se llama en el SAND (sic)
 
 # Parámetros de capacidad que se escalan por el factor de punta de la demanda.
+# TotalAnnualMinCapacityInvestment no se escala: subirlo obligaría a invertir más.
 PEAK_CAPACITY_PARAMS = [
     "ResidualCapacity", "TotalAnnualMaxCapacityInvestment", "TotalAnnualMaxCapacity",
-    "TotalAnnualMinCapacity", "TotalAnnualMinCapacityInvestment",
+    "TotalAnnualMinCapacity",
 ]
 CAPACITY_SENTINEL = 99_999  # valores ≥ esto significan "sin límite"
 # Costos por unidad de capacidad que se dividen por el mismo factor (costo por energía igual al 2 TS).
@@ -212,7 +213,7 @@ def build_capacity_factor(
 
 
 def scale_peak_capacity(
-    base: pd.DataFrame, blocks: dict[str, pd.DataFrame], years: list[str]
+    base: pd.DataFrame, blocks: dict[str, pd.DataFrame], years: list[str], scale_costs: bool = True
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Escala los topes de capacidad de las tecnologías que abastecen demandas con perfil.
 
@@ -253,7 +254,7 @@ def scale_peak_capacity(
 
     # Cambio de unidad de capacidad (×f): el costo por unidad se divide por f para
     # que el costo por energía anual sea el mismo del 2 TS.
-    for param in PEAK_COST_PARAMS:
+    for param in PEAK_COST_PARAMS if scale_costs else []:
         block = base[base["Parameter"] == param].copy()
         values = block[years]
         priced = values.where((values > 0) & (values < COST_SENTINEL))
@@ -417,6 +418,8 @@ def run_cli(
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--no-peak-capacity", action="store_true",
                         help="No escalar la capacidad de las tecnologías de demanda por la punta.")
+    parser.add_argument("--no-cost-scaling", action="store_true",
+                        help="Escalar la capacidad por la punta sin dividir CapitalCost y FixedCost por f.")
     parser.add_argument("--peak-ratio", type=float, default=None,
                         help="Tarde-noche (S103/S203) = ratio × promedio. Default: perfil de la UPME (≈1,077).")
     parser.add_argument("--hydro-dry", type=float, default=None,
@@ -464,13 +467,15 @@ def run_cli(
 
     peak_report = None
     if not args.no_peak_capacity:
-        peak_blocks, peak_report = scale_peak_capacity(base, blocks, years)
+        peak_blocks, peak_report = scale_peak_capacity(base, blocks, years, not args.no_cost_scaling)
         blocks.update(peak_blocks)
 
     df = replace_params(base, blocks)
     errors = validate(df, years) + check_peak_capacity(df, years)
 
     tag = args.variant.upper() + (f"_P{round(args.peak_ratio * 100)}" if args.peak_ratio else "")
+    if args.no_cost_scaling:
+        tag += "_SINDIV"
     if args.hydro_dry is not None:
         tag += f"_SECO{round(args.hydro_dry * 100)}_{'-'.join(args.dry_years)}"
     out = args.out or out_dir / f"{out_prefix}_{tag}.xlsx"

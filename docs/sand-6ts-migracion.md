@@ -66,7 +66,7 @@ Se parte del 2 TS completo y solo cambian estos parámetros:
    - CSP y SOLUGE_BAT, que tienen forma día/noche en el 2 TS, se mapean así: día → S102/S202; noche → madrugada y tarde-noche.
    - El resto repite su valor en los 6 TS.
    - Cada tecnología produce la **misma energía anual** que en el 2 TS; solo cambia en qué horas.
-4. **Capacidad de las tecnologías que abastecen demandas con perfil:** `ResidualCapacity`, `TotalAnnualMaxCapacityInvestment`, `TotalAnnualMaxCapacity` y los mínimos se multiplican por el factor de punta `f = max_ts(SDP/YearSplit)` (1,0773 con el perfil UPME). `CapitalCost` y `FixedCost` se dividen por `f`. Es un cambio de unidad que no altera el costo por energía.
+4. **Capacidad de las tecnologías que abastecen demandas con perfil:** `ResidualCapacity`, `TotalAnnualMaxCapacityInvestment`, `TotalAnnualMaxCapacity` y `TotalAnnualMinCapacity` se multiplican por el factor de punta `f = max_ts(SDP/YearSplit)` (1,0773 con el perfil UPME). `CapitalCost` y `FixedCost` se dividen por `f`. Es un cambio de unidad que no altera el costo por energía. `TotalAnnualMinCapacityInvestment` no se escala, para no forzar inversión adicional.
 
 Los límites de actividad (energía anual), el AF y las demandas anuales no cambian.
 

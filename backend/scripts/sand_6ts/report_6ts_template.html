@@ -1,4 +1,5 @@
 <title>Benchmark 2 TS vs 6TS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
@@ -210,6 +211,8 @@ figcaption { font-size: .9rem; color: var(--muted); max-width: 80ch; }
   <section>
     <h2><span class="n">10</span>Entradas de 6 TS: demanda y factor de capacidad</h2>
     <p id="inputs-same"></p>
+    <div class="tablewrap"><table id="ystable"></table></div>
+    <p class="muted"><b>Nota.</b> El <code>YearSplit</code> y el perfil de demanda (<code>SpecifiedDemandProfile</code>) de 6 TS se toman sin cambios de <code>6TS_parameters_SAND.xlsx</code>, que recoge el trabajo previo de Hauke y Youssef. Con 2 TS, los dos bloques valen 0,5 en ambos parámetros y la demanda es plana.</p>
     <div class="grid">
       <div class="card"><h3>Demanda con perfil · semestre 1</h3><svg id="dem1" role="img" aria-label="Perfil de demanda, semestre 1"></svg></div>
       <div class="card"><h3>Demanda con perfil · semestre 2</h3><svg id="dem2" role="img" aria-label="Perfil de demanda, semestre 2"></svg></div>
@@ -225,7 +228,7 @@ figcaption { font-size: .9rem; color: var(--muted); max-width: 80ch; }
   <div class="note">
     <h3>Supuestos y lectura</h3>
     <ul>
-      <li><code>6TS_parameters_SAND.xlsx</code> no define horas ni meses. Se asume madrugada 00–06 h (6 h), día 06–17 h (11 h) y tarde-noche 17–24 h (7 h). Los semestres duran 185 y 180 días.</li>
+      <li><code>6TS_parameters_SAND.xlsx</code> recoge el trabajo previo de Hauke y Youssef, del que se toman el <code>YearSplit</code>, el perfil de demanda y la forma de los CF. No define horas ni meses. Se asume madrugada 00–06 h (6 h), día 06–17 h (11 h) y tarde-noche 17–24 h (7 h). Los semestres duran 185 y 180 días.</li>
       <li>De <code>6TS_parameters_SAND.xlsx</code> solo se toman el <code>YearSplit</code>, el perfil de demanda (punta ×1,077 en la tarde-noche) y la forma del CF de solar, eólica e hidro. El nivel anual del CF es el del SAND de 2 TS de cada escenario. Su AF no se usa: trae el promedio anual en el AF y la forma en el CF, y el modelo multiplica los dos.</li>
       <li>El año 2055 viene vacío en <code>6TS_parameters_SAND.xlsx</code>; se usa la forma de 2054. La CSP y la solar con baterías no tienen forma en ese archivo y conservan su CF día/noche del 2 TS.</li>
       <li>La capacidad de las tecnologías que abastecen demandas con perfil se multiplica por el factor de punta, y su costo de capital y fijo se divide por el mismo factor: el costo por energía no cambia.</li>
@@ -303,6 +306,8 @@ document.addEventListener("pointerleave", hideTip);
   const by = (s, ts) => D.runs.find(r => r.scen === s && r.ts === ts);
   const rows = [
     ["Costo total", r => r.cost, 0, "", true],
+    ["Capacidad eléctrica instalada total 2030", r => D.families.reduce((a, f) => a + D.fam[r.folder].cap[f][y0], 0), 1, "GW"],
+    ["Capacidad eléctrica instalada total 2055", r => D.families.reduce((a, f) => a + D.fam[r.folder].cap[f][iy], 0), 1, "GW"],
     ["Capacidad eólica 2055", r => D.fam[r.folder].cap["Eólica"][iy], 1, "GW"],
     ["Capacidad solar 2055", r => D.fam[r.folder].cap["Solar"][iy], 1, "GW"],
     ["Capacidad hidro 2055", r => D.fam[r.folder].cap["Hidro"][iy], 1, "GW"],
@@ -570,6 +575,17 @@ renderModule(startModule);
   document.getElementById("inputs-same").textContent = all
     ? `El perfil de demanda y los CF por bloque de ${D.dispatch_year} son idénticos en los SAND de 6 TS de PD, PA y CN (comprobado al generar este reporte). Demanda con perfil en ${D.dispatch_year}: PD ${fmt(I.sad_pj.PD, 0)} PJ, PA ${fmt(I.sad_pj.PA, 0)} PJ, CN ${fmt(I.sad_pj.CN, 0)} PJ.`
     : `Atención: el perfil de demanda o los CF por bloque no son iguales en los tres escenarios; se muestran los del PD.`;
+  const TS6 = ["S101", "S102", "S103", "S201", "S202", "S203"];
+  const BLK = { "01": "madrugada", "02": "día", "03": "tarde-noche" };
+  const cell = v => `<td class="r">${fmt(v, 4)}</td>`;
+  document.getElementById("ystable").innerHTML =
+    `<thead><tr><th>${D.dispatch_year}</th>${TS6.map(ts => `<th class="r">${ts}</th>`).join("")}<th class="r">Total</th></tr></thead><tbody>` +
+    `<tr><td>Bloque</td>${TS6.map(ts => `<td class="r">${BLK[ts.slice(2)]}</td>`).join("")}<td></td></tr>` +
+    `<tr><td>Horas al año</td>${TS6.map(ts => `<td class="r">${fmt(I.ys6[ts] * 8760, 0)}</td>`).join("")}<td class="r">8 760</td></tr>` +
+    `<tr><td><code>YearSplit</code></td>${TS6.map(ts => cell(I.ys6[ts])).join("")}${cell(TS6.reduce((a, ts) => a + I.ys6[ts], 0))}</tr>` +
+    `<tr><td><code>SpecifiedDemandProfile</code></td>${TS6.map(ts => cell(I.sdp6[ts])).join("")}${cell(TS6.reduce((a, ts) => a + I.sdp6[ts], 0))}</tr>` +
+    `<tr><td>Demanda / promedio</td>${TS6.map(ts => `<td class="r">×${fmt(I.ratio[ts], 3)}</td>`).join("")}<td></td></tr>` +
+    `<tr><td class="muted">2 TS (S101 día, S102 noche)</td><td class="r muted" colspan="6">YearSplit = SpecifiedDemandProfile = 0,5 en cada bloque · demanda / promedio = ×1</td><td></td></tr></tbody>`;
   const stepPath = (sc, segs, vals) => segs.map(([a, b, k], i) => `${i ? "L" : "M"}${sc.x(a)},${sc.y(vals[k])}L${sc.x(b)},${sc.y(vals[k])}`).join("");
   const line = (svg, sc, segs, vals, color, dash) => el("path", { d: stepPath(sc, segs, vals), fill: "none", style: `stroke:var(${color})`,
     "stroke-width": dash ? 2 : 2.6, "stroke-dasharray": dash ? "6 4" : "none", "stroke-linejoin": "round" }, svg);

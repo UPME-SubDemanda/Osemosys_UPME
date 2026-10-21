@@ -153,13 +153,15 @@ def inputs(sands: dict) -> dict:
                 v.setdefault(ts, 1.0)
         if first is None:
             first = cur
+            first_sdp = prof.round(6).to_dict()
         else:
             for key in same:
                 same[key] &= json.dumps(cur[key], sort_keys=True) == json.dumps(first[key], sort_keys=True)
         sad_tot = float(sad[y].sum())
         out.setdefault("sad_pj", {})[scen] = round(sad_tot, 1)
     out.update(first)
-    out["ys6"] = year_split(sands[("PD", "6TS")]).round(4).to_dict()
+    out["ys6"] = year_split(sands[("PD", "6TS")]).round(6).to_dict()
+    out["sdp6"] = first_sdp  # perfil común de las demandas con perfil (año DISPATCH_YEAR)
     out["same"] = same
     return out
 

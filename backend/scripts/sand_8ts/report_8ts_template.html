@@ -1,0 +1,294 @@
+<title>Benchmark 2, 6 y 8 TS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: misma línea del informe de 6 TS (papel blanco, una columna), en versión compacta: corridas, capacidad y perfil diario. Color de barra = familia; color de punto = escenario (PD azul, PA naranja, CN verde azulado). Un solo tema claro, a propósito, igual que el informe de 6 TS. */
+:root {
+  color-scheme: light;
+  --bg: #ffffff; --fg: #1d2025; --muted: #5c636e; --rule: #dcdfe4; --band: #f3f4f6; --soft: #f7f8f9;
+  --pd: #2563c9; --pa: #d07a1c; --cn: #0b6f63; --warn: #a15c00; --good: #1d7a46;
+  --c-hidro: #4572c5; --c-solar: #e3a21a; --c-eol: #7a3fb0; --c-gas: #c4473a; --c-coa: #4a4a4a;
+  --c-nuc: #5aa6a0; --c-geo: #9a6a3a; --c-otr: #a9a39a;
+  --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 32px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 28px; }
+header, section { display: flex; flex-direction: column; gap: 12px; }
+.masthead { gap: 8px; padding-bottom: 16px; border-bottom: 2px solid var(--fg); }
+.eyebrow { font-family: var(--font-mono); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--font-display); font-size: 1.8rem; line-height: 1.15; margin: 0; text-wrap: balance; font-weight: 700; }
+h2 { font-family: var(--font-display); font-size: 1.2rem; margin: 0; text-wrap: balance; font-weight: 600; }
+h3 { font-size: .9rem; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+section { border-top: 1px solid var(--rule); padding-top: 18px; }
+p { margin: 0; max-width: 78ch; color: var(--muted); }
+.lead { color: var(--fg); }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: .88rem; color: var(--muted); }
+.meta b { color: var(--fg); font-weight: 600; }
+.grid3 { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.card { background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 10px 10px 4px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.card h3 small { font-weight: 400; color: var(--muted); font-family: var(--font-mono); font-size: .72rem; }
+svg { width: 100%; height: auto; display: block; }
+svg text { fill: var(--muted); font-family: var(--font-mono); font-size: 10.5px; }
+svg text.val { fill: var(--fg); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: .85rem; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.scen { font-weight: 700; display: inline-flex; align-items: center; gap: 7px; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; background: var(--soft); }
+tbody tr:last-child td { border-bottom: none; }
+td.r, th.r { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+tr.sep td { border-top: 2px solid var(--rule); }
+tr.hl td { background: var(--soft); }
+.muted { color: var(--muted); } .ok { color: var(--good); font-weight: 600; } .bad { color: var(--warn); font-weight: 600; }
+.pill { font-family: var(--font-mono); font-size: .66rem; letter-spacing: .04em; text-transform: uppercase; padding: 1px 6px;
+  border-radius: 999px; border: 1px solid currentColor; color: var(--warn); margin-left: 6px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
+.tabs { display: inline-flex; gap: 0; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+.tabs button { font: inherit; font-size: .86rem; padding: 4px 12px; cursor: pointer; background: var(--bg); color: var(--fg); border: none; border-left: 1px solid var(--rule); }
+.tabs button:first-child { border-left: none; }
+.tabs button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.tabs button:focus-visible { outline: 2px solid var(--pd); outline-offset: -2px; }
+.lbl { font-family: var(--font-mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-right: 8px; }
+.rows { display: flex; flex-direction: column; gap: 12px; }
+.pos { color: var(--fg); } .neg { color: var(--fg); }
+#tip { position: fixed; z-index: 20; pointer-events: none; background: var(--bg); color: var(--fg); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 6px 9px; font-size: .8rem; box-shadow: 0 4px 14px rgb(0 0 0 / .14); max-width: 280px; }
+#tip .row { display: flex; gap: 10px; justify-content: space-between; }
+#tip .row span:last-child { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: no-preference) { .tabs button { transition: background .15s, color .15s; } }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div class="eyebrow">OSeMOSYS UPME · SAND 2022–2055 · HiGHS</div>
+    <h1>PD, PA y CN con 2, 6 y 8 timeslices</h1>
+    <p class="lead">Nueve corridas: cada escenario con 2 TS (día y noche), 6 TS (dos semestres × madrugada, día y tarde-noche) y 8 TS, que parte la tarde-noche en una punta de 3 h (18–21 h, demanda ×1,30) y el resto.</p>
+    <div class="meta"><span>Elaborado por <b>Juan Dominguez, PhD</b></span><span>Generado el <b>/*__GENERATED__*/</b></span><span>Rama <b>feature/sand-6ts</b></span></div>
+  </header>
+
+  <section>
+    <h2>Corridas</h2>
+    <p>El costo total casi no cambia, porque la generación eléctrica pesa poco en el costo del sistema. El costo del sector eléctrico (tecnologías PWR, descontado) es el que muestra el efecto de la punta.</p>
+    <div class="tablewrap"><table id="runs"></table></div>
+  </section>
+
+  <section>
+    <h2>Capacidad eléctrica instalada</h2>
+    <p>GW por familia en 2030, 2040 y 2055. En cada año, las tres barras son 2, 6 y 8 TS.</p>
+    <div class="legend" id="caplegend"></div>
+    <div class="grid3" id="capgrid"></div>
+    <div class="tablewrap"><table id="capdelta"></table></div>
+  </section>
+
+  <section>
+    <h2>Perfil diario de generación</h2>
+    <p>Potencia media de generación en cada bloque del día (GW). El 2 TS no distingue semestres: su día va de 06 a 18 h. En 8 TS la franja marcada es la punta de 18 a 21 h.</p>
+    <div class="controls">
+      <span><span class="lbl">Año</span><span class="tabs" id="ytabs"></span></span>
+      <span><span class="lbl">Semestre</span><span class="tabs" id="stabs"></span></span>
+    </div>
+    <div class="legend" id="displegend"></div>
+    <div class="rows" id="dispatch"></div>
+  </section>
+</div>
+<div id="tip" hidden></div>
+
+<script>
+const D = /*__DATA__*/null;
+const NS = "http://www.w3.org/2000/svg";
+const SCEN = { PD: "--pd", PA: "--pa", CN: "--cn" };
+const TSL = { "2TS": "2 TS", "6TS": "6 TS", "8TS": "8 TS" };
+const FCOL = { Hidro: "--c-hidro", Solar: "--c-solar", "Eólica": "--c-eol", Gas: "--c-gas", "Carbón": "--c-coa",
+  Nuclear: "--c-nuc", Geotermia: "--c-geo", Otras: "--c-otr" };
+const fmt = (v, d = 1) => Number(v).toLocaleString("es-CO", { minimumFractionDigits: d, maximumFractionDigits: d });
+const sgn = (v, d = 1) => (Math.abs(v) < Math.pow(10, -d) / 2 ? "0" : (v > 0 ? "+" : "−") + fmt(Math.abs(v), d));
+const run = (s, ts) => D.runs.find(r => r.scen === s && r.ts === ts);
+const dot = s => `<i class="dot" style="background:var(${SCEN[s]})"></i>`;
+
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const tip = document.getElementById("tip");
+document.addEventListener("pointermove", e => {
+  const t = e.target.closest && e.target.closest("[data-tip]");
+  if (!t) { tip.hidden = true; return; }
+  tip.innerHTML = t.getAttribute("data-tip"); tip.hidden = false;
+  const w = tip.offsetWidth, hh = tip.offsetHeight;
+  tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, e.clientX + 14)) + "px";
+  tip.style.top = Math.max(8, Math.min(innerHeight - hh - 8, e.clientY + 14)) + "px";
+});
+document.addEventListener("pointerleave", () => { tip.hidden = true; });
+const rows = obj => Object.entries(obj).map(([k, v]) => `<div class="row"><span>${k}</span><span>${v}</span></div>`).join("");
+
+// Corridas
+(() => {
+  let html = `<thead><tr><th>Escenario</th><th>TS</th><th>Estado</th><th class="r">Costo total</th><th class="r">Δ vs 6 TS</th>` +
+    `<th class="r">Costo eléctrico</th><th class="r">Δ vs 6 TS</th><th class="r">Solver</th></tr></thead><tbody>`;
+  D.runs.forEach((r, i) => {
+    const b = run(r.scen, "6TS");
+    const dc = r.ts === "6TS" ? "—" : `${sgn((r.cost / b.cost - 1) * 100, 2)} %`;
+    const dp = r.ts === "6TS" ? "—" : `${sgn((r.pwr / b.pwr - 1) * 100)} %`;
+    const st = r.status === "optimal" ? `<span class="ok">Óptimo</span>` : `<span class="bad">${r.status}</span>`;
+    html += `<tr class="${i && r.ts === "2TS" ? "sep" : ""} ${r.ts === "8TS" ? "hl" : ""}">` +
+      `<td>${r.ts === "2TS" ? `<span class="scen">${dot(r.scen)}${r.scen}</span>` : ""}</td>` +
+      `<td>${TSL[r.ts]}${r.ipm ? `<span class="pill" title="Resuelta con punto interior + crossover; la corrida simplex sigue en curso">IPM · provisional</span>` : ""}</td>` +
+      `<td>${st}</td><td class="r">${fmt(r.cost, 0)}</td><td class="r">${dc}</td>` +
+      `<td class="r">${fmt(r.pwr, 0)}</td><td class="r">${dp}</td>` +
+      `<td class="r">${r.solver_s ? fmt(r.solver_s / 60, 0) + " min" : "—"}</td></tr>`;
+  });
+  document.getElementById("runs").innerHTML = html + "</tbody>";
+})();
+
+// Capacidad: por escenario, grupos de año × (2, 6, 8 TS) apilados por familia
+(() => {
+  const fams = D.cap_families.filter(f => D.runs.some(r => D.cap[r.folder][f].some(v => v > 0.005)));
+  document.getElementById("caplegend").innerHTML = fams.map(f => `<span><i class="sw" style="background:var(${FCOL[f]})"></i>${f}</span>`).join("");
+  const tot = (r, i) => fams.reduce((a, f) => a + D.cap[r.folder][f][i], 0);
+  const top = Math.ceil(Math.max(...D.runs.flatMap(r => D.years.map((_, i) => tot(r, i)))) / 20) * 20;
+  const W = 360, H = 230, m = { l: 34, r: 6, t: 16, b: 34 };
+  const y = v => m.t + (1 - v / top) * (H - m.t - m.b);
+  const gw = (W - m.l - m.r) / D.years.length, bw = gw / 3.9;
+  ["PD", "PA", "CN"].forEach(s => {
+    const card = document.createElement("div"); card.className = "card";
+    card.innerHTML = `<h3><span class="scen">${dot(s)}${s}</span></h3>`;
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Capacidad eléctrica instalada ${s}` }, card);
+    for (let v = 0; v <= top; v += 20) {
+      el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), style: "stroke:var(--rule)" }, svg);
+      el("text", { x: m.l - 5, y: y(v) + 3.5, "text-anchor": "end" }, svg).textContent = v;
+    }
+    D.years.forEach((yr, i) => {
+      const x0 = m.l + i * gw + (gw - 3 * bw - 2 * 3) / 2;
+      ["2TS", "6TS", "8TS"].forEach((ts, j) => {
+        const r = run(s, ts), x = x0 + j * (bw + 3);
+        let base = 0;
+        const detail = {};
+        fams.forEach(f => {
+          const v = D.cap[r.folder][f][i];
+          if (v > 0.005) {
+            el("rect", { x, width: bw, y: y(base + v), height: Math.max(0, y(base) - y(base + v) - 0.6), style: `fill:var(${FCOL[f]})` }, svg);
+            detail[f] = `${fmt(v)} GW`;
+          }
+          base += v;
+        });
+        el("rect", { x, width: bw, y: y(base), height: y(0) - y(base), style: "fill:transparent",
+          "data-tip": `<b>${s} · ${TSL[ts]} · ${yr}</b>${rows(detail)}<div class="row"><span><b>Total</b></span><span><b>${fmt(base)} GW</b></span></div>` }, svg);
+        el("text", { x: x + bw / 2, y: y(base) - 3, "text-anchor": "middle", class: "val", style: "font-size:9.5px" }, svg).textContent = fmt(base, 0);
+        el("text", { x: x + bw / 2, y: H - m.b + 12, "text-anchor": "middle", style: "font-size:9px" }, svg).textContent = ts.slice(0, 1);
+      });
+      el("text", { x: m.l + i * gw + gw / 2, y: H - 6, "text-anchor": "middle", class: "val" }, svg).textContent = yr;
+    });
+    el("line", { x1: m.l, x2: W - m.r, y1: y(0), y2: y(0), style: "stroke:var(--muted)" }, svg);
+    document.getElementById("capgrid").appendChild(card);
+  });
+
+  // Tabla: cambio de capacidad 8 TS vs 6 TS por familia (solo familias que cambian)
+  const changed = fams.filter(f => ["PD", "PA", "CN"].some(s => D.years.some((_, i) =>
+    Math.abs(D.cap[run(s, "8TS").folder][f][i] - D.cap[run(s, "6TS").folder][f][i]) > 0.05)));
+  let html = `<thead><tr><th>Cambio 8 TS vs 6 TS · GW</th>` + ["PD", "PA", "CN"].map(s =>
+    D.years.map(yr => `<th class="r" style="color:var(${SCEN[s]})">${s} ${yr}</th>`).join("")).join("") + `</tr></thead><tbody>`;
+  [...changed, "Total"].forEach(f => {
+    html += `<tr class="${f === "Total" ? "sep" : ""}"><td>${f === "Total" ? "<b>Total</b>" : `<span class="scen" style="font-weight:400"><i class="sw" style="background:var(${FCOL[f]})"></i>${f}</span>`}</td>`;
+    ["PD", "PA", "CN"].forEach(s => D.years.forEach((_, i) => {
+      const a = f === "Total" ? tot(run(s, "6TS"), i) : D.cap[run(s, "6TS").folder][f][i];
+      const b = f === "Total" ? tot(run(s, "8TS"), i) : D.cap[run(s, "8TS").folder][f][i];
+      const d = b - a;
+      html += `<td class="r ${Math.abs(d) < 0.05 ? "muted" : ""}" title="6 TS ${fmt(a)} → 8 TS ${fmt(b)} GW">${sgn(d)}</td>`;
+    }));
+    html += `</tr>`;
+  });
+  document.getElementById("capdelta").innerHTML = html + "</tbody>";
+})();
+
+// Perfil diario
+const GCOL = { Hidro: "--c-hidro", Solar: "--c-solar", "Eólica": "--c-eol", Gas: "--c-gas", Otras: "--c-coa" };
+const GNAME = { Otras: "Carbón y otras" };
+document.getElementById("displegend").innerHTML = D.groups.map(g => `<span><i class="sw" style="background:var(${GCOL[g]})"></i>${GNAME[g] || g}</span>`).join("");
+const SEGS = {
+  "2TS": () => [[0, 6, "S102", "noche"], [6, 18, "S101", "día"], [18, 24, "S102", "noche"]],
+  "6TS": s => [[0, 6, `S${s}01`, "madrugada"], [6, 17, `S${s}02`, "día"], [17, 24, `S${s}03`, "tarde-noche"]],
+  "8TS": s => [[0, 6, `S${s}01`, "madrugada"], [6, 17, `S${s}02`, "día"], [17, 18, `S${s}04`, "resto"],
+    [18, 21, `S${s}03`, "punta"], [21, 24, `S${s}04`, "resto"]],
+};
+const sumAt = (g, ts) => D.groups.reduce((a, k) => a + ((g[k] || {})[ts] || 0), 0);
+let state = { year: D.disp_years[0], sem: 1 };
+try { const s = JSON.parse(localStorage.getItem("perfil-8ts") || "null"); if (s && D.disp_years.includes(s.year) && [1, 2].includes(s.sem)) state = s; } catch (e) {}
+
+function dayChart(svg, ts, data, top, label) {
+  const W = 360, H = 190, m = { l: 30, r: 6, t: 14, b: 30 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const x = hh => m.l + (hh / 24) * (W - m.l - m.r);
+  const y = v => m.t + (1 - v / top) * (H - m.t - m.b);
+  const step = top > 30 ? 10 : 5;
+  if (ts === "8TS") el("rect", { x: x(18), width: x(21) - x(18), y: m.t - 8, height: H - m.b - m.t + 8, style: "fill:var(--band)" }, svg);
+  for (let v = 0; v <= top; v += step) {
+    el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), style: "stroke:var(--rule)" }, svg);
+    el("text", { x: m.l - 5, y: y(v) + 3.5, "text-anchor": "end" }, svg).textContent = v;
+  }
+  [0, 6, 12, 18, 24].forEach(hh => { el("text", { x: x(hh), y: H - 16, "text-anchor": "middle" }, svg).textContent = `${String(hh).padStart(2, "0")}h`; });
+  SEGS[ts](state.sem).forEach(([a, b, k, name], i, all) => {
+    let base = 0;
+    const detail = {};
+    D.groups.forEach(g => {
+      const v = (data[g] || {})[k] || 0;
+      if (v > 0.005) {
+        el("rect", { x: x(a) + 0.6, width: x(b) - x(a) - 1.2, y: y(base + v), height: Math.max(0, y(base) - y(base + v) - 0.6), style: `fill:var(${GCOL[g]})` }, svg);
+        detail[GNAME[g] || g] = `${fmt(v, 2)} GW`;
+      }
+      base += v;
+    });
+    el("rect", { x: x(a), width: x(b) - x(a), y: m.t, height: y(0) - m.t, style: "fill:transparent",
+      "data-tip": `<b>${label} · ${name} (${k})</b>${rows(detail)}<div class="row"><span><b>Total</b></span><span><b>${fmt(base, 2)} GW</b></span></div>` }, svg);
+    // Total arriba de cada bloque; el resto de 8 TS se repite, así que se rotula una vez.
+    if (!(name === "resto" && a === 17) && !(ts === "2TS" && i === 2))
+      el("text", { x: name === "resto" ? (x(21) + x(24)) / 2 : (x(a) + x(b)) / 2, y: y(base) - 3, "text-anchor": "middle", class: "val",
+        style: name === "punta" ? "font-weight:600" : "" }, svg).textContent = fmt(base, 1);
+  });
+  el("text", { x: x(19.5), y: H - 4, "text-anchor": "middle", style: ts === "8TS" ? "fill:var(--fg)" : "display:none" }, svg).textContent = "punta";
+  el("line", { x1: m.l, x2: W - m.r, y1: y(0), y2: y(0), style: "stroke:var(--muted)" }, svg);
+}
+
+function renderDispatch() {
+  const host = document.getElementById("dispatch"); host.innerHTML = "";
+  const top = Math.ceil(Math.max(...D.runs.map(r => {
+    const g = D.disp[r.folder][state.year]; const tss = new Set(D.groups.flatMap(k => Object.keys(g[k] || {})));
+    return Math.max(...[...tss].map(t => sumAt(g, t)));
+  })) / 5) * 5;
+  ["PD", "PA", "CN"].forEach(s => {
+    const row = document.createElement("div"); row.className = "grid3";
+    ["2TS", "6TS", "8TS"].forEach(ts => {
+      const r = run(s, ts);
+      const card = document.createElement("div"); card.className = "card";
+      card.innerHTML = `<h3><span class="scen">${dot(s)}${s}</span> · ${TSL[ts]} <small>${ts === "2TS" ? "año completo" : `semestre ${state.sem}`}${r.ipm ? " · IPM provisional" : ""}</small></h3>`;
+      dayChart(el("svg", { role: "img", "aria-label": `Perfil diario ${s} ${TSL[ts]} ${state.year}` }, card), ts, D.disp[r.folder][state.year], top, `${s} ${TSL[ts]} · ${state.year}`);
+      row.appendChild(card);
+    });
+    host.appendChild(row);
+  });
+  document.querySelectorAll("#ytabs button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.v === state.year)));
+  document.querySelectorAll("#stabs button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.v === state.sem)));
+  try { localStorage.setItem("perfil-8ts", JSON.stringify(state)); } catch (e) {}
+}
+function tabs(id, values, key) {
+  const host = document.getElementById(id);
+  values.forEach(v => {
+    const b = document.createElement("button"); b.type = "button"; b.dataset.v = v; b.textContent = v;
+    b.addEventListener("click", () => { state[key] = v; renderDispatch(); });
+    host.appendChild(b);
+  });
+}
+tabs("ytabs", D.disp_years, "year");
+tabs("stabs", [1, 2], "sem");
+renderDispatch();
+</script>

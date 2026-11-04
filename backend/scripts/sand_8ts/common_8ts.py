@@ -9,6 +9,10 @@ divide la tarde-noche de 7 h (S103/S203) en:
 El CF de ambos bloques es el del S103/S203 del 6 TS: la hidro **no** se realza
 en la punta. Justamente se busca que el modelo vea que no puede seguirla. Ver
 ``docs/sand-8ts-punta.md``.
+
+Variante anidada (``run_cli_8ts_nest``): parte del 6 TS anidado de
+``scripts/sand_6ts/nest.py`` (noche 18–24 h, 6 h) y conserva el anidamiento en
+el 2 TS: madrugada, punta y resto caen en la noche; el día, en el día.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ from common import (  # noqa: E402
     check_peak_capacity,
     clean_shapes,
     fill_default_capacity_factor,
+    prepare_nested_db_export,
     read_sand,
     replace_params,
     scale_peak_capacity,
@@ -40,14 +45,19 @@ from common import (  # noqa: E402
     write_sand,
     year_columns,
 )
+from nest import PARENT as NEST_PARENT, build_nested, check_nesting  # noqa: E402
 
 __all__ = [
-    "INPUTS_DIR", "OUTPUTS_DIR", "RUNS_DIR", "fill_default_capacity_factor", "run_cli_8ts", "split_peak_block",
+    "INPUTS_DIR", "OUTPUTS_DIR", "RUNS_DIR", "fill_default_capacity_factor", "prepare_nested_db_export", "run_cli_8ts", "run_cli_8ts_nest",
+    "split_peak_block",
 ]
 
 EVENING_HOURS = 7  # tarde-noche del 6 TS de la UPME: 17–24 h
+NEST_EVENING_HOURS = 6  # noche del 6 TS anidado: 18–24 h
 # Tarde-noche del 6 TS → (punta, resto) del 8 TS.
 SPLIT = {"S103": ("S103", "S104"), "S203": ("S203", "S204")}
+# Bloque del 8 TS anidado → bloque del 2 TS que lo contiene (S101 = día, S102 = noche).
+NEST_PARENT_8 = {**NEST_PARENT, "S104": "S102", "S204": "S102"}
 TOL = 1e-9
 
 
@@ -79,18 +89,19 @@ def _split_rows(block: pd.DataFrame, years: list[str], values: Callable) -> pd.D
 
 
 def split_peak_block(
-    blocks: dict[str, pd.DataFrame], years: list[str], hours: float = 3, ratio: float = 1.30
+    blocks: dict[str, pd.DataFrame], years: list[str], hours: float = 3, ratio: float = 1.30,
+    evening_hours: float = EVENING_HOURS,
 ) -> dict[str, pd.DataFrame]:
     """Divide la tarde-noche (S103/S203) del 6 TS en punta y resto.
 
-    - YearSplit: punta = hours/7 del bloque, resto = el resto.
+    - YearSplit: punta = hours/evening_hours del bloque, resto = el resto.
     - SpecifiedDemandProfile: punta = ratio · YearSplit_punta; resto = SDP_6TS − punta
       (cada perfil sigue sumando 1 y la tarde-noche conserva su energía).
     - CapacityFactor: punta y resto repiten el CF del bloque (energía anual igual).
     """
-    if not 0 < hours < EVENING_HOURS:
-        raise ValueError(f"--peak-hours debe estar entre 0 y {EVENING_HOURS}.")
-    share = {"peak": hours / EVENING_HOURS, "rest": 1 - hours / EVENING_HOURS}
+    if not 0 < hours < evening_hours:
+        raise ValueError(f"--peak-hours debe estar entre 0 y {evening_hours:g}.")
+    share = {"peak": hours / evening_hours, "rest": 1 - hours / evening_hours}
     ys6 = blocks["YearSplit"].set_index("TIMESLICE")[years].astype(float)
 
     ys = _split_rows(blocks["YearSplit"], years, lambda r, part: r[years].astype(float) * share[part])
@@ -189,3 +200,76 @@ def run_cli_8ts(
     write_sand(df, out)
     print(f"\nValidación OK. SAND: {out} ({len(df)} filas)")
 
+
+
+def run_cli_8ts_nest(
+    description: str, base_sand: Path, out_dir: Path, out_prefix: str,
+    prepare_base: Callable[[pd.DataFrame, list[str]], pd.DataFrame] | None = None,
+) -> None:
+    """CLI del 8 TS anidado: 6 TS anidado (``nest.py``) + punta corta dentro de la noche de 6 h.
+
+    La punta por defecto (×1,16) es la medida en XM 2023–2024: 1,166 × el promedio de la
+    noche, que en el 6 TS anidado promedia 0,995 (``scripts/sand_xm``).
+    """
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--base", type=Path, default=base_sand)
+    parser.add_argument("--shapes", type=Path, default=SHAPES_SAND)
+    parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--flat", action="store_true",
+                        help="Formas planas y punta ×1: debe reproducir el objetivo del 2 TS.")
+    parser.add_argument("--peak-hours", type=float, default=3,
+                        help=f"Horas/día del bloque de punta dentro de la noche de {NEST_EVENING_HOURS} h (default 3).")
+    parser.add_argument("--peak-ratio", type=float, default=1.16,
+                        help="Demanda de la punta = ratio × promedio (default 1,16, medida en XM).")
+    parser.add_argument("--free-shape", default="",
+                        help="Prefijos (separados por coma) cuya energía anual se reparte con la forma de la UPME "
+                             "sin respetar el día/noche del 2 TS, p. ej. PWRWND (ver nest.build_nested).")
+    args = parser.parse_args()
+    free = tuple(p for p in args.free_shape.split(",") if p)
+    ratio = 1.0 if args.flat else args.peak_ratio
+    tag = "FLAT" if args.flat else f"PB{args.peak_hours:g}H{round(ratio * 100)}"
+    out = args.out or out_dir / f"{out_prefix}_{tag}.xlsx"
+    if out.exists():
+        raise SystemExit(f"{out} ya existe: no se sobrescribe.")
+
+    base = read_sand(args.base)
+    years = year_columns(base)
+    if prepare_base is not None:
+        base = prepare_base(base, years)
+    shapes = clean_shapes(read_sand(args.shapes), years)
+
+    six = build_nested(base, shapes, years, args.flat, free)
+    if free:
+        print(f"Forma de la UPME (sin anidar) para: {', '.join(free)}")
+    if args.flat:
+        # Con formas planas la punta ×1 debe repetir la demanda promedio de la noche.
+        ys6 = six["YearSplit"].set_index("TIMESLICE")[years].astype(float)
+        sdp6 = six["SpecifiedDemandProfile"]
+        mean = (sdp6[years].to_numpy() / ys6.loc[sdp6["TIMESLICE"]].to_numpy())
+        if abs(mean[sdp6["TIMESLICE"].isin(SPLIT).to_numpy()] - 1).max() > 1e-6:
+            raise SystemExit("--flat: la noche del 6 TS anidado no es plana.")
+    blocks = split_peak_block(six, years, args.peak_hours, ratio, NEST_EVENING_HOURS)
+    errors = check_split(six, blocks, years) + check_nesting(base, blocks, years, NEST_PARENT_8, free)
+    peak_blocks, peak_report = scale_peak_capacity(base, blocks, years)
+    blocks.update(peak_blocks)
+
+    df = replace_params(base, blocks)
+    errors += validate(df, years) + check_peak_capacity(df, years)
+
+    ys = blocks["YearSplit"].set_index("TIMESLICE")["2030"].astype(float)
+    sdp = blocks["SpecifiedDemandProfile"]
+    sdp = sdp[sdp["FUEL"] == sdp["FUEL"].iloc[0]].set_index("TIMESLICE")["2030"].astype(float)
+    print(f"Base:   {args.base.name} ({len(base)} filas)")
+    print(f"Formas: {args.shapes.name}")
+    print("\nTimeslices 2030 (horas/año, demanda/promedio, bloque del 2 TS):")
+    print(pd.DataFrame({"horas": (ys * 8760).round(0), "SDP/YS": (sdp / ys).round(3),
+                        "2TS": pd.Series(NEST_PARENT_8).map({"S101": "día", "S102": "noche"})}).to_string())
+    print(f"\nTopes de capacidad escalados por punta (factor máx. {peak_report['factor_max'].max():.4f}):")
+    print(peak_report[["parámetro", "tecnologías"]].to_string(index=False))
+    if errors:
+        print("\nVALIDACIÓN FALLIDA:")
+        for e in errors[:30]:
+            print(f"  - {e}")
+        raise SystemExit(1)
+    write_sand(df, out)
+    print(f"\nAnidamiento y validación OK. SAND: {out} ({len(df)} filas)")

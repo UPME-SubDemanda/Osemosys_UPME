@@ -98,6 +98,30 @@ def fill_default_capacity_factor(base: pd.DataFrame, years: list[str]) -> pd.Dat
     return replace_params(base, {"CapacityFactor": filled})
 
 
+def prepare_nested_db_export(base: pd.DataFrame, years: list[str]) -> pd.DataFrame:
+    """``prepare_base`` del anidado para exports de la BD: CF omitidos y perfiles sin demanda.
+
+    Además de los CF, el export trae fuels sin demanda (OIL002, exportación de petróleo,
+    con SpecifiedAnnualDemand = 0) con un perfil incompleto (solo S101 = 1). Como la
+    demanda es 0, el perfil no afecta el modelo; se reemplaza por uno plano (= YearSplit)
+    para que el anidamiento pueda repartirlo por bloque.
+    """
+    base = fill_default_capacity_factor(base, years)
+    ys = base[base["Parameter"] == "YearSplit"].set_index("TIMESLICE")[years].astype(float)
+    sdp = base[base["Parameter"] == "SpecifiedDemandProfile"]
+    sad = base[base["Parameter"] == "SpecifiedAnnualDemand"].groupby("FUEL")[years].sum()
+    counts = sdp.groupby(["REGION", "FUEL"]).size()
+    flat = [(r, f) for (r, f), n in counts.items() if n < len(ys) and f in sad.index and not (sad.loc[f] > 0).any()]
+    if not flat:
+        return base
+    print(f"SpecifiedDemandProfile: perfil plano para fuels sin demanda con perfil incompleto: {[f for _, f in flat]}")
+    keep = sdp[~sdp.set_index(["REGION", "FUEL"]).index.isin(flat)]
+    rows = [_rows(base, "SpecifiedDemandProfile", {"REGION": r, "FUEL": f, "TIMESLICE": ts}, ys.loc[ts])
+            for r, f in flat for ts in ys.index]
+    return replace_params(base, {"SpecifiedDemandProfile": pd.concat([keep, pd.DataFrame(rows, columns=base.columns)],
+                                                                     ignore_index=True)})
+
+
 def clean_shapes(shapes: pd.DataFrame, years: list[str]) -> pd.DataFrame:
     """Corrige el armado del archivo de 6 TS: años vacíos y nombres de tecnología."""
     shapes = shapes.copy()

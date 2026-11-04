@@ -233,6 +233,9 @@ def scale_peak_capacity(
         pd.DataFrame(ratio, columns=years, index=sdp["FUEL"].to_numpy())
         .groupby(level=0).max().clip(lower=1.0)
     )
+    # Un fuel sin demanda (p. ej. OIL002 en los exports de PA y CN) no tiene punta que cubrir.
+    sad = base[base["Parameter"] == "SpecifiedAnnualDemand"].groupby("FUEL")[years].sum()
+    peak = peak.loc[[f for f in peak.index if f not in sad.index or (sad.loc[f] > 0).any()]]
     oar = base[(base["Parameter"] == "OutputActivityRatio") & base["FUEL"].isin(peak.index)]
     oar = oar[(oar[years] > 0).any(axis=1)]
     tech_peak = (

@@ -43,13 +43,13 @@ technologies:
         multiplier: 1.0
   PWRHYDROR:
     components:
-      - employment_technology: Hydro (small)
+      - employment_technology: Hydro (large)
         multiplier: 1.0
   PWRHYDROR_NDC:
     components:
       - employment_technology: Hydro (small)
         multiplier: 1.0
-        note: Very small run-of-river mapped to the available small hydro factor.
+        note: MW-scale small RoR (1-20 MW) calibrated source; catalogue cost correspondence and project-team classification, see backend/docs/EMPLOYMENT_FACTORS.md.
   PWRJET:
     components:
       - employment_technology: Gas CCGT/OCGT
@@ -113,7 +113,8 @@ technologies:
     components:
       - employment_technology: Geothermal
         multiplier: 1.0
+  # Existing generating technology is SMR (SAND SETS!B41:C41); code and energy inputs unchanged.
   PWRNUC:
     components:
-      - employment_technology: Nuclear
+      - employment_technology: SMR
         multiplier: 1.0

@@ -22,16 +22,18 @@ from colombia_employment_factors import (
 ```
 
 The package API dependency is pinned to commit
-`f46e8b480f965e68bd4d5734e5e9ab708af593a7`. The data used by this backend are
+`a0aed31f75844cc1af32e67318de5037b3f46f9d`. The data used by this backend are
 the explicit, checksum-verified snapshot under
 `app/data/employment_factor_snapshot/`, passed to those APIs using their
 existing optional path arguments. They do not depend on a moving branch or
 on whichever packaged CSV happens to be installed locally.
 
-The snapshot manifest identifies committed input/code revision
-`e1dcd8328f197608c2b7dc3d5b9c29cd7d031324` and the exact input/content hashes
-used to generate the data. The dependency pin identifies the subsequent published
-artifact commit containing those outputs. The build-time dirty flag includes
+The snapshot is a targeted integration of the canonical PCH/SMR build (input/code
+revision `ac165f703e0a7361148a6c13a0abc8552919a16b`) and the frozen pre-change PR
+snapshot. Its `targeted_refresh` metadata identifies both parents and the two
+replaced/added catalogue technologies. Every unrelated baseline row is retained,
+including wind, rooftop solar and their previous productivity choices. The
+dependency pin identifies the published canonical artifact commit. The build-time dirty flag includes
 generated files awaiting that artifact commit; it does not imply uncommitted
 methodology inputs. No manifest attempts to embed its own enclosing commit SHA.
 The generated-data checksum identifies the actual consumed factors.
@@ -280,7 +282,7 @@ factors or residual/historical capacity. These conventions are unchanged.
 
 ## Regeneration, comparison and current gaps
 
-The source repository's `docs/METHODOLOGY_UPDATES.md` documents input extraction,
+The source repository's `docs/methodology.md` documents input extraction,
 six solar transfer ratios, category boundaries and selective productivity policy.
 The chosen 0.32 ratio is an approximate modelling assumption; its exact inverse
 is 3.125. It is not applied to Colombia I-JEDI, its derived rooftop factors,
@@ -289,8 +291,8 @@ already-LATAM factors, global manufacturing or nuclear O&M.
 **Current solar status:** the full-precision US utility run is missing. The six-ratio
 implementation is tested, but the published rooftop series remains exactly
 unchanged and is explicitly labelled pending. Rounded screenshots are not used
-as production factors. Nuclear also remains unchanged; a separate SMR factor
-requires a specified design/site and compatible phase-specific evidence.
+as production factors. Conventional Nuclear remains available; the existing PWRNUC code now uses the
+separate SMR proxy source documented below.
 
 After an approved source build, run from the OSeMOSYS repository root:
 
@@ -340,3 +342,98 @@ sensitivity ordering and deliberately unchanged technology factors.
 Rollback restores the prior source/data snapshot and matching checksum manifest
 through reviewed revert changes. Original workbooks, the baseline results
 workbook contents are preserved. Do not reset branches.
+
+## PCH/SMR update and targeted PR #174 snapshot
+
+The confirmed SMR generating code is `PWRNUC`, also explicitly labelled
+"Nuclear power plant (SMR)" in SAND `SETS!B41:C41`. Its employment category is
+now `SMR`, using `Rutovitz 2015 (SMR proxy)`; conventional `Nuclear`
+remains in the catalogue. All seven regional prefixes inherit this correction.
+
+| Model code | Before | After | 2024 C+M before → after | 2024 O&M before → after |
+| --- | --- | --- | ---: | ---: |
+| PWRHYDROR | Hydro (small), legacy selective | Hydro (large), retained selective | 62.80655 → 27.74325 | 15.955625 → 0.6252 |
+| PWRHYDROR_NDC | Hydro (small), legacy selective | Hydro (small), calibrated | 62.80655 → 9.66 | 15.955625 → 0.8 |
+| PWRNUC | Nuclear | SMR, conventional-nuclear proxy | 20.9 → 13.1 | 1.15 → 0.6 |
+
+C+M is FTE-years/MW; O&M is annual FTE/MW. The raw legacy small-hydro
+coefficients are 15.8 construction, 10.9 manufacturing and 4.9 O&M.
+Interpolation gives 2024 O&M 5.1058; the prior PR selective multiplier gives
+5.1058/0.32 = 15.955625. The new source starts in 2024 at 7.36/2.30/0.8;
+C+M is calculated once as 9.66. Neither the old interpolation uplift nor the
+extra productivity multiplier applies to this calibrated source. Subsequent
+years retain small-RoR catalogue CAPEX/OPEX projections, holding 2050 through 2055.
+
+The new PCH source combines reported generic hydro C/M coefficients from
+Rutovitz et al. (2025), Table 3 p.4, with analyst-selected O&M of 0.8.
+ESMAP (2023) provides an 80-MW scale benchmark of approximately 50 forecast
+operating staff; 50/80 = 0.625 employees/MW is calculated, and 0.8 is not an
+ESMAP published coefficient. Provisional low/base/high O&M values are
+0.3/0.8/1.5; only base is executable. This is a proxy for MW-scale PCH, requiring
+validation against Colombian projects and their automation/shared staffing.
+
+PEN Tomo II p.69 distinguishes small RoR 1–20 MW and mini <1 MW. The agreed
+model classification is supported by cost correspondence: the CSV inputs for
+PWRHYDROR match large RoR catalogue costs closely, while PWRHYDROR_NDC matches
+small RoR costs closely. This is evidence about the aggregate model classes,
+not confirmation of every constituent plant's capacity. NDC dispatch status
+does not imply micro/mini scale; the unsupported "very small" note was removed.
+PWRHYDDAM is unchanged. The project team approved these class assignments.
+
+The SMR phase factors 11.8/1.3/0.6 are conventional nuclear OECD coefficients
+from Rutovitz, Dominish and Downes (2015), Table 1 p.5, deliberately transferred
+as unvalidated SMR proxies. They are constant throughout 2024–2055 and have no
+new learning rate or productivity multiplier. C+M is 13.1. The old catalogue
+Nuclear source uses higher Latin America values (19.6/1.3/1.15); consequently,
+this implementation changes numerical SMR outputs. It does not force a
+difference merely for classification. Employment scheduling uses the SMR
+datasheet's 2030 D10/D11 assumptions: 40-year lifetime and 8-year construction.
+Energy-system operational lifetime and other inputs remain unchanged.
+
+The canonical default has evolved since the PR's baseline. A wholesale snapshot
+replacement would change unrelated factors, including wind. The targeted sync
+therefore takes only Hydro (small) and SMR from the new canonical artifact and
+retains all other baseline factors and assumptions exactly. Its
+`targeted_refresh` provenance identifies the baseline manifest, replacement
+tables, source revision and technologies. The top-level legacy productivity and
+solar settings describe retained rows; the targeted replacements explicitly use
+no extra productivity transfer. The result provenance exposes this distinction.
+Existing wind references, mappings, projections, factors and employment outputs
+remain unchanged.
+
+### Reproduction and evidence
+
+Run from the OSeMOSYS repository using an environment with the pinned package,
+pandas, openpyxl and PyYAML installed:
+
+```sh
+python backend/scripts/sync_employment_factor_snapshot.py --source-dir ../colombia-employment-factors/src/colombia_employment_factors/data --baseline-dir backend/reports/employment_methodology/pch-smr/baseline
+python backend/scripts/compare_employment_factors.py --baseline-workbook employment_results_PD_CN_PA.xlsx --old-factors backend/reports/employment_methodology/pch-smr/baseline/employment_factors_model_default_2024_2055.csv --old-mapping backend/reports/employment_methodology/pch-smr/baseline/employment_factors_mapping.yaml --old-assumptions backend/reports/employment_methodology/pch-smr/baseline/technology_assumptions_2024.csv --output-dir backend/reports/employment_methodology/pch-smr
+python backend/scripts/validate_employment_factor_delivery.py --source-repo ../colombia-employment-factors --rebuild-dir ../colombia-employment-factors/output/pch-smr-rebuild
+```
+
+The last command's rebuild directory is created by running the canonical
+builder with `--require-solar-ratios --output-dir output/pch-smr-rebuild`.
+Run source tests explicitly with `python -m pytest tests`, keeping generated
+review/cache directories out of test discovery.
+
+The `pch-smr/` report directory contains the frozen old snapshot/mapping,
+the mapping-aware 2024–2055 coefficient comparison, model employment comparison,
+catalogue additions, observed construction-cohort totals and checksums. Existing
+central/low/high/source-refresh reports outside this directory are historical
+pre-PCH/SMR comparisons and are not relabelled as current results. The original
+workbook remains the preserved source of identical deployment in both replays.
+
+There are 2,999 blank exported capacity cells; both replays exclude them rather
+than inventing zero capacity. These limitations prevent claiming a complete
+reconstruction of original solver outputs. Missing derived scheduling rows,
+if introduced by changed construction duration, are separately identified in
+`record_presence`, with only their counterpart derived employment set to zero.
+
+Scientific references, original links, table/page details, raw/effective
+definitions and limitations are maintained in the canonical
+[methodology](https://github.com/DEA-GE/colombia-employment-factors/blob/pch-smr-employment-factors/docs/methodology.md).
+OECD NEA/IAEA (2018) supplies conventional-nuclear context, not validation for
+SMR-specific labour requirements. Modular manufacturing, factory assembly,
+design, onsite schedules, FOAK/NOAK deployment and operating staff remain
+priorities for later SMR research.

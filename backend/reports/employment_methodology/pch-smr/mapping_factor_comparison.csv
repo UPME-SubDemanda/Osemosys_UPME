@@ -1,0 +1,385 @@
+technology,year,phase,unit,employment_technology_old,employment_technology_new,source_old,source_new,value_old,value_new,absolute_change,percentage_change
+PWRHYDROR,2024,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],51.44875,24.09625,-27.3525,-53.164556962
+PWRHYDROR,2024,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.3578,3.647,-7.7108,-67.8899082569
+PWRHYDROR,2024,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],62.80655,27.74325,-35.0633,-55.8274574865
+PWRHYDROR,2024,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],15.955625,0.6252,-15.330425,-96.0816326531
+PWRHYDROR,2025,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],51.6791666667,24.2041666667,-27.475,-53.164556962
+PWRHYDROR,2025,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.4086666667,3.66333333333,-7.74533333337,-67.889908257
+PWRHYDROR,2025,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],63.0878333333,27.8675,-35.2203333333,-55.8274574865
+PWRHYDROR,2025,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.0270833333,0.628,-15.3990833333,-96.0816326531
+PWRHYDROR,2026,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],51.9095833333,24.3120833333,-27.5975,-53.1645569621
+PWRHYDROR,2026,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.4595333333,3.67966666667,-7.77986666663,-67.8899082568
+PWRHYDROR,2026,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],63.3691166667,27.99175,-35.3773666667,-55.8274574865
+PWRHYDROR,2026,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.0985416667,0.6308,-15.4677416667,-96.0816326531
+PWRHYDROR,2027,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.14,24.42,-27.72,-53.164556962
+PWRHYDROR,2027,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.5104,3.696,-7.8144,-67.8899082569
+PWRHYDROR,2027,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],63.6504,28.116,-35.5344,-55.8274574865
+PWRHYDROR,2027,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.17,0.6336,-15.5364,-96.0816326531
+PWRHYDROR,2028,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.3704166667,24.5279166667,-27.8425,-53.164556962
+PWRHYDROR,2028,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.5612666667,3.71233333333,-7.84893333337,-67.889908257
+PWRHYDROR,2028,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],63.9316833333,28.24025,-35.6914333333,-55.8274574865
+PWRHYDROR,2028,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.2414583333,0.6364,-15.6050583333,-96.0816326531
+PWRHYDROR,2029,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.6008333333,24.6358333333,-27.965,-53.1645569621
+PWRHYDROR,2029,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6121333333,3.72866666667,-7.88346666663,-67.8899082568
+PWRHYDROR,2029,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.2129666667,28.3645,-35.8484666667,-55.8274574865
+PWRHYDROR,2029,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3129166667,0.6392,-15.6737166667,-96.0816326531
+PWRHYDROR,2030,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.83125,24.74375,-28.0875,-53.164556962
+PWRHYDROR,2030,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.663,3.745,-7.918,-67.8899082569
+PWRHYDROR,2030,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.49425,28.48875,-36.0055,-55.8274574865
+PWRHYDROR,2030,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.384375,0.642,-15.742375,-96.0816326531
+PWRHYDROR,2031,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.8178062608,24.7374535652,-28.0803526956,-53.164556962
+PWRHYDROR,2031,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6600321669,3.74404702608,-7.91598514082,-67.8899082568
+PWRHYDROR,2031,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.4778384277,28.4815005913,-35.9963378364,-55.8274574864
+PWRHYDROR,2031,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3794399473,0.641824590164,-15.7376153571,-96.0815229811
+PWRHYDROR,2032,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.8043625216,24.7311571304,-28.0732053912,-53.164556962
+PWRHYDROR,2032,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6570643339,3.74309405216,-7.91397028174,-67.889908257
+PWRHYDROR,2032,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.4614268555,28.4742511825,-35.987175673,-55.8274574866
+PWRHYDROR,2032,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3745048946,0.641649180328,-15.7328557143,-96.081413243
+PWRHYDROR,2033,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.7909187824,24.7248606955,-28.0660580869,-53.1645569621
+PWRHYDROR,2033,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6540965008,3.74214107824,-7.91195542256,-67.8899082569
+PWRHYDROR,2033,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.4450152832,28.4670017738,-35.9780135094,-55.8274574865
+PWRHYDROR,2033,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3695698419,0.641473770492,-15.7280960714,-96.0813034387
+PWRHYDROR,2034,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.7774750432,24.7185642607,-28.0589107825,-53.1645569621
+PWRHYDROR,2034,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6511286678,3.74118810433,-7.90994056347,-67.889908257
+PWRHYDROR,2034,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.4286037109,28.4597523651,-35.9688513458,-55.8274574864
+PWRHYDROR,2034,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3646347892,0.641298360656,-15.7233364285,-96.0811935682
+PWRHYDROR,2035,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.764031304,24.7122678259,-28.0517634781,-53.1645569621
+PWRHYDROR,2035,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6481608347,3.74023513041,-7.90792570429,-67.8899082569
+PWRHYDROR,2035,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.4121921387,28.4525029563,-35.9596891824,-55.8274574866
+PWRHYDROR,2035,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3596997364,0.64112295082,-15.7185767856,-96.0810836314
+PWRHYDROR,2036,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.7505875648,24.7059713911,-28.0446161737,-53.164556962
+PWRHYDROR,2036,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6451930016,3.73928215649,-7.90591084511,-67.8899082568
+PWRHYDROR,2036,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.3957805664,28.4452535476,-35.9505270188,-55.8274574865
+PWRHYDROR,2036,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3547646837,0.640947540984,-15.7138171427,-96.0809736283
+PWRHYDROR,2037,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.7371438256,24.6996749563,-28.0374688693,-53.164556962
+PWRHYDROR,2037,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6422251686,3.73832918257,-7.90389598603,-67.8899082569
+PWRHYDROR,2037,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.3793689941,28.4380041388,-35.9413648553,-55.8274574866
+PWRHYDROR,2037,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.349829631,0.640772131148,-15.7090574999,-96.0808635588
+PWRHYDROR,2038,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.7237000864,24.6933785215,-28.0303215649,-53.164556962
+PWRHYDROR,2038,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6392573355,3.73737620865,-7.90188112685,-67.8899082569
+PWRHYDROR,2038,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.3629574219,28.4307547301,-35.9322026918,-55.8274574866
+PWRHYDROR,2038,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3448945783,0.640596721311,-15.704297857,-96.0807534228
+PWRHYDROR,2039,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.7102563472,24.6870820866,-28.0231742606,-53.1645569621
+PWRHYDROR,2039,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6362895025,3.73642323473,-7.89986626777,-67.889908257
+PWRHYDROR,2039,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.3465458496,28.4235053214,-35.9230405282,-55.8274574865
+PWRHYDROR,2039,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3399595256,0.640421311475,-15.6995382141,-96.0806432203
+PWRHYDROR,2040,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.6968126079,24.6807856518,-28.0160269561,-53.164556962
+PWRHYDROR,2040,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6333216694,3.73547026082,-7.89785140858,-67.8899082569
+PWRHYDROR,2040,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.3301342773,28.4162559126,-35.9138783647,-55.8274574865
+PWRHYDROR,2040,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3350244729,0.640245901639,-15.6947785713,-96.0805329511
+PWRHYDROR,2041,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.6833688687,24.674489217,-28.0088796517,-53.164556962
+PWRHYDROR,2041,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6303538363,3.7345172869,-7.8958365494,-67.8899082568
+PWRHYDROR,2041,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.3137227051,28.4090065039,-35.9047162012,-55.8274574865
+PWRHYDROR,2041,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3300894202,0.640070491803,-15.6900189284,-96.0804226154
+PWRHYDROR,2042,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.6699251295,24.6681927822,-28.0017323473,-53.164556962
+PWRHYDROR,2042,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6273860033,3.73356431298,-7.89382169032,-67.8899082569
+PWRHYDROR,2042,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.2973111328,28.4017570952,-35.8955540376,-55.8274574865
+PWRHYDROR,2042,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3251543675,0.639895081967,-15.6852592855,-96.0803122129
+PWRHYDROR,2043,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.6564813903,24.6618963474,-27.9945850429,-53.1645569619
+PWRHYDROR,2043,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6244181702,3.73261133906,-7.89180683114,-67.8899082568
+PWRHYDROR,2043,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.2808995605,28.3945076864,-35.8863918741,-55.8274574865
+PWRHYDROR,2043,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3202193148,0.639719672131,-15.6804996427,-96.0802017437
+PWRHYDROR,2044,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.6430376511,24.6555999126,-27.9874377385,-53.1645569619
+PWRHYDROR,2044,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6214503372,3.73165836514,-7.88979197206,-67.889908257
+PWRHYDROR,2044,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.2644879883,28.3872582777,-35.8772297106,-55.8274574865
+PWRHYDROR,2044,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.315284262,0.639544262295,-15.6757399997,-96.0800912076
+PWRHYDROR,2045,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.6295939119,24.6493034777,-27.9802904342,-53.1645569621
+PWRHYDROR,2045,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6184825041,3.73070539122,-7.88777711288,-67.8899082569
+PWRHYDROR,2045,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.248076416,28.380008869,-35.868067547,-55.8274574864
+PWRHYDROR,2045,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3103492093,0.639368852459,-15.6709803568,-96.0799806046
+PWRHYDROR,2046,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.6161501727,24.6430070429,-27.9731431298,-53.164556962
+PWRHYDROR,2046,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.615514671,3.72975241731,-7.88576225369,-67.8899082567
+PWRHYDROR,2046,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.2316648438,28.3727594602,-35.8589053836,-55.8274574866
+PWRHYDROR,2046,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3054141566,0.639193442623,-15.666220714,-96.0798699347
+PWRHYDROR,2047,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.6027064335,24.6367106081,-27.9659958254,-53.164556962
+PWRHYDROR,2047,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.612546838,3.72879944339,-7.88374739461,-67.8899082569
+PWRHYDROR,2047,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.2152532715,28.3655100515,-35.84974322,-55.8274574865
+PWRHYDROR,2047,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.3004791039,0.639018032787,-15.6614610711,-96.0797591978
+PWRHYDROR,2048,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.5892626943,24.6304141733,-27.958848521,-53.164556962
+PWRHYDROR,2048,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6095790049,3.72784646947,-7.88173253543,-67.8899082568
+PWRHYDROR,2048,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.1988416992,28.3582606428,-35.8405810564,-55.8274574864
+PWRHYDROR,2048,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.2955440512,0.638842622951,-15.6567014282,-96.0796483938
+PWRHYDROR,2049,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.5758189551,24.6241177385,-27.9517012166,-53.164556962
+PWRHYDROR,2049,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6066111719,3.72689349555,-7.87971767635,-67.889908257
+PWRHYDROR,2049,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.182430127,28.351011234,-35.831418893,-55.8274574866
+PWRHYDROR,2049,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.2906089985,0.638667213115,-15.6519417854,-96.0795375227
+PWRHYDROR,2050,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.5623752159,24.6178213036,-27.9445539123,-53.1645569621
+PWRHYDROR,2050,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6036433388,3.72594052163,-7.87770281717,-67.8899082569
+PWRHYDROR,2050,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.1660185547,28.3437618253,-35.8222567294,-55.8274574865
+PWRHYDROR,2050,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.2856739458,0.638491803279,-15.6471821425,-96.0794265843
+PWRHYDROR,2051,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.5623752159,24.6178213036,-27.9445539123,-53.1645569621
+PWRHYDROR,2051,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6036433388,3.72594052163,-7.87770281717,-67.8899082569
+PWRHYDROR,2051,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.1660185547,28.3437618253,-35.8222567294,-55.8274574865
+PWRHYDROR,2051,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.2856739458,0.638491803279,-15.6471821425,-96.0794265843
+PWRHYDROR,2052,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.5623752159,24.6178213036,-27.9445539123,-53.1645569621
+PWRHYDROR,2052,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6036433388,3.72594052163,-7.87770281717,-67.8899082569
+PWRHYDROR,2052,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.1660185547,28.3437618253,-35.8222567294,-55.8274574865
+PWRHYDROR,2052,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.2856739458,0.638491803279,-15.6471821425,-96.0794265843
+PWRHYDROR,2053,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.5623752159,24.6178213036,-27.9445539123,-53.1645569621
+PWRHYDROR,2053,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6036433388,3.72594052163,-7.87770281717,-67.8899082569
+PWRHYDROR,2053,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.1660185547,28.3437618253,-35.8222567294,-55.8274574865
+PWRHYDROR,2053,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.2856739458,0.638491803279,-15.6471821425,-96.0794265843
+PWRHYDROR,2054,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.5623752159,24.6178213036,-27.9445539123,-53.1645569621
+PWRHYDROR,2054,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6036433388,3.72594052163,-7.87770281717,-67.8899082569
+PWRHYDROR,2054,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.1660185547,28.3437618253,-35.8222567294,-55.8274574865
+PWRHYDROR,2054,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.2856739458,0.638491803279,-15.6471821425,-96.0794265843
+PWRHYDROR,2055,Construction,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],52.5623752159,24.6178213036,-27.9445539123,-53.1645569621
+PWRHYDROR,2055,Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],11.6036433388,3.72594052163,-7.87770281717,-67.8899082569
+PWRHYDROR,2055,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],64.1660185547,28.3437618253,-35.8222567294,-55.8274574865
+PWRHYDROR,2055,O&M,job/MW,Hydro (small),Hydro (large),Rutovitz 2015 [LATAM productivity proxy],Rutovitz 2015 [LATAM productivity proxy],16.2856739458,0.638491803279,-15.6471821425,-96.0794265843
+PWRHYDROR_NDC,2024,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),51.44875,7.36,-44.08875,-85.6945018101
+PWRHYDROR_NDC,2024,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.3578,2.3,-9.0578,-79.7495993942
+PWRHYDROR_NDC,2024,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),62.80655,9.66,-53.14655,-84.6194385777
+PWRHYDROR_NDC,2024,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),15.955625,0.8,-15.155625,-94.9860942458
+PWRHYDROR_NDC,2025,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),51.6791666667,7.35780347528,-44.3213631914,-85.7625345959
+PWRHYDROR_NDC,2025,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.4086666667,2.29931358603,-9.10935308067,-79.8459044058
+PWRHYDROR_NDC,2025,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),63.0878333333,9.65711706131,-53.430716272,-84.6925840514
+PWRHYDROR_NDC,2025,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.0270833333,0.799799498747,-15.2272838346,-95.0097002548
+PWRHYDROR_NDC,2026,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),51.9095833333,7.35560695057,-44.5539763827,-85.8299634128
+PWRHYDROR_NDC,2026,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.4595333333,2.29862717205,-9.16090616125,-79.9413544584
+PWRHYDROR_NDC,2026,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),63.3691166667,9.65423412262,-53.7148825441,-84.7650801677
+PWRHYDROR_NDC,2026,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.0985416667,0.799598997494,-15.2989426692,-95.0330966988
+PWRHYDROR_NDC,2027,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.14,7.35341042585,-44.7865895741,-85.896796268
+PWRHYDROR_NDC,2027,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.5104,2.29794075808,-9.21245924192,-80.0359608869
+PWRHYDROR_NDC,2027,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),63.6504,9.65135118393,-53.9990488161,-84.8369355355
+PWRHYDROR_NDC,2027,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.17,0.799398496241,-15.3706015038,-95.056286356
+PWRHYDROR_NDC,2028,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.3704166667,7.35121390114,-45.0192027656,-85.9630410277
+PWRHYDROR_NDC,2028,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.5612666667,2.29725434411,-9.26401232259,-80.1297348263
+PWRHYDROR_NDC,2028,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),63.9316833333,9.64846824524,-54.2832150881,-84.9081586122
+PWRHYDROR_NDC,2028,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.2414583333,0.799197994987,-15.4422603383,-95.0792719558
+PWRHYDROR_NDC,2029,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.6008333333,7.34901737642,-45.2518159569,-86.0287054202
+PWRHYDROR_NDC,2029,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6121333333,2.29656793013,-9.31556540317,-80.2226872168
+PWRHYDROR_NDC,2029,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.2129666667,9.64558530655,-54.5673813601,-84.978757707
+PWRHYDROR_NDC,2029,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3129166667,0.798997493734,-15.513919173,-95.10205618
+PWRHYDROR_NDC,2030,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.83125,7.3468208517,-45.4844291483,-86.0937970393
+PWRHYDROR_NDC,2030,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.663,2.29588151616,-9.36711848384,-80.3148288077
+PWRHYDROR_NDC,2030,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.49425,9.64270236786,-54.8515476321,-85.0487409841
+PWRHYDROR_NDC,2030,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.384375,0.798796992481,-15.5855780075,-95.1246416633
+PWRHYDROR_NDC,2031,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.8178062608,7.34495133805,-45.4728549227,-86.0937970392
+PWRHYDROR_NDC,2031,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6600321669,2.29529729314,-9.36473487376,-80.3148288076
+PWRHYDROR_NDC,2031,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.4778384277,9.64024863118,-54.8375897965,-85.0487409841
+PWRHYDROR_NDC,2031,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3794399473,0.798556390977,-15.5808835563,-95.1246416633
+PWRHYDROR_NDC,2032,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.8043625216,7.34308182439,-45.4612806972,-86.0937970392
+PWRHYDROR_NDC,2032,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6570643339,2.29471307012,-9.36235126378,-80.3148288077
+PWRHYDROR_NDC,2032,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.4614268555,9.63779489451,-54.823631961,-85.0487409841
+PWRHYDROR_NDC,2032,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3745048946,0.798315789474,-15.5761891051,-95.1246416633
+PWRHYDROR_NDC,2033,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.7909187824,7.34121231073,-45.4497064717,-86.0937970392
+PWRHYDROR_NDC,2033,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6540965008,2.2941288471,-9.3599676537,-80.3148288077
+PWRHYDROR_NDC,2033,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.4450152832,9.63534115783,-54.8096741254,-85.0487409841
+PWRHYDROR_NDC,2033,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3695698419,0.79807518797,-15.5714946539,-95.1246416633
+PWRHYDROR_NDC,2034,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.7774750432,7.33934279707,-45.4381322461,-86.0937970392
+PWRHYDROR_NDC,2034,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6511286678,2.29354462408,-9.35758404372,-80.3148288078
+PWRHYDROR_NDC,2034,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.4286037109,9.63288742115,-54.7957162898,-85.0487409841
+PWRHYDROR_NDC,2034,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3646347892,0.797834586466,-15.5668002027,-95.1246416633
+PWRHYDROR_NDC,2035,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.764031304,7.33747328341,-45.4265580206,-86.0937970392
+PWRHYDROR_NDC,2035,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6481608347,2.29296040106,-9.35520043364,-80.3148288077
+PWRHYDROR_NDC,2035,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.4121921387,9.63043368447,-54.7817584542,-85.0487409841
+PWRHYDROR_NDC,2035,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3596997364,0.797593984962,-15.5621057514,-95.1246416633
+PWRHYDROR_NDC,2036,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.7505875648,7.33560376975,-45.414983795,-86.0937970392
+PWRHYDROR_NDC,2036,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6451930016,2.29237617805,-9.35281682355,-80.3148288076
+PWRHYDROR_NDC,2036,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.3957805664,9.62797994779,-54.7678006186,-85.0487409841
+PWRHYDROR_NDC,2036,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3547646837,0.797353383459,-15.5574113002,-95.1246416633
+PWRHYDROR_NDC,2037,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.7371438256,7.33373425609,-45.4034095695,-86.0937970393
+PWRHYDROR_NDC,2037,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6422251686,2.29179195503,-9.35043321357,-80.3148288077
+PWRHYDROR_NDC,2037,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.3793689941,9.62552621112,-54.753842783,-85.0487409841
+PWRHYDROR_NDC,2037,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.349829631,0.797112781955,-15.552716849,-95.1246416633
+PWRHYDROR_NDC,2038,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.7237000864,7.33186474243,-45.391835344,-86.0937970393
+PWRHYDROR_NDC,2038,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6392573355,2.29120773201,-9.34804960349,-80.3148288077
+PWRHYDROR_NDC,2038,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.3629574219,9.62307247444,-54.7398849475,-85.0487409841
+PWRHYDROR_NDC,2038,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3448945783,0.796872180451,-15.5480223978,-95.1246416633
+PWRHYDROR_NDC,2039,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.7102563472,7.32999522877,-45.3802611184,-86.0937970393
+PWRHYDROR_NDC,2039,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6362895025,2.29062350899,-9.34566599351,-80.3148288078
+PWRHYDROR_NDC,2039,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.3465458496,9.62061873776,-54.7259271118,-85.0487409841
+PWRHYDROR_NDC,2039,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3399595256,0.796631578947,-15.5433279467,-95.1246416633
+PWRHYDROR_NDC,2040,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.6968126079,7.32812571511,-45.3686868928,-86.0937970392
+PWRHYDROR_NDC,2040,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6333216694,2.29003928597,-9.34328238343,-80.3148288077
+PWRHYDROR_NDC,2040,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.3301342773,9.61816500108,-54.7119692762,-85.0487409841
+PWRHYDROR_NDC,2040,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3350244729,0.796390977444,-15.5386334955,-95.1246416633
+PWRHYDROR_NDC,2041,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.6833688687,7.32625620145,-45.3571126673,-86.0937970392
+PWRHYDROR_NDC,2041,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6303538363,2.28945506295,-9.34089877335,-80.3148288077
+PWRHYDROR_NDC,2041,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.3137227051,9.6157112644,-54.6980114407,-85.0487409841
+PWRHYDROR_NDC,2041,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3300894202,0.79615037594,-15.5339390443,-95.1246416633
+PWRHYDROR_NDC,2042,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.6699251295,7.32438668779,-45.3455384417,-86.0937970392
+PWRHYDROR_NDC,2042,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6273860033,2.28887083993,-9.33851516337,-80.3148288078
+PWRHYDROR_NDC,2042,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.2973111328,9.61325752773,-54.6840536051,-85.0487409841
+PWRHYDROR_NDC,2042,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3251543675,0.795909774436,-15.5292445931,-95.1246416633
+PWRHYDROR_NDC,2043,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.6564813903,7.32251717413,-45.3339642162,-86.0937970392
+PWRHYDROR_NDC,2043,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6244181702,2.28828661692,-9.33613155328,-80.3148288076
+PWRHYDROR_NDC,2043,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.2808995605,9.61080379105,-54.6700957695,-85.0487409841
+PWRHYDROR_NDC,2043,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3202193148,0.795669172932,-15.5245501419,-95.1246416633
+PWRHYDROR_NDC,2044,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.6430376511,7.32064766047,-45.3223899906,-86.0937970392
+PWRHYDROR_NDC,2044,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6214503372,2.2877023939,-9.3337479433,-80.3148288078
+PWRHYDROR_NDC,2044,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.2644879883,9.60835005437,-54.6561379339,-85.0487409841
+PWRHYDROR_NDC,2044,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.315284262,0.795428571429,-15.5198556906,-95.1246416633
+PWRHYDROR_NDC,2045,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.6295939119,7.31877814681,-45.3108157651,-86.0937970392
+PWRHYDROR_NDC,2045,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6184825041,2.28711817088,-9.33136433322,-80.3148288077
+PWRHYDROR_NDC,2045,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.248076416,9.60589631769,-54.6421800983,-85.0487409841
+PWRHYDROR_NDC,2045,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3103492093,0.795187969925,-15.5151612394,-95.1246416633
+PWRHYDROR_NDC,2046,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.6161501727,7.31690863315,-45.2992415396,-86.0937970392
+PWRHYDROR_NDC,2046,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.615514671,2.28653394786,-9.32898072314,-80.3148288076
+PWRHYDROR_NDC,2046,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.2316648438,9.60344258101,-54.6282222628,-85.0487409841
+PWRHYDROR_NDC,2046,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3054141566,0.794947368421,-15.5104667882,-95.1246416633
+PWRHYDROR_NDC,2047,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.6027064335,7.31503911949,-45.287667314,-86.0937970393
+PWRHYDROR_NDC,2047,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.612546838,2.28594972484,-9.32659711316,-80.3148288078
+PWRHYDROR_NDC,2047,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.2152532715,9.60098884434,-54.6142644272,-85.0487409841
+PWRHYDROR_NDC,2047,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.3004791039,0.794706766917,-15.505772337,-95.1246416633
+PWRHYDROR_NDC,2048,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.5892626943,7.31316960584,-45.2760930885,-86.0937970392
+PWRHYDROR_NDC,2048,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6095790049,2.28536550182,-9.32421350308,-80.3148288077
+PWRHYDROR_NDC,2048,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.1988416992,9.59853510766,-54.6003065915,-85.0487409841
+PWRHYDROR_NDC,2048,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.2955440512,0.794466165414,-15.5010778858,-95.1246416633
+PWRHYDROR_NDC,2049,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.5758189551,7.31130009218,-45.2645188629,-86.0937970392
+PWRHYDROR_NDC,2049,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6066111719,2.2847812788,-9.3218298931,-80.3148288078
+PWRHYDROR_NDC,2049,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.182430127,9.59608137098,-54.586348756,-85.0487409841
+PWRHYDROR_NDC,2049,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.2906089985,0.79422556391,-15.4963834346,-95.1246416633
+PWRHYDROR_NDC,2050,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.5623752159,7.30943057852,-45.2529446374,-86.0937970392
+PWRHYDROR_NDC,2050,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6036433388,2.28419705579,-9.31944628301,-80.3148288077
+PWRHYDROR_NDC,2050,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.1660185547,9.5936276343,-54.5723909204,-85.0487409841
+PWRHYDROR_NDC,2050,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.2856739458,0.793984962406,-15.4916889834,-95.1246416633
+PWRHYDROR_NDC,2051,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.5623752159,7.30943057852,-45.2529446374,-86.0937970392
+PWRHYDROR_NDC,2051,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6036433388,2.28419705579,-9.31944628301,-80.3148288077
+PWRHYDROR_NDC,2051,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.1660185547,9.5936276343,-54.5723909204,-85.0487409841
+PWRHYDROR_NDC,2051,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.2856739458,0.793984962406,-15.4916889834,-95.1246416633
+PWRHYDROR_NDC,2052,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.5623752159,7.30943057852,-45.2529446374,-86.0937970392
+PWRHYDROR_NDC,2052,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6036433388,2.28419705579,-9.31944628301,-80.3148288077
+PWRHYDROR_NDC,2052,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.1660185547,9.5936276343,-54.5723909204,-85.0487409841
+PWRHYDROR_NDC,2052,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.2856739458,0.793984962406,-15.4916889834,-95.1246416633
+PWRHYDROR_NDC,2053,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.5623752159,7.30943057852,-45.2529446374,-86.0937970392
+PWRHYDROR_NDC,2053,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6036433388,2.28419705579,-9.31944628301,-80.3148288077
+PWRHYDROR_NDC,2053,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.1660185547,9.5936276343,-54.5723909204,-85.0487409841
+PWRHYDROR_NDC,2053,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.2856739458,0.793984962406,-15.4916889834,-95.1246416633
+PWRHYDROR_NDC,2054,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.5623752159,7.30943057852,-45.2529446374,-86.0937970392
+PWRHYDROR_NDC,2054,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6036433388,2.28419705579,-9.31944628301,-80.3148288077
+PWRHYDROR_NDC,2054,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.1660185547,9.5936276343,-54.5723909204,-85.0487409841
+PWRHYDROR_NDC,2054,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.2856739458,0.793984962406,-15.4916889834,-95.1246416633
+PWRHYDROR_NDC,2055,Construction,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),52.5623752159,7.30943057852,-45.2529446374,-86.0937970392
+PWRHYDROR_NDC,2055,Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),11.6036433388,2.28419705579,-9.31944628301,-80.3148288077
+PWRHYDROR_NDC,2055,Construction&Manufacturing,job-yr/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),64.1660185547,9.5936276343,-54.5723909204,-85.0487409841
+PWRHYDROR_NDC,2055,O&M,job/MW,Hydro (small),Hydro (small),Rutovitz 2015 [LATAM productivity proxy],ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated),16.2856739458,0.793984962406,-15.4916889834,-95.1246416633
+PWRNUC,2024,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.6,11.8,-7.8,-39.7959183673
+PWRNUC,2024,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.3,1.3,0,0
+PWRNUC,2024,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.9,13.1,-7.8,-37.3205741627
+PWRNUC,2024,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.15,0.6,-0.55,-47.8260869565
+PWRNUC,2025,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.6,11.8,-7.8,-39.7959183673
+PWRNUC,2025,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.3,1.3,0,0
+PWRNUC,2025,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.9,13.1,-7.8,-37.3205741627
+PWRNUC,2025,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.15,0.6,-0.55,-47.8260869565
+PWRNUC,2026,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.6,11.8,-7.8,-39.7959183673
+PWRNUC,2026,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.3,1.3,0,0
+PWRNUC,2026,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.9,13.1,-7.8,-37.3205741627
+PWRNUC,2026,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.15,0.6,-0.55,-47.8260869565
+PWRNUC,2027,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.6,11.8,-7.8,-39.7959183673
+PWRNUC,2027,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.3,1.3,0,0
+PWRNUC,2027,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.9,13.1,-7.8,-37.3205741627
+PWRNUC,2027,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.15,0.6,-0.55,-47.8260869565
+PWRNUC,2028,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.6,11.8,-7.8,-39.7959183673
+PWRNUC,2028,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.3,1.3,0,0
+PWRNUC,2028,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.9,13.1,-7.8,-37.3205741627
+PWRNUC,2028,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.15,0.6,-0.55,-47.8260869565
+PWRNUC,2029,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.6,11.8,-7.8,-39.7959183673
+PWRNUC,2029,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.3,1.3,0,0
+PWRNUC,2029,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.9,13.1,-7.8,-37.3205741627
+PWRNUC,2029,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.15,0.6,-0.55,-47.8260869565
+PWRNUC,2030,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.6,11.8,-7.8,-39.7959183673
+PWRNUC,2030,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.3,1.3,0,0
+PWRNUC,2030,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.9,13.1,-7.8,-37.3205741627
+PWRNUC,2030,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.15,0.6,-0.55,-47.8260869565
+PWRNUC,2031,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.4635443038,11.8,-7.6635443038,-39.3738374891
+PWRNUC,2031,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.29094936709,1.3,0.00905063291,0.701083492562
+PWRNUC,2031,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.7544936709,13.1,-7.6544936709,-36.8811390549
+PWRNUC,2031,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.14664583333,0.6,-0.54664583333,-47.6734679044
+PWRNUC,2032,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.3270886076,11.8,-7.5270886076,-38.9457965471
+PWRNUC,2032,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.28189873418,1.3,0.01810126582,1.41206675203
+PWRNUC,2032,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.6089873418,13.1,-7.5089873418,-36.43549883
+PWRNUC,2032,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.14329166667,0.6,-0.54329166667,-47.5199533512
+PWRNUC,2033,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.1906329114,11.8,-7.3906329114,-38.5116684036
+PWRNUC,2033,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.27284810127,1.3,0.02715189873,2.13316095636
+PWRNUC,2033,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.4634810127,13.1,-7.3634810127,-35.983521123
+PWRNUC,2033,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.1399375,0.6,-0.5399375,-47.3655353912
+PWRNUC,2034,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.0541772152,11.8,-7.2541772152,-38.0713222789
+PWRNUC,2034,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.26379746835,1.3,0.03620253165,2.86458333369
+PWRNUC,2034,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.3179746835,13.1,-7.2179746835,-35.5250697766
+PWRNUC,2034,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.13658333333,0.6,-0.53658333333,-47.2102060267
+PWRNUC,2035,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.917721519,11.8,-7.117721519,-37.62462362
+PWRNUC,2035,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.25474683544,1.3,0.04525316456,3.6065573773
+PWRNUC,2035,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.1724683544,13.1,-7.0724683544,-35.0600047062
+PWRNUC,2035,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.13322916667,0.6,-0.53322916667,-47.0539571653
+PWRNUC,2036,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.7812658228,11.8,-6.9812658228,-37.1714339633
+PWRNUC,2036,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.24569620253,1.3,0.05430379747,4.35931307808
+PWRNUC,2036,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),20.0269620253,13.1,-6.9269620253,-34.5881817549
+PWRNUC,2036,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.129875,0.6,-0.529875,-46.8967806173
+PWRNUC,2037,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.6448101266,11.8,-6.8448101266,-36.7116107921
+PWRNUC,2037,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.23664556962,1.3,0.06335443038,5.12308715904
+PWRNUC,2037,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.8814556962,13.1,-6.7814556962,-34.1094525463
+PWRNUC,2037,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.12652083333,0.6,-0.52652083333,-46.7386680967
+PWRNUC,2038,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.5083544304,11.8,-6.7083544304,-36.2450073864
+PWRNUC,2038,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.22759493671,1.3,0.07240506329,5.8981233243
+PWRNUC,2038,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.7359493671,13.1,-6.6359493671,-33.6236643278
+PWRNUC,2038,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.12316666667,0.6,-0.52316666667,-46.5796112184
+PWRNUC,2039,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.3718987342,11.8,-6.5718987342,-35.7714726675
+PWRNUC,2039,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.2185443038,1.3,0.0814556962,6.68467251835
+PWRNUC,2039,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.590443038,13.1,-6.490443038,-33.130659809
+PWRNUC,2039,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.1198125,0.6,-0.5198125,-46.4196014958
+PWRNUC,2040,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.235443038,11.8,-6.435443038,-35.2908510344
+PWRNUC,2040,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.20949367089,1.3,0.09050632911,7.48299319693
+PWRNUC,2040,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.4449367089,13.1,-6.3449367089,-32.6302769913
+PWRNUC,2040,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.11645833333,0.6,-0.51645833333,-46.2586303413
+PWRNUC,2041,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.0989873418,11.8,-6.2989873418,-34.8029821937
+PWRNUC,2041,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.20044303797,1.3,0.09955696203,8.29335161111
+PWRNUC,2041,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.2994303797,13.1,-6.1994303797,-32.1223489903
+PWRNUC,2041,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.11310416667,0.6,-0.51310416667,-46.0966890642
+PWRNUC,2042,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.9625316456,11.8,-6.1625316456,-34.3077009811
+PWRNUC,2042,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.19139240506,1.3,0.10860759494,9.11602209975
+PWRNUC,2042,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.1539240506,13.1,-6.0539240506,-31.6067038514
+PWRNUC,2042,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.10975,0.6,-0.50975,-45.9337688669
+PWRNUC,2043,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.8260759494,11.8,-6.0260759494,-33.8048371751
+PWRNUC,2043,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.18234177215,1.3,0.11765822785,9.95128740449
+PWRNUC,2043,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),19.0084177215,13.1,-5.9084177215,-31.0831643542
+PWRNUC,2043,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.10639583333,0.6,-0.50639583333,-45.7698608468
+PWRNUC,2044,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.6896202532,11.8,-5.8896202532,-33.294215302
+PWRNUC,2044,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.17329113924,1.3,0.12670886076,10.7994389902
+PWRNUC,2044,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.8629113924,13.1,-5.7629113924,-30.55154781
+PWRNUC,2044,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.10304166667,0.6,-0.50304166667,-45.6049559931
+PWRNUC,2045,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.553164557,11.8,-5.753164557,-32.7756544315
+PWRNUC,2045,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.16424050633,1.3,0.13575949367,11.6607773851
+PWRNUC,2045,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.7174050633,13.1,-5.6174050633,-30.0116658495
+PWRNUC,2045,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.0996875,0.6,-0.4996875,-45.4390451833
+PWRNUC,2046,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.4167088608,11.8,-5.6167088608,-32.2489679634
+PWRNUC,2046,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.15518987342,1.3,0.14481012658,12.5356125354
+PWRNUC,2046,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.5718987342,13.1,-5.4718987342,-29.4633242003
+PWRNUC,2046,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.09633333333,0.6,-0.49633333333,-45.272119185
+PWRNUC,2047,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.2802531646,11.8,-5.4802531646,-31.7139634032
+PWRNUC,2047,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.14613924051,1.3,0.15386075949,13.4242641777
+PWRNUC,2047,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.4263924051,13.1,-5.3263924051,-28.9063224531
+PWRNUC,2047,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.09297916667,0.6,-0.49297916667,-45.1041686524
+PWRNUC,2048,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.1437974684,11.8,-5.3437974684,-31.1704421278
+PWRNUC,2048,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.13708860759,1.3,0.16291139241,14.3270622292
+PWRNUC,2048,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.2808860759,13.1,-5.1808860759,-28.3404538182
+PWRNUC,2048,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.089625,0.6,-0.489625,-44.935184123
+PWRNUC,2049,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.0073417722,11.8,-5.2073417722,-30.6181991398
+PWRNUC,2049,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.12803797468,1.3,0.17196202532,15.2443471922
+PWRNUC,2049,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),18.1353797468,13.1,-5.0353797468,-27.7655048701
+PWRNUC,2049,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.08627083333,0.6,-0.48627083333,-44.7651560191
+PWRNUC,2050,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),16.8708860759,11.8,-5.0708860759,-30.0570228089
+PWRNUC,2050,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.11898734177,1.3,0.18101265823,16.1764705885
+PWRNUC,2050,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.9898734177,13.1,-4.8898734177,-27.1812552771
+PWRNUC,2050,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.08291666667,0.6,-0.48291666667,-44.5940746443
+PWRNUC,2051,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),16.8708860759,11.8,-5.0708860759,-30.0570228089
+PWRNUC,2051,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.11898734177,1.3,0.18101265823,16.1764705885
+PWRNUC,2051,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.9898734177,13.1,-4.8898734177,-27.1812552771
+PWRNUC,2051,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.08291666667,0.6,-0.48291666667,-44.5940746443
+PWRNUC,2052,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),16.8708860759,11.8,-5.0708860759,-30.0570228089
+PWRNUC,2052,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.11898734177,1.3,0.18101265823,16.1764705885
+PWRNUC,2052,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.9898734177,13.1,-4.8898734177,-27.1812552771
+PWRNUC,2052,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.08291666667,0.6,-0.48291666667,-44.5940746443
+PWRNUC,2053,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),16.8708860759,11.8,-5.0708860759,-30.0570228089
+PWRNUC,2053,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.11898734177,1.3,0.18101265823,16.1764705885
+PWRNUC,2053,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.9898734177,13.1,-4.8898734177,-27.1812552771
+PWRNUC,2053,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.08291666667,0.6,-0.48291666667,-44.5940746443
+PWRNUC,2054,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),16.8708860759,11.8,-5.0708860759,-30.0570228089
+PWRNUC,2054,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.11898734177,1.3,0.18101265823,16.1764705885
+PWRNUC,2054,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.9898734177,13.1,-4.8898734177,-27.1812552771
+PWRNUC,2054,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.08291666667,0.6,-0.48291666667,-44.5940746443
+PWRNUC,2055,Construction,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),16.8708860759,11.8,-5.0708860759,-30.0570228089
+PWRNUC,2055,Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.11898734177,1.3,0.18101265823,16.1764705885
+PWRNUC,2055,Construction&Manufacturing,job-yr/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),17.9898734177,13.1,-4.8898734177,-27.1812552771
+PWRNUC,2055,O&M,job/MW,Nuclear,SMR,Rutovitz 2015,Rutovitz 2015 (SMR proxy),1.08291666667,0.6,-0.48291666667,-44.5940746443

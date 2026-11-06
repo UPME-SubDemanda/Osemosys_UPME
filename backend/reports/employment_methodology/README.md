@@ -1,5 +1,10 @@
 # Employment methodology review
 
+> Current PCH/SMR integration and before/after evidence are in [pch-smr](pch-smr/README.md).
+> The central/low/high/source-refresh comparisons below predate that targeted update;
+> their original nuclear and pending-source statements describe historical results.
+
+
 The implementation is available locally in both repositories. The active central
 build refreshes the supplied JEDI sources and applies the approved selective
 LATAM productivity assumption. **The matched rooftop transfer is implemented

@@ -1,0 +1,5 @@
+scenario,technology,metric,year,unit,value_old,value_new,absolute_change
+CN,PWRHYDROR_NDC,Construction cohorts commissioned 2025-2055,,FTE-years,247757.889125,37042.9237355,-210714.96539
+CN,PWRHYDROR_NDC,Annual O&M in last observed year,2055,annual FTE,62787.3678722,3061.10917396,-59726.2586982
+PA,PWRNUC,Construction cohorts commissioned 2025-2055,,FTE-years,5948.75245202,3948.56389586,-2000.18855616
+PA,PWRNUC,Annual O&M in last observed year,2055,annual FTE,326.409591774,180.850254772,-145.559337002

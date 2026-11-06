@@ -15,6 +15,7 @@ Oil and diesel,SCGT (GAS),25,2024,1.5,2024,Colombian Technology Catalogue,11. SC
 Onshore wind,Wind Onshore,27,2024,1.5,2024,Colombian Technology Catalogue,3.a. Wind Onshore,8,9,direct,
 Pumped hydro storage,Hydro pumped storage,50,2024,5,2024,Colombian Technology Catalogue,15. Hydro pumped storage,10,11,direct,
 Rooftop solar PV,Residential PV (rooftop),27,2024,0.1,2024,Colombian Technology Catalogue,2.a. Residential PV (rooftop),7,8,direct,
+SMR,Nuclear SMR,40,2030,8,2030,Colombian Technology Catalogue,13.b. Nuclear SMR,10,11,direct,"Explicit 2030 SMR selection: lifetime D10, construction time D11; employment allocation only."
 Solar thermal (CSP),,,,2,2015,Rutovitz 2015 Table 1,,,,unmapped_constant,No matching catalogue row; construction time from Rutovitz 2015 Table 1.
 Transmission (double circuit),,,,,,,,,,unmapped_constant,No matching Technology Catalogue or Rutovitz 2015 Table 1 construction-time row.
 Transmission (other),,,,,,,,,,unmapped_constant,No matching Technology Catalogue or Rutovitz 2015 Table 1 construction-time row.

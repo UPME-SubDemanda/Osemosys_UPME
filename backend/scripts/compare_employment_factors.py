@@ -17,7 +17,7 @@ from app.services.employment_factors_service import (
 )
 
 
-def replay(raw: pd.DataFrame, factors: pd.DataFrame) -> pd.DataFrame:
+def replay(raw: pd.DataFrame, factors: pd.DataFrame, *, mapping=None, assumptions=None) -> pd.DataFrame:
     required = {"scenario", "variable_name", "region", "technology", "year", "value_pj_per_year"}
     if not required.issubset(raw.columns):
         raise ValueError(f"RawResultsLong missing columns: {sorted(required-set(raw.columns))}")
@@ -27,8 +27,8 @@ def replay(raw: pd.DataFrame, factors: pd.DataFrame) -> pd.DataFrame:
         & raw.value_pj_per_year.notna() & (raw.year >= 2025)].copy()
     if capacities.duplicated(["scenario", "variable_name", "region", "technology", "year"]).any():
         raise ValueError("Duplicate capacity records would double-count employment")
-    mapping = load_technology_mapping()
-    assumptions = load_technology_assumptions(mapping)
+    mapping = load_technology_mapping() if mapping is None else mapping
+    assumptions = load_technology_assumptions(mapping) if assumptions is None else assumptions
     regions = {name: i for i, name in enumerate(sorted(capacities.region.unique()), 1)}
     technologies = {name: i for i, name in enumerate(sorted(capacities.technology.unique()), 1)}
     records = []
@@ -50,13 +50,50 @@ def replay(raw: pd.DataFrame, factors: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-def compare(old: pd.DataFrame, new: pd.DataFrame, keys: list[str], value: str) -> pd.DataFrame:
-    merged = old[keys+[value]].merge(new[keys+[value]], on=keys, how="outer", suffixes=("_old", "_new"), validate="one_to_one")
+def compare(old: pd.DataFrame, new: pd.DataFrame, keys: list[str], value: str, *, structural_zeros=False) -> pd.DataFrame:
+    merged = old[keys+[value]].merge(new[keys+[value]], on=keys, how="outer", suffixes=("_old", "_new"), validate="one_to_one", indicator="record_presence")
+    if structural_zeros:
+        # Absent derived rows caused by a changed construction schedule are zero;
+        # missing observed capacity cells were already excluded in replay.
+        merged.loc[merged.record_presence == "right_only", value+"_old"] = 0.0
+        merged.loc[merged.record_presence == "left_only", value+"_new"] = 0.0
     if merged[[value+"_old", value+"_new"]].isna().any().any():
         raise ValueError("Old/new comparison has unmatched keys; investigate before reporting deltas")
     merged["absolute_change"] = merged[value+"_new"] - merged[value+"_old"]
     merged["percentage_change"] = merged["absolute_change"].div(merged[value+"_old"].where(merged[value+"_old"] != 0)) * 100
     return merged
+
+
+
+def compare_mappings(old, new, old_mapping, new_mapping):
+    """Compare phase coefficients resolved through each version's actual model mapping."""
+    lookups = [table.set_index(["Technology", "Factor_Type", "Job_Type", "Year"])
+               for table in (old, new)]
+    records = []
+    for code in ("PWRHYDROR", "PWRHYDROR_NDC", "PWRNUC"):
+        components = [mapping[code] for mapping in (old_mapping, new_mapping)]
+        if any(len(items) != 1 for items in components):
+            raise ValueError(f"Expected a single employment component for {code}")
+        before, after = [items[0] for items in components]
+        for year in range(2024, 2056):
+            for phase in ("Construction", "Manufacturing", "Construction&Manufacturing", "O&M"):
+                factors = [lookup.loc[(component.employment_technology, phase, "Direct", year)]
+                           for lookup, component in zip(lookups, (before, after))]
+                if any(isinstance(factor, pd.DataFrame) for factor in factors):
+                    raise ValueError("Ambiguous mapped employment coefficients")
+                if factors[0]["Unit"] != factors[1]["Unit"]:
+                    raise ValueError("Mapped coefficient units differ")
+                values = [float(factor["Value_Numeric"]) * component.multiplier
+                          for factor, component in zip(factors, (before, after))]
+                records.append({"technology": code, "year": year, "phase": phase,
+                    "unit": factors[0]["Unit"],
+                    "employment_technology_old": before.employment_technology,
+                    "employment_technology_new": after.employment_technology,
+                    "source_old": factors[0]["Source"], "source_new": factors[1]["Source"],
+                    "value_old": values[0], "value_new": values[1],
+                    "absolute_change": values[1] - values[0],
+                    "percentage_change": (values[1] / values[0] - 1) * 100 if values[0] else None})
+    return pd.DataFrame(records)
 
 
 def main():
@@ -65,6 +102,8 @@ def main():
     parser.add_argument("--old-factors", type=Path, required=True)
     parser.add_argument("--new-factors", type=Path, help="Optional scenario model-factor CSV; default is the verified backend snapshot")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--old-mapping", type=Path, help="Preserved pre-change model-code mapping")
+    parser.add_argument("--old-assumptions", type=Path, help="Preserved pre-change employment timing")
     args = parser.parse_args()
     raw = pd.read_excel(args.baseline_workbook, sheet_name="RawResultsLong")
     old = pd.read_csv(args.old_factors)
@@ -79,9 +118,19 @@ def main():
             "source_revision", "source_content_sha256", "scenario", "productivity_ratio",
             "employment_multiplier", "productivity_transfer", "solar_transfer_status")}
     factor_keys = ["Technology", "Factor_Type", "Job_Type", "Unit", "Year"]
-    factor_comparison = compare(old, new, factor_keys, "Value_Numeric")
-    results = compare(replay(raw, old), replay(raw, new), ["scenario", "region", "technology", "year", "variable", "unit"], "value")
+    common = set(old.Technology) & set(new.Technology)
+    factor_comparison = compare(old[old.Technology.isin(common)], new[new.Technology.isin(common)], factor_keys, "Value_Numeric")
+    old_mapping = load_technology_mapping(args.old_mapping)
+    old_assumptions = load_technology_assumptions(old_mapping, args.old_assumptions)
+    results = compare(replay(raw, old, mapping=old_mapping, assumptions=old_assumptions), replay(raw, new),
+                      ["scenario", "region", "technology", "year", "variable", "unit"], "value", structural_zeros=True)
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    mapping_comparison = compare_mappings(old, new, old_mapping, load_technology_mapping())
+    mapping_comparison.to_csv(args.output_dir / "mapping_factor_comparison.csv", index=False, float_format="%.12g", lineterminator="\n")
+    additions = new[~new.Technology.isin(set(old.Technology))]
+    removals = old[~old.Technology.isin(set(new.Technology))]
+    additions.to_csv(args.output_dir / "factor_additions.csv", index=False, lineterminator="\n")
+    removals.to_csv(args.output_dir / "factor_removals.csv", index=False, lineterminator="\n")
     missing = raw[raw.variable_name.isin(["NewCapacity", "AccumulatedNewCapacity"])
         & raw.value_pj_per_year.isna()]
     missing.to_csv(args.output_dir / "unobserved_capacity_cells.csv", index=False, lineterminator="\n")
@@ -109,9 +158,12 @@ def main():
         "unobserved_capacity_cells": len(missing),
         "missing_data_convention": "Blank exported cells excluded in both replays, matching the existing reporter; not replaced by zero. Completeness of the original solver output cannot be re-established without the original scenario exports.",
         "changed_factor_rows": int((factor_comparison.absolute_change.abs() > 1e-10).sum()),
-        "conventions": "Unchanged deployment. New-build stock only for annual O&M; commissioning-year factors and uniform construction scheduling. Annual model years; cumulative output is FTE-years. No separate SMR factor or invented SMR ratio.",
-        "mapping_effect": "Both replays use the corrected mapping. Regional mapping coverage is tested separately; this comparison isolates factors."}
-    (args.output_dir / "comparison_provenance.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        "conventions": "Unchanged deployment. New-build stock only for annual O&M; commissioning-year factors and uniform construction scheduling. Annual model years; cumulative output is FTE-years. Separate constant SMR conventional-nuclear proxy; SMR employment timing 8/40 years. Structural derived rows introduced by schedule changes are explicitly zero only in the counterpart replay.",
+        "old_mapping_sha256": hashlib.sha256(args.old_mapping.read_bytes()).hexdigest() if args.old_mapping else None,
+        "old_assumptions_sha256": hashlib.sha256(args.old_assumptions.read_bytes()).hexdigest() if args.old_assumptions else None,
+        "added_factor_rows": len(additions), "removed_factor_rows": len(removals),
+        "mapping_effect": "Old replay uses supplied baseline mapping/assumptions; new replay uses runtime mapping/assumptions. Changes include factors, hydro classification and Nuclear-to-SMR reassignment."}
+    (args.output_dir / "comparison_provenance.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps({"output_dir": str(args.output_dir), "result_rows": len(results), "changed_factor_rows": metadata["changed_factor_rows"]}))
 
 

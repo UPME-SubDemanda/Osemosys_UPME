@@ -65,7 +65,8 @@ def employment_factor_provenance() -> dict[str, Any]:
     return {key: manifest[key] for key in (
         "source_repository", "source_revision", "source_tree_dirty", "source_content_sha256",
         "scenario", "productivity_ratio", "employment_multiplier", "solar_transfer_status",
-    )} | {"factor_table_sha256": manifest["output_sha256"]["employment_factors_model_default_2024_2055.csv"]}
+    )} | {"factor_table_sha256": manifest["output_sha256"]["employment_factors_model_default_2024_2055.csv"]} | (
+        {"targeted_refresh": manifest["targeted_refresh"]} if "targeted_refresh" in manifest else {})
 
 
 @dataclass(frozen=True)
@@ -157,6 +158,7 @@ def load_model_employment_factors() -> pd.DataFrame:
 
 def load_technology_assumptions(
     mapping: dict[str, list[EmploymentComponent]] | None = None,
+    path: str | Path | None = None,
 ) -> dict[str, TechnologyAssumption]:
     """Load construction-time and lifetime assumptions for mapped technologies."""
     try:
@@ -175,7 +177,7 @@ def load_technology_assumptions(
         }
     )
     assumptions: dict[str, TechnologyAssumption] = {}
-    snapshot = _snapshot_file("technology_assumptions_2024.csv")
+    snapshot = Path(path) if path is not None else _snapshot_file("technology_assumptions_2024.csv")
     for technology in technologies:
         raw = get_technology_assumption(technology, snapshot)
 

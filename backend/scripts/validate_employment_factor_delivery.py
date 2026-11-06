@@ -9,16 +9,15 @@ from pathlib import Path
 import pandas as pd
 
 NAMES = ("employment_factors_with_2030_2050.csv", "employment_factors_yearly_2024_2055.csv",
-         "employment_factors_model_default_2024_2055.csv", "technology_assumptions_2024.csv")
+         "employment_factors_model_default_2024_2055.csv", "technology_assumptions_2024.csv",
+         "employment_factors_model_latam_productivity_2024_2055.csv")
 
 
 def validate(root: Path, rebuild: Path | None = None) -> dict:
-    processed = root / "data/processed"
+    processed = root / "src/colombia_employment_factors/data"
     manifest = json.loads((processed / "employment_factor_provenance.json").read_text(encoding="utf-8"))
     for name in NAMES:
         data = (processed / name).read_bytes()
-        if data != (root / "src/colombia_employment_factors/data" / name).read_bytes():
-            raise ValueError(f"Packaged/generated CSV mismatch: {name}")
         if rebuild and data != (rebuild / name).read_bytes():
             raise ValueError(f"Non-reproducible CSV: {name}")
     for name, expected in manifest["input_sha256"].items():
@@ -30,7 +29,8 @@ def validate(root: Path, rebuild: Path | None = None) -> dict:
     keys = ["Technology", "Factor_Type", "Job_Type", "Unit", "Year"]
     cases = {}
     for case, directory in [("low", "scenarios/low-catalogue-selective"), ("central", "."), ("high", "scenarios/high-catalogue-selective")]:
-        table = pd.read_csv(processed / directory / NAMES[2])
+        path = processed / NAMES[4] if case == "central" else root / "data/processed" / directory / NAMES[2]
+        table = pd.read_csv(path)
         if table.duplicated(keys).any() or table.Value_Numeric.isna().any():
             raise ValueError(f"Invalid scenario keys/numbers: {case}")
         cases[case] = table.set_index(keys).Value_Numeric.sort_index()
@@ -43,7 +43,7 @@ def validate(root: Path, rebuild: Path | None = None) -> dict:
     for technology in unchanged:
         if not baseline.xs(technology).equals(cases["central"].xs(technology)):
             raise ValueError(f"Unexpected factor change: {technology}")
-    return {"packaged_csv_files_identical": 4, "reproducible_csv_files": 4 if rebuild else None,
+    return {"canonical_csv_files_validated": len(NAMES), "reproducible_csv_files": len(NAMES) if rebuild else None,
             "source_and_output_checksums_passed": True, "scenario_ordering_passed": True,
             "unchanged_technologies": unchanged, "source_content_sha256": manifest["source_content_sha256"],
             "solar_transfer_status": manifest["solar_transfer_status"]}

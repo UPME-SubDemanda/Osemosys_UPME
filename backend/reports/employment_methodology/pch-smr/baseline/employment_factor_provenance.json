@@ -1,0 +1,464 @@
+{
+  "schema_version": 1,
+  "source_repository": "https://github.com/DEA-GE/colombia-employment-factors",
+  "source_revision": "e1dcd8328f197608c2b7dc3d5b9c29cd7d031324",
+  "source_tree_dirty": true,
+  "input_sha256": {
+    "data/assumptions/employment_methodology.json": "d3596aa77d6cf1f45cb0d29d4c0cad757341d41af12fec2c82e6568dcba212e0",
+    "data/audit/baseline_model_default_23b7f592.csv": "521506df050ce7ac7c59ac1c0e5bffc4805018c6266c254b607c3a8bc647ab1b",
+    "data/audit/capex_opex_ratios_2024_2030_2050.csv": "ad59b84f728a9875c29cfad618abb91e538bd8293c1b6981b776d0c381eba1c9",
+    "data/raw/01d-jedi-international-090324.xlsm": "cfacac952d9e28bf3c9a30e0d23ffc7dd113419bca0b1792d667255d5a6ea90b",
+    "data/raw/employment_factors_input.csv": "2ea06bc57a571b1c798c8c6cc59f405b16f15102662a906b68daabc3b48774c0",
+    "data/raw/jedi-pv-model.xlsm": "fd15be326cc4330bdcf12fc3c8a07f96beb221faf958d472da3ac5a34e4db433",
+    "docs/sources/datos_cuantitativos_EN.xlsx": "226d0d6b5053dd103f8566f8bea9d8f783a879d53e931a9e6d0031e3f47b5306",
+    "scripts/build_employment_factors.py": "060bffdeb7fa0ae43dd72cbb4435f733a53a018888b04496194ba981f8d81e56",
+    "scripts/create_methodology_deck.py": "a73845c0b0f621bc17b8f7d2a6e3787805bddecc5277e4a51c6d3df892e8c328",
+    "scripts/extract_jedi_factors.py": "09bd7c6f3e9b1b64fbe618c4f2b07203e0f933575d4670fa02824ecb64f002df",
+    "src/colombia_employment_factors/__init__.py": "a299caf2f09ac65e2f6a8a6d0a2080d1360eda03c062f923908a66e0b92e7fe7",
+    "src/colombia_employment_factors/adapters/__init__.py": "0f61af7267a757cfcbc22e024638b1446344e2a5c123d3359c004051191df20f",
+    "src/colombia_employment_factors/adapters/osemosys.py": "68fa65c04fe76a339d749ee104eeed7d0d8cf3d3f9d4bcf78d10a57555a277f8",
+    "src/colombia_employment_factors/adjustments.py": "0f7cca6902fdf4a9b013bca9f3154bf5072c9a72b83540821696c9822b96c29b",
+    "src/colombia_employment_factors/data/__init__.py": "ea1eb65f070cf29dade6a24798e4f9280126fc26344617c28b648c8be624ba87",
+    "src/colombia_employment_factors/employment_factors.py": "a8d849540bf9bc239e45903e6cae96283130c9695ffec8ff1806942aec70f920",
+    "src/colombia_employment_factors/jedi.py": "ffeffcd7e07443e7478946dcf505df20b96ebc94398370ee72c50ea4e843bfe8",
+    "src/colombia_employment_factors/mappings.py": "53f889872487a6ce41678870b88b818e58c061f9a3a42f2bbb944c3969afd254",
+    "src/colombia_employment_factors/projections.py": "c7324ceba5ce779500b894a859af0fb7d61df0fe98dc47113c65197ff13195bf",
+    "src/colombia_employment_factors/technology_assumptions.py": "a62822a9b32b2d5d46b459ce5030601f9d5a8b2e762725daeb96e9a5defceb29",
+    "src/colombia_employment_factors/yearly.py": "0f0ac673376eeb530faeeacde3eaf8e59903b5ae3c12436d6455a196af1ba926"
+  },
+  "source_content_sha256": "c131b1a06b8fffea5ceee6a343e0678a1fa3cdfb00a09e097340f1523d32a73b",
+  "output_sha256": {
+    "employment_factors_with_2030_2050.csv": "e8c7ec070ec6d0371b321aeb131970111504bad7cacd93f8aaa89d4f2d2af1d1",
+    "employment_factors_yearly_2024_2055.csv": "6571aa898745025aa82cf43cc87fb6e4dd69fa7f0fbc00600074b3f6140c74ff",
+    "employment_factors_model_default_2024_2055.csv": "fe834af4968d3edbe875b1e96d0c52aeeaca09ba73e290b30e40b69e7887daac",
+    "technology_assumptions_2024.csv": "a4250ff9214b911986e1841b05a580344887f4d52f8fed33fb3742ea9792dd05"
+  },
+  "scenario": "central",
+  "productivity_ratio": 0.32,
+  "employment_multiplier": 3.125,
+  "productivity_transfer": "selective",
+  "solar_projection": "catalogue",
+  "solar_transfer_status": "pending utility run; published rooftop retained",
+  "solar_transfer_ready": false,
+  "solar_ratios": [],
+  "jedi_sources": {
+    "i_jedi": {
+      "path": "data/raw/01d-jedi-international-090324.xlsm",
+      "sha256": "cfacac952d9e28bf3c9a30e0d23ffc7dd113419bca0b1792d667255d5a6ea90b",
+      "hidden_sheets": [
+        "Bangladesh-IO-Data",
+        "Not-Technology-Specific"
+      ],
+      "named_ranges": [
+        "CustomRegion1_EarningsYear",
+        "CustomRegion1_L1",
+        "CustomRegion1_L2",
+        "CustomRegion2_EarningsYear",
+        "CustomRegion2_L1",
+        "CustomRegion2_L2",
+        "CustomRegion3_EarningsYear",
+        "CustomRegion3_L1",
+        "CustomRegion3_L2",
+        "L1_Colombia",
+        "Mexico_L1",
+        "Mexico_L2",
+        "Philippines_L1",
+        "Philippines_L2",
+        "SouthAfrica_L1",
+        "SouthAfrica_L2",
+        "Zambia_L1",
+        "Zambia_L2",
+        "biopower_boiler_type",
+        "biopower_capacity",
+        "biopower_country",
+        "biopower_dollar_index",
+        "biopower_dollar_year",
+        "biopower_feedstock",
+        "general_country",
+        "general_dollar_index",
+        "general_dollar_year",
+        "geo_country",
+        "geo_dollar_index",
+        "l2_colombia",
+        "pv_country",
+        "pv_dollar_index",
+        "pv_dollar_year",
+        "pv_dollar_yr",
+        "pv_nameplate",
+        "wind_capacity",
+        "wind_country",
+        "wind_country_proxy",
+        "wind_dollar_index",
+        "wind_dollar_year",
+        "wind_dollar_yr"
+      ],
+      "external_links": [],
+      "contains_vba": true,
+      "calculation_id": 191029,
+      "cache_validation": "Saved caches only; input identities and capacity/result totals checked; not a full Excel recalculation",
+      "runs": [
+        {
+          "technology": "Onshore wind",
+          "country": "Colombia",
+          "money_year": 2024,
+          "capacity_mw": 1000.0,
+          "capacity_cell": "Wind-Inputs!B5",
+          "results": [
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Direct",
+              "cell": "Wind-Results!C14",
+              "formula": {
+                "text": "=TRANSPOSE(C42:F42)",
+                "array_range": "C14:C17"
+              },
+              "cached_jobs": 7246.650074770078,
+              "factor_per_mw": 7.246650074770079
+            },
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Indirect",
+              "cell": "Wind-Results!C15",
+              "formula": 5220.356612673282,
+              "cached_jobs": 5220.356612673282,
+              "factor_per_mw": 5.2203566126732825
+            },
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Induced",
+              "cell": "Wind-Results!C16",
+              "formula": 4044.333565748306,
+              "cached_jobs": 4044.333565748306,
+              "factor_per_mw": 4.044333565748306
+            },
+            {
+              "phase": "O&M",
+              "category": "Direct",
+              "cell": "Wind-Results!C21",
+              "formula": {
+                "text": "=TRANSPOSE(C61:F61)",
+                "array_range": "C21:C24"
+              },
+              "cached_jobs": 30.000000000000007,
+              "factor_per_mw": 0.030000000000000006
+            },
+            {
+              "phase": "O&M",
+              "category": "Indirect",
+              "cell": "Wind-Results!C22",
+              "formula": 42.726252283993965,
+              "cached_jobs": 42.726252283993965,
+              "factor_per_mw": 0.042726252283993967
+            },
+            {
+              "phase": "O&M",
+              "category": "Induced",
+              "cell": "Wind-Results!C23",
+              "formula": 44.780915310609,
+              "cached_jobs": 44.780915310609,
+              "factor_per_mw": 0.044780915310608994
+            }
+          ]
+        },
+        {
+          "technology": "Utility-scale solar PV",
+          "country": "Colombia",
+          "money_year": 2024,
+          "capacity_mw": 1000.0,
+          "capacity_cell": "Solar-PV-Inputs!B5",
+          "results": [
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Direct",
+              "cell": "Solar-PV-Results!C14",
+              "formula": {
+                "text": "=TRANSPOSE(C42:F42)",
+                "array_range": "C14:C17"
+              },
+              "cached_jobs": 9969.722439543646,
+              "factor_per_mw": 9.969722439543647
+            },
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Indirect",
+              "cell": "Solar-PV-Results!C15",
+              "formula": 6363.933800550597,
+              "cached_jobs": 6363.933800550597,
+              "factor_per_mw": 6.363933800550597
+            },
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Induced",
+              "cell": "Solar-PV-Results!C16",
+              "formula": 6366.1479443717,
+              "cached_jobs": 6366.1479443717,
+              "factor_per_mw": 6.3661479443717
+            },
+            {
+              "phase": "O&M",
+              "category": "Direct",
+              "cell": "Solar-PV-Results!C21",
+              "formula": {
+                "text": "=TRANSPOSE(C61:F61)",
+                "array_range": "C21:C24"
+              },
+              "cached_jobs": 96.48835409544742,
+              "factor_per_mw": 0.09648835409544743
+            },
+            {
+              "phase": "O&M",
+              "category": "Indirect",
+              "cell": "Solar-PV-Results!C22",
+              "formula": 66.34984143652522,
+              "cached_jobs": 66.34984143652522,
+              "factor_per_mw": 0.06634984143652523
+            },
+            {
+              "phase": "O&M",
+              "category": "Induced",
+              "cell": "Solar-PV-Results!C23",
+              "formula": 49.820654654973666,
+              "cached_jobs": 49.820654654973666,
+              "factor_per_mw": 0.049820654654973665
+            }
+          ]
+        },
+        {
+          "technology": "Biomass power",
+          "country": "Colombia",
+          "money_year": 2024,
+          "capacity_mw": 1000.0,
+          "capacity_cell": "Biopower-Inputs!B5",
+          "results": [
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Direct",
+              "cell": "Biopower-Results!C14",
+              "formula": {
+                "text": "=TRANSPOSE(C42:F42)",
+                "array_range": "C14:C17"
+              },
+              "cached_jobs": 22523.383007570817,
+              "factor_per_mw": 22.523383007570818
+            },
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Indirect",
+              "cell": "Biopower-Results!C15",
+              "formula": 12506.408534099179,
+              "cached_jobs": 12506.408534099179,
+              "factor_per_mw": 12.50640853409918
+            },
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Induced",
+              "cell": "Biopower-Results!C16",
+              "formula": 16496.621350160673,
+              "cached_jobs": 16496.621350160673,
+              "factor_per_mw": 16.496621350160673
+            },
+            {
+              "phase": "O&M",
+              "category": "Direct",
+              "cell": "Biopower-Results!C21",
+              "formula": {
+                "text": "=TRANSPOSE(C61:F61)",
+                "array_range": "C21:C24"
+              },
+              "cached_jobs": 2405.7262409808636,
+              "factor_per_mw": 2.4057262409808637
+            },
+            {
+              "phase": "O&M",
+              "category": "Indirect",
+              "cell": "Biopower-Results!C22",
+              "formula": 1476.5622121350275,
+              "cached_jobs": 1476.5622121350275,
+              "factor_per_mw": 1.4765622121350275
+            },
+            {
+              "phase": "O&M",
+              "category": "Induced",
+              "cell": "Biopower-Results!C23",
+              "formula": 1671.7407837004143,
+              "cached_jobs": 1671.7407837004143,
+              "factor_per_mw": 1.6717407837004143
+            }
+          ]
+        },
+        {
+          "technology": "Geothermal",
+          "country": "Colombia",
+          "money_year": 2024,
+          "capacity_mw": 1000.0,
+          "capacity_cell": "Geothermal-Inputs!B5",
+          "results": [
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Direct",
+              "cell": "Geothermal-Results!C14",
+              "formula": {
+                "text": "=TRANSPOSE(Calculations!O83:Q83)",
+                "array_range": "C14:C16"
+              },
+              "cached_jobs": 5087.281238062234,
+              "factor_per_mw": 5.087281238062234
+            },
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Indirect",
+              "cell": "Geothermal-Results!C15",
+              "formula": 3402.5072325720216,
+              "cached_jobs": 3402.5072325720216,
+              "factor_per_mw": 3.4025072325720216
+            },
+            {
+              "phase": "Construction&Manufacturing",
+              "category": "Induced",
+              "cell": "Geothermal-Results!C16",
+              "formula": 5506.769980445039,
+              "cached_jobs": 5506.769980445039,
+              "factor_per_mw": 5.506769980445039
+            },
+            {
+              "phase": "O&M",
+              "category": "Direct",
+              "cell": "Geothermal-Results!C21",
+              "formula": {
+                "text": "=TRANSPOSE(Calculations!Z83:AB83)",
+                "array_range": "C21:C23"
+              },
+              "cached_jobs": 8.006364212731315,
+              "factor_per_mw": 0.008006364212731315
+            },
+            {
+              "phase": "O&M",
+              "category": "Indirect",
+              "cell": "Geothermal-Results!C22",
+              "formula": 9.977730975325182,
+              "cached_jobs": 9.977730975325182,
+              "factor_per_mw": 0.009977730975325182
+            },
+            {
+              "phase": "O&M",
+              "category": "Induced",
+              "cell": "Geothermal-Results!C23",
+              "formula": 29.051127710696974,
+              "cached_jobs": 29.051127710696974,
+              "factor_per_mw": 0.029051127710696973
+            }
+          ]
+        }
+      ]
+    },
+    "us_residential": {
+      "path": "data/raw/jedi-pv-model.xlsm",
+      "sha256": "fd15be326cc4330bdcf12fc3c8a07f96beb221faf958d472da3ac5a34e4db433",
+      "hidden_sheets": [
+        "Revision Notes",
+        "Household Exp",
+        "Multipliers"
+      ],
+      "named_ranges": [
+        "Detailed_Project_Data_Costs",
+        "Detailed_Wind_Plant_Project_Data_Costs",
+        "Location",
+        "Material",
+        "Other_Parameters",
+        "Print_Results",
+        "ProjectConstCostData",
+        "ProjectData",
+        "ProjectOandMData",
+        "Project_Cost_Data",
+        "Project_Data",
+        "Summary_Impacts",
+        "Summary_Results",
+        "SysApp",
+        "Tracking",
+        "Wind_Plant_Annual_OandM_Costs",
+        "Wind_Plant_Annual_Operating_and_Maintenance_Costs",
+        "YN",
+        "Year",
+        "Years"
+      ],
+      "external_links": [],
+      "contains_vba": true,
+      "calculation_id": 191028,
+      "cache_validation": "Saved caches only; input identities and capacity/result totals checked; not a full Excel recalculation",
+      "version": "Release Number: PV05.20.21",
+      "settings": {
+        "B12": "UNITED STATES",
+        "B14": 2024,
+        "B15": "Residential",
+        "B16": "Crystalline Silicon",
+        "B17": "Fixed Mount",
+        "B18": 5,
+        "B19": 200,
+        "B20": 1000,
+        "B24": 2010,
+        "B26": "N"
+      },
+      "capacity_mw": 1.0,
+      "results": [
+        {
+          "phase": "Construction&Manufacturing",
+          "category": "Direct",
+          "cell": "SummaryResults!B30",
+          "formula": "=Calculations!AH40",
+          "cached_jobs": 10.742973760097033,
+          "factor_per_mw": 10.742973760097033
+        },
+        {
+          "phase": "Construction&Manufacturing",
+          "category": "Indirect",
+          "cell": "SummaryResults!B38",
+          "formula": "=Calculations!AH48",
+          "cached_jobs": 13.884703727473902,
+          "factor_per_mw": 13.884703727473902
+        },
+        {
+          "phase": "Construction&Manufacturing",
+          "category": "Induced",
+          "cell": "SummaryResults!B39",
+          "formula": "=Calculations!AH49",
+          "cached_jobs": 12.863980463979527,
+          "factor_per_mw": 12.863980463979527
+        },
+        {
+          "phase": "O&M",
+          "category": "Direct",
+          "cell": "SummaryResults!B46",
+          "formula": "=Calculations!AH54",
+          "cached_jobs": 0.2959407171728926,
+          "factor_per_mw": 0.2959407171728926
+        },
+        {
+          "phase": "O&M",
+          "category": "Indirect",
+          "cell": "SummaryResults!B47",
+          "formula": "=Calculations!AH55",
+          "cached_jobs": 0.1357132328714757,
+          "factor_per_mw": 0.1357132328714757
+        },
+        {
+          "phase": "O&M",
+          "category": "Induced",
+          "cell": "SummaryResults!B48",
+          "formula": "=Calculations!AH56",
+          "cached_jobs": 0.13060843730404842,
+          "factor_per_mw": 0.13060843730404842
+        }
+      ],
+      "manufacturing_subtotal": 0.0,
+      "boundary_map": {
+        "on-site labour and services": "Direct",
+        "supply chain": "Indirect",
+        "induced": "Induced"
+      }
+    },
+    "us_utility": {
+      "path": "data/raw/jedi-pv-model-utility-1mw.xlsm",
+      "status": "missing; rounded screenshots are not authoritative inputs"
+    }
+  }
+}

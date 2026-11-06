@@ -373,7 +373,7 @@ def test_runtime_snapshot_and_all_mapped_capacity_units_are_compatible():
     mapping = load_technology_mapping()
     factors = load_model_employment_factors()
     assert employment_factor_provenance()["factor_table_sha256"]
-    assert load_technology_assumptions(mapping)["Nuclear"].construction_time_years > 0
+    assert load_technology_assumptions(mapping)["SMR"].construction_time_years == 8
     solution = {"new_capacity": [{"technology_name": "AN_PWRSOLUGE", "year": 2025, "new_capacity": .315576}]}
     rows = calculate_employment_outputs(solution)
     assert _by_variable(rows, EMPLOYMENT_FTEYEAR_CONSMANU_DIRECT)[0]["value"] > 0

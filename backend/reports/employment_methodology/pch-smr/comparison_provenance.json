@@ -1,0 +1,78 @@
+{
+  "baseline_workbook_sha256": "7f8d0d85f4bdae0a62ae6902490a46e95498eb0bed926d1145a9e859063b8f4f",
+  "old_factors_sha256": "fe834af4968d3edbe875b1e96d0c52aeeaca09ba73e290b30e40b69e7887daac",
+  "new_factors_sha256": "23ab6cfb06c4875a19ab5f14e6c1c2bae29f51bc5cc546d326c7a731d8ece3df",
+  "runtime_provenance": {
+    "source_repository": "https://github.com/DEA-GE/colombia-employment-factors",
+    "source_revision": "ac165f703e0a7361148a6c13a0abc8552919a16b",
+    "source_tree_dirty": true,
+    "source_content_sha256": "119add59e9f48eda58c338453caed69b1c5dfc62898bb047cacb23efed523486",
+    "scenario": "central",
+    "productivity_ratio": 0.32,
+    "employment_multiplier": 3.125,
+    "solar_transfer_status": "pending utility run; published rooftop retained",
+    "factor_table_sha256": "23ab6cfb06c4875a19ab5f14e6c1c2bae29f51bc5cc546d326c7a731d8ece3df",
+    "targeted_refresh": {
+      "baseline_manifest_sha256": "b6700f53f29beb5901f49057c959e25a023f5dd629c98a050519915717396a90",
+      "baseline_output_sha256": {
+        "employment_factors_model_default_2024_2055.csv": "fe834af4968d3edbe875b1e96d0c52aeeaca09ba73e290b30e40b69e7887daac",
+        "technology_assumptions_2024.csv": "a4250ff9214b911986e1841b05a580344887f4d52f8fed33fb3742ea9792dd05"
+      },
+      "baseline_source_revision": "e1dcd8328f197608c2b7dc3d5b9c29cd7d031324",
+      "replacement_source_revision": "ac165f703e0a7361148a6c13a0abc8552919a16b",
+      "replacement_source_content_sha256": "e1f2e85e86e940056b9d01d706e23c927aca4581c19015450bde48f393879c7d",
+      "replacement_output_sha256": {
+        "employment_factors_model_default_2024_2055.csv": "99093f11128e51e564c292d46ed3036e41fdeb9252b683c648a5ed79db49a5e2",
+        "technology_assumptions_2024.csv": "ed294606c73630638fff9416812792fd369a990e62dc0c90dfd1a1319933b533"
+      },
+      "replacement_technologies": [
+        "Hydro (small)",
+        "SMR"
+      ],
+      "replacement_productivity_transfer": "none",
+      "convention": "Retain all baseline rows outside Hydro (small)/SMR; mapping changes are separate. Baseline selective productivity and solar choices remain for retained rows."
+    }
+  },
+  "raw_rows": 5814,
+  "result_rows": 3052,
+  "factor_scenario_provenance": {
+    "source_repository": "https://github.com/DEA-GE/colombia-employment-factors",
+    "source_revision": "ac165f703e0a7361148a6c13a0abc8552919a16b",
+    "source_tree_dirty": true,
+    "source_content_sha256": "119add59e9f48eda58c338453caed69b1c5dfc62898bb047cacb23efed523486",
+    "scenario": "central",
+    "productivity_ratio": 0.32,
+    "employment_multiplier": 3.125,
+    "solar_transfer_status": "pending utility run; published rooftop retained",
+    "factor_table_sha256": "23ab6cfb06c4875a19ab5f14e6c1c2bae29f51bc5cc546d326c7a731d8ece3df",
+    "targeted_refresh": {
+      "baseline_manifest_sha256": "b6700f53f29beb5901f49057c959e25a023f5dd629c98a050519915717396a90",
+      "baseline_output_sha256": {
+        "employment_factors_model_default_2024_2055.csv": "fe834af4968d3edbe875b1e96d0c52aeeaca09ba73e290b30e40b69e7887daac",
+        "technology_assumptions_2024.csv": "a4250ff9214b911986e1841b05a580344887f4d52f8fed33fb3742ea9792dd05"
+      },
+      "baseline_source_revision": "e1dcd8328f197608c2b7dc3d5b9c29cd7d031324",
+      "replacement_source_revision": "ac165f703e0a7361148a6c13a0abc8552919a16b",
+      "replacement_source_content_sha256": "e1f2e85e86e940056b9d01d706e23c927aca4581c19015450bde48f393879c7d",
+      "replacement_output_sha256": {
+        "employment_factors_model_default_2024_2055.csv": "99093f11128e51e564c292d46ed3036e41fdeb9252b683c648a5ed79db49a5e2",
+        "technology_assumptions_2024.csv": "ed294606c73630638fff9416812792fd369a990e62dc0c90dfd1a1319933b533"
+      },
+      "replacement_technologies": [
+        "Hydro (small)",
+        "SMR"
+      ],
+      "replacement_productivity_transfer": "none",
+      "convention": "Retain all baseline rows outside Hydro (small)/SMR; mapping changes are separate. Baseline selective productivity and solar choices remain for retained rows."
+    }
+  },
+  "unobserved_capacity_cells": 2999,
+  "missing_data_convention": "Blank exported cells excluded in both replays, matching the existing reporter; not replaced by zero. Completeness of the original solver output cannot be re-established without the original scenario exports.",
+  "changed_factor_rows": 128,
+  "conventions": "Unchanged deployment. New-build stock only for annual O&M; commissioning-year factors and uniform construction scheduling. Annual model years; cumulative output is FTE-years. Separate constant SMR conventional-nuclear proxy; SMR employment timing 8/40 years. Structural derived rows introduced by schedule changes are explicitly zero only in the counterpart replay.",
+  "old_mapping_sha256": "ac50af0b66d11651ca307a761b6177ecd66f97d5a61f2bd01ac7b4b880b9a8b0",
+  "old_assumptions_sha256": "a4250ff9214b911986e1841b05a580344887f4d52f8fed33fb3742ea9792dd05",
+  "added_factor_rows": 128,
+  "removed_factor_rows": 0,
+  "mapping_effect": "Old replay uses supplied baseline mapping/assumptions; new replay uses runtime mapping/assumptions. Changes include factors, hydro classification and Nuclear-to-SMR reassignment."
+}

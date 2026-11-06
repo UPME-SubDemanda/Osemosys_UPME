@@ -1,37 +1,39 @@
 {
   "schema_version": 1,
   "source_repository": "https://github.com/DEA-GE/colombia-employment-factors",
-  "source_revision": "e1dcd8328f197608c2b7dc3d5b9c29cd7d031324",
+  "source_revision": "ac165f703e0a7361148a6c13a0abc8552919a16b",
   "source_tree_dirty": true,
   "input_sha256": {
-    "data/assumptions/employment_methodology.json": "d3596aa77d6cf1f45cb0d29d4c0cad757341d41af12fec2c82e6568dcba212e0",
+    "data/assumptions/employment_methodology.json": "9a859763da5271fdb7bf1d24a826621bec6ce834e7f8ae959551de59971a6ba5",
     "data/audit/baseline_model_default_23b7f592.csv": "521506df050ce7ac7c59ac1c0e5bffc4805018c6266c254b607c3a8bc647ab1b",
-    "data/audit/capex_opex_ratios_2024_2030_2050.csv": "ad59b84f728a9875c29cfad618abb91e538bd8293c1b6981b776d0c381eba1c9",
+    "data/audit/productivity_evidence.json": "e6963ba4378d28d58eb160612b86cf976ada4e318f9765cbb88e92c38bba360b",
+    "data/audit/productivity_wdi_2023.json": "7a5fddb5be20ed1188d0f03d05162a49c85394c69de8716ec18a3fa8ce87ddd7",
+    "data/curated/catalogue_rows.csv": "df2d90429161adfed257be0d674dae086a83aba6792e6e555adfe36300c4752e",
+    "data/curated/employment_factors_input.csv": "bfa8c260f7b4cfebdab2f2d7b49062b2d7bc46718f0b655c280e20f593889fd7",
     "data/raw/01d-jedi-international-090324.xlsm": "cfacac952d9e28bf3c9a30e0d23ffc7dd113419bca0b1792d667255d5a6ea90b",
-    "data/raw/employment_factors_input.csv": "2ea06bc57a571b1c798c8c6cc59f405b16f15102662a906b68daabc3b48774c0",
     "data/raw/jedi-pv-model.xlsm": "fd15be326cc4330bdcf12fc3c8a07f96beb221faf958d472da3ac5a34e4db433",
+    "data/raw/jedi-pv-model_utility_scale.xlsm": "79f0e228c81a36a51f445a6547c50b677de6ec8ad9b325548b2769dddde27ce7",
     "docs/sources/datos_cuantitativos_EN.xlsx": "226d0d6b5053dd103f8566f8bea9d8f783a879d53e931a9e6d0031e3f47b5306",
-    "scripts/build_employment_factors.py": "060bffdeb7fa0ae43dd72cbb4435f733a53a018888b04496194ba981f8d81e56",
-    "scripts/create_methodology_deck.py": "a73845c0b0f621bc17b8f7d2a6e3787805bddecc5277e4a51c6d3df892e8c328",
-    "scripts/extract_jedi_factors.py": "09bd7c6f3e9b1b64fbe618c4f2b07203e0f933575d4670fa02824ecb64f002df",
+    "docs/sources/Rutovitz_2025.pdf": "4276f82c4d43a1bc4aac8fb3dfcb914b433402369acfb4760eb6a9e912ae12a0",
+    "scripts/audit_productivity.py": "ab53b4a51e100b3603d6c86476517248c483f7bbdff1de2ceb2905504b80d98a",
+    "scripts/build_employment_factors.py": "800d2c38d9414374d3022740931ad66a21892ab2adace57926ce410ff8d14318",
     "src/colombia_employment_factors/__init__.py": "a299caf2f09ac65e2f6a8a6d0a2080d1360eda03c062f923908a66e0b92e7fe7",
     "src/colombia_employment_factors/adapters/__init__.py": "0f61af7267a757cfcbc22e024638b1446344e2a5c123d3359c004051191df20f",
     "src/colombia_employment_factors/adapters/osemosys.py": "68fa65c04fe76a339d749ee104eeed7d0d8cf3d3f9d4bcf78d10a57555a277f8",
-    "src/colombia_employment_factors/adjustments.py": "0f7cca6902fdf4a9b013bca9f3154bf5072c9a72b83540821696c9822b96c29b",
+    "src/colombia_employment_factors/adjustments.py": "0e57482aa5510871b11188d6b1d7c2e234927de038baf264d3058afe3d17a63d",
+    "src/colombia_employment_factors/catalogue.py": "c94992ea1fa360a99882df2e1f40be593298ea86c98472811b1d40bfbcb19581",
     "src/colombia_employment_factors/data/__init__.py": "ea1eb65f070cf29dade6a24798e4f9280126fc26344617c28b648c8be624ba87",
-    "src/colombia_employment_factors/employment_factors.py": "a8d849540bf9bc239e45903e6cae96283130c9695ffec8ff1806942aec70f920",
-    "src/colombia_employment_factors/jedi.py": "ffeffcd7e07443e7478946dcf505df20b96ebc94398370ee72c50ea4e843bfe8",
-    "src/colombia_employment_factors/mappings.py": "53f889872487a6ce41678870b88b818e58c061f9a3a42f2bbb944c3969afd254",
-    "src/colombia_employment_factors/projections.py": "c7324ceba5ce779500b894a859af0fb7d61df0fe98dc47113c65197ff13195bf",
+    "src/colombia_employment_factors/employment_factors.py": "fb6e380d8f5345af1716f26201fd86ef3d5b2bf618ec3f64ec554d597560bc7a",
+    "src/colombia_employment_factors/jedi.py": "8f4e99c2ab84c4a97700084573eafad26a42d6613e9a0be615a65ceaa576885e",
+    "src/colombia_employment_factors/mappings.py": "ed6d0b1f8aa22fe8377275d6e30b47d80d861b5ae96883b304c2ebad1d582444",
+    "src/colombia_employment_factors/projections.py": "7cb8699075ba7ad78f867a8c907929fcc47a86a256185ba8104b5fe8c4bb7db3",
     "src/colombia_employment_factors/technology_assumptions.py": "a62822a9b32b2d5d46b459ce5030601f9d5a8b2e762725daeb96e9a5defceb29",
     "src/colombia_employment_factors/yearly.py": "0f0ac673376eeb530faeeacde3eaf8e59903b5ae3c12436d6455a196af1ba926"
   },
-  "source_content_sha256": "c131b1a06b8fffea5ceee6a343e0678a1fa3cdfb00a09e097340f1523d32a73b",
+  "source_content_sha256": "119add59e9f48eda58c338453caed69b1c5dfc62898bb047cacb23efed523486",
   "output_sha256": {
-    "employment_factors_with_2030_2050.csv": "e8c7ec070ec6d0371b321aeb131970111504bad7cacd93f8aaa89d4f2d2af1d1",
-    "employment_factors_yearly_2024_2055.csv": "6571aa898745025aa82cf43cc87fb6e4dd69fa7f0fbc00600074b3f6140c74ff",
-    "employment_factors_model_default_2024_2055.csv": "fe834af4968d3edbe875b1e96d0c52aeeaca09ba73e290b30e40b69e7887daac",
-    "technology_assumptions_2024.csv": "a4250ff9214b911986e1841b05a580344887f4d52f8fed33fb3742ea9792dd05"
+    "employment_factors_model_default_2024_2055.csv": "23ab6cfb06c4875a19ab5f14e6c1c2bae29f51bc5cc546d326c7a731d8ece3df",
+    "technology_assumptions_2024.csv": "ed294606c73630638fff9416812792fd369a990e62dc0c90dfd1a1319933b533"
   },
   "scenario": "central",
   "productivity_ratio": 0.32,
@@ -460,5 +462,49 @@
       "path": "data/raw/jedi-pv-model-utility-1mw.xlsm",
       "status": "missing; rounded screenshots are not authoritative inputs"
     }
+  },
+  "targeted_refresh": {
+    "baseline_manifest_sha256": "b6700f53f29beb5901f49057c959e25a023f5dd629c98a050519915717396a90",
+    "baseline_output_sha256": {
+      "employment_factors_model_default_2024_2055.csv": "fe834af4968d3edbe875b1e96d0c52aeeaca09ba73e290b30e40b69e7887daac",
+      "technology_assumptions_2024.csv": "a4250ff9214b911986e1841b05a580344887f4d52f8fed33fb3742ea9792dd05"
+    },
+    "baseline_source_revision": "e1dcd8328f197608c2b7dc3d5b9c29cd7d031324",
+    "replacement_source_revision": "ac165f703e0a7361148a6c13a0abc8552919a16b",
+    "replacement_source_content_sha256": "e1f2e85e86e940056b9d01d706e23c927aca4581c19015450bde48f393879c7d",
+    "replacement_output_sha256": {
+      "employment_factors_model_default_2024_2055.csv": "99093f11128e51e564c292d46ed3036e41fdeb9252b683c648a5ed79db49a5e2",
+      "technology_assumptions_2024.csv": "ed294606c73630638fff9416812792fd369a990e62dc0c90dfd1a1319933b533"
+    },
+    "replacement_technologies": [
+      "Hydro (small)",
+      "SMR"
+    ],
+    "replacement_productivity_transfer": "none",
+    "convention": "Retain all baseline rows outside Hydro (small)/SMR; mapping changes are separate. Baseline selective productivity and solar choices remain for retained rows."
+  },
+  "default_sources": {
+    "Battery storage (distributed)": "Rutovitz 2025 [LATAM productivity proxy]",
+    "Battery storage (grid)": "Rutovitz 2025 [LATAM productivity proxy]",
+    "Biomass power": "I-JEDI",
+    "Coal power": "Rutovitz 2015 [LATAM productivity proxy]",
+    "Gas CCGT/OCGT": "Rutovitz 2015 [LATAM productivity proxy]",
+    "Geothermal": "I-JEDI",
+    "Hydro (large)": "Rutovitz 2015 [LATAM productivity proxy]",
+    "Hydro (small)": "ESMAP 2023 + Rutovitz 2025 (MW-scale PCH calibrated)",
+    "Nuclear": "Rutovitz 2015",
+    "Ocean": "Rutovitz 2015 [LATAM productivity proxy]",
+    "Offshore wind (fixed)": "French QBIS 2023 [LATAM productivity proxy]",
+    "Offshore wind (floating)": "French QBIS 2023 [LATAM productivity proxy]",
+    "Oil and diesel": "Rutovitz 2015 [LATAM productivity proxy]",
+    "Onshore wind": "I-JEDI",
+    "Pumped hydro storage": "Rutovitz 2025 [LATAM productivity proxy]",
+    "Rooftop solar PV": "JEDI-US [published baseline; utility run pending]",
+    "Solar thermal (CSP)": "Rutovitz 2015 [LATAM productivity proxy]",
+    "Transmission (double circuit)": "Rutovitz 2025",
+    "Transmission (other)": "Rutovitz 2025",
+    "Transmission (single circuit)": "JEDI-US",
+    "Utility-scale solar PV": "I-JEDI",
+    "SMR": "Rutovitz 2015 (SMR proxy)"
   }
 }

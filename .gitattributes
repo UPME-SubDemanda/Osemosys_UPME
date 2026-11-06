@@ -1,0 +1,6 @@
+# Generated employment snapshots are checksum-locked across Windows/Linux.
+backend/app/data/employment_factor_snapshot/*.csv text eol=lf
+backend/app/data/employment_factor_snapshot/*.json text eol=lf
+
+# Reproducible PCH/SMR comparison baseline and generated evidence.
+backend/reports/employment_methodology/pch-smr/** text eol=lf

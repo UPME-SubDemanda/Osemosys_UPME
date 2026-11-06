@@ -1,0 +1,34 @@
+{
+  "canonical_artifact_commit": "a0aed31f75844cc1af32e67318de5037b3f46f9d",
+  "canonical_validation": {
+    "canonical_csv_files_validated": 5,
+    "reproducible_csv_files": 5,
+    "source_and_output_checksums_passed": true,
+    "scenario_ordering_passed": true,
+    "unchanged_technologies": [
+      "Nuclear"
+    ],
+    "source_content_sha256": "e1f2e85e86e940056b9d01d706e23c927aca4581c19015450bde48f393879c7d",
+    "solar_transfer_status": "matched ratios (rutovitz-direct)"
+  },
+  "reproducible_runtime_files": 3,
+  "reproducible_comparison_files": 9,
+  "unchanged_unrelated_factor_rows": 2624,
+  "unchanged_wind_employment_rows": 830,
+  "unchanged_unrelated_employment_rows": 2877,
+  "energy_input_and_equation_files_unchanged": true,
+  "source_tests_passed": 60,
+  "employment_tests_passed": 37,
+  "full_backend_suite": "Collection blocked on Windows: 9 modules import Unix-only resource",
+  "output_sha256": {
+    "affected_employment_summary.csv": "29007f48b6d7caf4f593745901fed4df6a08b1cbcf7a205bc2354f7290aec7f7",
+    "construction_cohort_totals.csv": "c18487c7689716bc3c39a8855c1997be12c37bff5d892ce417078de5e16ee30f",
+    "employment_comparison.csv": "fc6d1fc6918cdaa2591683c9e2de6921738a93cdd8d3d0d6213bf7cf9599575e",
+    "factor_additions.csv": "f40d2f09bbf3c206d32b09d875a2a8672c3282d50f201905f1c20a3556580f17",
+    "factor_comparison.csv": "517ab4fbc304e3e40c9fff2e92d9b30baf0c51119485cb9651158f6158855fea",
+    "factor_removals.csv": "3237bff989eaf82cfc91f694f4b7b9dead75671502557827fdd19a8662e3254f",
+    "mapping_factor_comparison.csv": "175846050cf2fce3c4b126d55aef6e1f0ea779bada66fc516ec34954d0873afb",
+    "solar_factor_ratios.csv": "04272ba394a7b4c9941a1dc8d8a734a198563a51db0ccfe1acec8fc1a099ef14",
+    "unobserved_capacity_cells.csv": "c538a48d9da40623d5d55d7ad2cb77bcf6c4c43d2bef0d79dd90401c382f538d"
+  }
+}
